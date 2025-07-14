@@ -22,6 +22,7 @@ kernel_size = 3
 batch_size = 32
 epochs = 2000
 
+# Model based on 2D-Approach of https://github.com/farrell236/resnetae
 
 class ResidualBlock(tf.keras.layers.Layer):
     def __init__(self, filters, depth, kernel_size=(3, 3, 3), stride=(1, 1, 1), **kwargs):
