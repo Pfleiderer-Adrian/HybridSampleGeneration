@@ -1,4 +1,5 @@
 # Hybrid Sample Generation
+![Python](https://img.shields.io/badge/Python-14354C?style=flat&logo=python&logoColor=green) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![DOI:AMLDS63918.2025.11159383](http://img.shields.io/badge/DOI-AMLDS63918.2025.11159383-B31B1B.svg)](https://doi.org/10.1109/AMLDS63918.2025.11159383)
 
 This repository implements a hybrid sample generation pipeline for imaging data to extend existing training datasets.
 The implementation is based on the IEEE paper: https://doi.org/10.1109/AMLDS63918.2025.11159383
@@ -67,12 +68,12 @@ Each iteration must yield:
 
     HDG = HybridDataGenerator(config)
     # 1) Extract anomaly cutouts + ROI cutouts from anomaly-labeled samples
-    HDG.extract_anomalies(dataloader, None)
+    HDG.extract_anomalies(your_dataloader)
     # 1) Or load already extracted anomalies
     HDG.load_anomalies()
 
     # 2) Train generator via Optuna
-    HDG.train_generator(1)
+    HDG.train_generator(no_of_trails=5)
     # 2) Or only load a trained model
     HDG.load_generator()
 
@@ -82,7 +83,7 @@ Each iteration must yield:
     HDG.load_synth_anomalies()
 
     # 4) Create matching between control samples and anomaly ROIs
-    HDG.create_matching_dict(dataloader_samples_with_anomalies)
+    HDG.create_matching_dict(your_dataloader)
     # 4) Or load already created matching dict
     HDG.load_matching_dict()
 
