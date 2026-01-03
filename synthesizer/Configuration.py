@@ -70,7 +70,7 @@ class Configuration:
         # global training parameter, fixed during training
         self.val_ratio = 0.2
         self.batch_size = 8
-        self.epochs = 10
+        self.epochs = 40
         self.lr = 1e-4
         self.log_every = 50
         self.early_stopping = True
@@ -83,19 +83,19 @@ class Configuration:
             _VAE3D_min_params = asdict(VAE_ResNet_3D.Config(
                 n_res_blocks=4,
                 n_levels=4,
-                z_channels=64,
-                bottleneck_dim=64,
+                z_channels=32,
+                bottleneck_dim=32,
                 use_multires_skips = True,
-                recon_weight = 100.0,
+                recon_weight = 1.0,
                 beta_kl = 1.0))
             _VAE3D_max_params = asdict(VAE_ResNet_3D.Config(
                 n_res_blocks=4,
                 n_levels=4,
-                z_channels=128,
+                z_channels=64,
                 bottleneck_dim=128,
                 use_multires_skips = True,
-                recon_weight = 100.0,
-                beta_kl = 1.0))
+                recon_weight = 5.0,
+                beta_kl = 5.0))
             self.model_params = {"min": _VAE3D_min_params, "max": _VAE3D_max_params}
 
     # set hyperparameter space. need min and max config of model.py

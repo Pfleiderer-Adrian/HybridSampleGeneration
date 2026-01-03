@@ -38,7 +38,7 @@ Core modules:
 ### Main Requirements
 
 ✅ **Packages:**
-- `Python 14+`
+- `Python`
 - `torch`
 - `optuna`
 - `numpy`, `scipy`, `pandas`
@@ -90,6 +90,31 @@ Each iteration must yield:
     # 5) Generate new Hybrid Training Samples
     img, seg = HDG.fusion_synth_anomalies(control_image, basename_of_image)
 ```
+
+---
+
+### Visualize and Debug anomalies
+
+To fine-tune the configuration or debug the generation pipeline, you can visualize:
+
+- **Extracted input anomaly**: `./anomaly_data/<filename>.npy` (train input)
+- **Extracted ROI of anomaly**: `./anomaly_roi_data/<filename>.npy` (only for Matching)
+- **Generated synthetic anomaly**: `./synt_anomaly_data/<filename>.npy` (model output)
+
+Use the lightweight project viewer located at `./data_handler/Visualizer.py`:
+
+```bash
+python ./data_handler/Visualizer.py /filepath/to/your/file.npy
+```
+
+**Features:**
+- Depth (D) navigation via a mouse-draggable slider (and mouse wheel scrolling over the image)
+- Contrast control via a mouse-draggable slider (window/level style)
+
+>The viewer expects .npy arrays with shape (C, D, H, W).
+
+---
+
 ### Cite this work
 ```tex
 @INPROCEEDINGS{11159383,
@@ -100,5 +125,7 @@ Each iteration must yield:
   pages={248-256},
   doi={10.1109/AMLDS63918.2025.11159383}}
 ```
+
+
 ### License
 This project is licensed under the GNU General Public License v3.0.
