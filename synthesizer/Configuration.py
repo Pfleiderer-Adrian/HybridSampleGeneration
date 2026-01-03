@@ -241,12 +241,13 @@ class Configuration:
         if csv_path is None:
             csv_path = os.path.join(self.study_folder, "matching_dict.csv")
         df = pd.read_csv(csv_path)
-        df["position_factor"] = (
-            df["position_factor"]
-            .str.strip("[]")
-            .str.split(",")
-            .apply(lambda xs: [float(x) for x in xs])
-        )
+        if df["position_factor"] is not None:
+            df["position_factor"] = (
+                df["position_factor"]
+                .str.strip("[]")
+                .str.split(",")
+                .apply(lambda xs: [float(x) for x in xs])
+            )
         self.matching_dict = df.set_index("control").to_dict(orient="index")
 
     def update_fusion_params(self, max_alpha=0.8, sq=2, steepness_factor=3, upsampling_factor=2,

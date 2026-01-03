@@ -237,12 +237,6 @@ def fusion3d(control_image, synth_anomaly_image, scale_factor, position_factor,
     if C != 1:
         segmentation = np.repeat(segmentation, C, axis=0)  # (C, D, H, W)
 
-    print("CTRL min/max/mean:", float(ctrl.min()), float(ctrl.max()), float(ctrl.mean()))
-    print("BG   min/max/mean:", float(bg_slice.min()), float(bg_slice.max()), float(bg_slice.mean()))
-    print("ANOM min/max/mean:", float(anom_crop.min()), float(anom_crop.max()), float(anom_crop.mean()))
-    print("valid_mask sum:", int(valid_mask.sum()))
-    print("alpha max / nonzero:", float(alpha_crop.max()), int(np.count_nonzero(alpha_crop)))
-    print("FUSED min/max/mean:", float(fused_image.min()), float(fused_image.max()), float(fused_image.mean()))
     return fused_image, segmentation
 
 
@@ -405,7 +399,7 @@ def trim_zeros(arr):
     return arr[slices]
 
 
-def create_matching_dict(control_sample_dataloader, roi_dataloader, config, matching_routine="local"):
+def create_matching_dict(control_sample_dataloader, roi_dataloader, config, matching_routine="local", anomaly_duplicates=False):
     """
     Create a list of matchings between control samples and ROI anomaly samples.
 
@@ -462,16 +456,25 @@ def create_matching_dict(control_sample_dataloader, roi_dataloader, config, matc
         for control, _, control_filename in tqdm(control_sample_dataloader):
             # Stop if ROI dataset is exhausted
             if i >= roi_dataloader.__len__():
-                break
+                if anomaly_duplicates:
+                    i = 0
+                    roi, roi_filename = roi_dataloader[i]
+                    i += 1
+                else:
+                    roi, roi_filename = None, None
+            else:
+                roi, roi_filename = roi_dataloader[i]
+                i += 1
 
-            roi, roi_filename = roi_dataloader[i]
-            i += 1
+            if roi_filename is None:
+                centroid = None
+            else:
+                centroid = config.syn_anomaly_transformations[roi_filename]["centroid_norm"]
 
-            # NOTE: The key used here is "centroid" in the original code.
             # In your Anomaly_Extraction.py metadata, you used "centroid_voxel" and "centroid_norm".
             # Ensure this matches your actual stored metadata keys.
             matching_data.append(
-                [control_filename, roi_filename, config.syn_anomaly_transformations[roi_filename]["centroid_norm"]]
+                [control_filename, roi_filename, centroid]
             )
 
     # ------------------------------------------------------------
@@ -484,21 +487,27 @@ def create_matching_dict(control_sample_dataloader, roi_dataloader, config, matc
 
             # Stop if ROI dataset is exhausted
             if i >= roi_dataloader.__len__():
-                break
+                if anomaly_duplicates:
+                    i = 0
+                    roi, roi_filename = roi_dataloader[i]
+                    i += 1
+                else:
+                    roi, roi_filename = None, None
+            else:
+                roi, roi_filename = roi_dataloader[i]
+                i += 1
 
-            roi, roi_filename = roi_dataloader[i]
-            i += 1
+            if roi_filename is not None:
+                # Only compute match if ROI not excluded (list is empty in this routine by default)
+                if roi_filename not in excluded_roi_sample_names:
+                    sim, opt_center = template_matching(roi, control)
 
-            # Only compute match if ROI not excluded (list is empty in this routine by default)
-            if roi_filename not in excluded_roi_sample_names:
-                sim, opt_center = template_matching(roi, control)
-
-                # Convert center (slice,row,col) to normalized position factor.
-                # NOTE: The original code prepends (1,) then divides by control.shape.
-                # This implies control.shape likely includes a leading channel dimension.
-                highest_sim_position_factor = (
-                    (np.array((1,) + opt_center) / np.array(control.shape)).astype(float).tolist()
-                )
+                    # Convert center (slice,row,col) to normalized position factor.
+                    # NOTE: The original code prepends (1,) then divides by control.shape.
+                    # This implies control.shape likely includes a leading channel dimension.
+                    highest_sim_position_factor = (
+                        (np.array((1,) + opt_center) / np.array(control.shape)).astype(float).tolist()
+                    )
 
             matching_data.append([control_filename, roi_filename, highest_sim_position_factor])
 

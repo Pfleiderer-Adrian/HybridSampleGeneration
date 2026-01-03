@@ -314,7 +314,9 @@ class HybridDataGenerator:
             numpy_mode=True
         )
 
-        _data = create_matching_dict(control_samples_dataloader, _roi_dataset, self._config, matching_routine=matching_routine)
+
+
+        _data = create_matching_dict(control_samples_dataloader, _roi_dataset, self._config, matching_routine=matching_routine, anomaly_duplicates=True)
         df_detection = pd.DataFrame(_data, columns=["control", "anomaly", "position_factor"])
         df_detection.to_csv(csv_file_path, sep=',', encoding='utf-8', index=False)
 
