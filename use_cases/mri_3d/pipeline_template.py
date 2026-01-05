@@ -13,21 +13,22 @@ path_to_seg = "add segmentation path here for samples with anomalies"
 path_to_control_img = "add image path here for samples without anomalies"
 path_to_control_seg = "add segmentation path here for samples without anomalies"
 
+# keep in mind you need to create your on dataloader/iterator for your dataset (e.g. nii-files in one folder)
+# Iterator/Dataloder must yielding - (img_arr, seg_arr, basename)
+# img_arr.shape == seg_arr.shape and (Channels, Depth, Height, Width)
+# load samples with anomalies
+dataloader_samples_with_anomalies = NiftiDataloader(path_to_img, path_to_seg, "t1")
+# load samples without anomalies
+dataloader_samples_without_anomalies = NiftiDataloader(path_to_control_img, path_to_control_seg, "t1")
+
 if __name__ == "__main__":
 
     # define a basic configuration
     config = Configuration("brain_T1", "VAE_ResNet_3D", (1, 32, 96, 96))
 
-    # keep in mind you need to create your on dataloader/iterator for your dataset (e.g. nii-files in one folder)
-    # Iterator/Dataloder must yielding - (img_arr, seg_arr, basename)
-    # img_arr.shape == seg_arr.shape and (Channels, Depth, Height, Width)
-    # load here only samples with anomalies
-    dataloader_samples_with_anomalies = NiftiDataloader(path_to_img, path_to_seg, "t1")
-    print(asdict(dataloader_samples_with_anomalies.sample_infos))
-
     HDG = HybridDataGenerator(config)
     # 1) Extract anomaly cutouts + ROI cutouts from anomaly-labeled samples
-    HDG.extract_anomalies(dataloader, None)
+    HDG.extract_anomalies(dataloader_samples_with_anomalies, None)
     # 1) Or load already extracted anomalies
     HDG.load_anomalies()
 
@@ -42,7 +43,7 @@ if __name__ == "__main__":
     HDG.load_synth_anomalies()
 
     # 4) Create matching between control samples and anomaly ROIs
-    HDG.create_matching_dict(dataloader_samples_with_anomalies)
+    HDG.create_matching_dict(dataloader_samples_without_anomalies)
     # 4) Or load already created matching dict
     HDG.load_matching_dict()
 
@@ -53,12 +54,8 @@ if __name__ == "__main__":
     os.makedirs(img_folder, exist_ok=True)
     os.makedirs(seg_folder, exist_ok=True)
 
-    # define your one dataloader for your dataset (e.g. nii-files in one folder)
-    # load here only samples without anomalies (control samples)
-    dataloader_samples_with_anomalies = NiftiDataloader(path_to_control_img, path_to_control_seg, "t1", return_affine=True)
-
     # iterate over your control samples
-    for control_image, _, basename, img_affine, seg_affine in dataloader_samples_with_anomalies:
+    for control_image, _, basename, img_affine, seg_affine in dataloader_samples_without_anomalies:
 
         # 5) Fuse synthetic anomaly into one control sample
         img, seg = HDG.fusion_synth_anomalies(control_image, basename)
