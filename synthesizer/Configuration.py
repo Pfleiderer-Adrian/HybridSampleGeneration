@@ -3,12 +3,12 @@ from dataclasses import asdict
 
 import pandas as pd
 
-from models import VAE_ResNet_3D
+from models import VAE_ResNet_3D, VAE_ResNet_2D
 import os
 import jsonpickle
 
 # Allowed model choices (fixed set)
-ALLOWED_MODELS = ["VAE_ResNet_3D"]
+ALLOWED_MODELS = ["VAE_ResNet_3D", "VAE_ResNet_2D"]
 
 # creates a new interactive config object/file for the data generator
 class Configuration:
@@ -36,7 +36,7 @@ class Configuration:
             Model identifier string. Must be in ALLOWED_MODELS.
         anomaly_size:
             Target anomaly cutout size (used in extraction and model warmup).
-            Typically a tuple/list like (C, D, H, W) or similar depending on your pipeline.
+            Typically a tuple/list like (C, D, H, W) / (C, H, W) or similar depending on your pipeline.
 
         Outputs
         -------
@@ -69,12 +69,21 @@ class Configuration:
 
         # global training parameter, fixed during training
         self.val_ratio = 0.2
-        self.batch_size = 8
+        self.batch_size = 32
         self.epochs = 40
         self.lr = 1e-4
         self.log_every = 50
         self.early_stopping = True
+        self.early_stopping_params = {
+            "patience": 20,
+            "delta": 0.0001
+        }
         self.lr_scheduler = True
+        self.lr_scheduler_params = {
+            "patience": 20,
+            "factor": 0.1,
+            "threshold": 1e-5,
+        }
 
         # model specific hyperparameter for dynamic tuning via optuna
         self.model_params = None
@@ -89,10 +98,29 @@ class Configuration:
                 recon_weight = 1.0,
                 beta_kl = 1.0))
             _VAE3D_max_params = asdict(VAE_ResNet_3D.Config(
+                n_res_blocks=8,
+                n_levels=8,
+                z_channels=128,
+                bottleneck_dim=128,
+                use_multires_skips = True,
+                recon_weight = 5.0,
+                beta_kl = 5.0))
+            self.model_params = {"min": _VAE3D_min_params, "max": _VAE3D_max_params}
+
+        if model_name == "VAE_ResNet_2D":
+            _VAE3D_min_params = asdict(VAE_ResNet_2D.Config(
                 n_res_blocks=4,
                 n_levels=4,
-                z_channels=64,
-                bottleneck_dim=128,
+                z_channels=32,
+                bottleneck_dim=32,
+                use_multires_skips = True,
+                recon_weight = 1.0,
+                beta_kl = 1.0))
+            _VAE3D_max_params = asdict(VAE_ResNet_2D.Config(
+                n_res_blocks=8,
+                n_levels=8,
+                z_channels=32,
+                bottleneck_dim=32,
                 use_multires_skips = True,
                 recon_weight = 5.0,
                 beta_kl = 5.0))

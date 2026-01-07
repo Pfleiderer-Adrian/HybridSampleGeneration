@@ -13,8 +13,9 @@ segmentation mask.
 Core modules:
 - `synthesizer/HybridDataGenerator.py` — pipeline wrapper
 - `synthesizer/Configuration.py` — configuration + metadata persistence
-- `synthesizer/Anomaly_Extraction.py` — anomaly + ROI cutouts
-- `synthesizer/Fusion3D.py` — fusion + matching (template matching)
+- `synthesizer/function_XD/Anomaly_Extraction.py` — anomaly + ROI cutouts
+- `synthesizer/function_XD/MatchingXD.py` — matching (syn. anomaly x control image)
+- `synthesizer/function_XD/FusionXD.py` — fusion (syn. anomaly x control image)
 - `synthesizer/Trainer.py` — Optuna training loop
 ---
 
@@ -30,8 +31,8 @@ Core modules:
 - Binary segmentation mask for the inserted anomaly
 
 ✅ **Supported shapes**
-- Currently only 3D: `(C, D, H, W)`
-- Also planned for 2D: `(C, H, W)`
+- 3D: `(C, D, H, W)`
+- 2D: `(C, H, W)`
 
 ---
 
@@ -57,7 +58,7 @@ Each iteration must yield:
 
 **and**
 - img_arr.shape == seg_arr.shape
-- Both arrays must be in channels-first format: (Channels, Depth, Height, Width)
+- Both arrays must be in channels-first format: (Channels, Depth, Height, Width) or (Channels, Height, Width)
 
 ---
 

@@ -6,6 +6,8 @@ from torch.utils.data import random_split, DataLoader
 from tqdm import tqdm
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from early_stopping_pytorch import EarlyStopping
+
+from models.VAE_ResNet_2D import ResNetVAE2D
 from models.VAE_ResNet_3D import ResNetVAE3D, Config
 from synthesizer.Configuration import Configuration
 
@@ -105,6 +107,10 @@ def objective(trial: Trial, config: Configuration, dataset):
     model = None
     if config.model_name == "VAE_ResNet_3D":
         model = ResNetVAE3D(config.anomaly_size[0], Config(**params))
+    elif config.model_name == "VAE_ResNet_2D":
+        model = ResNetVAE2D(config.anomaly_size[0], Config(**params))
+    else:
+        raise ValueError(f"Unknown model: {config.model_name}")
 
     n_val = int(len(dataset) * config.val_ratio)
     n_train = len(dataset) - n_val
@@ -201,10 +207,10 @@ def train(model, train_loader, val_loader, config):
         # criterion = nn.MSELoss()  # nn.BCELoss()
 
         # define early stopping
-        early_stopping = EarlyStopping(patience=2000, delta=0.0001)
+        early_stopping = EarlyStopping(**config.early_stopping_params)
 
         # define learning rate scheduler
-        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=300, factor=0.9)
+        scheduler = ReduceLROnPlateau(optimizer, 'min', **config.lr_scheduler_params)
 
         # train model for specified number of epochs
         for epoch in range(config.epochs):

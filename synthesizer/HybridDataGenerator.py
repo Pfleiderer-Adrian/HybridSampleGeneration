@@ -7,11 +7,16 @@ import optuna
 import pandas as pd
 import torch
 
-from data_handler.AnomalyDataset3D import AnomalyDataset3D, save_numpy_as_npy
+from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
+from models.VAE_ResNet_2D import ResNetVAE2D
 from models.VAE_ResNet_3D import ResNetVAE3D, Config
-from synthesizer.Anomaly_Extraction import crop_and_center_anomaly_3d
+from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
+from synthesizer.functions_2D.Fusion2D import fusion2d
+from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
 from synthesizer.Configuration import Configuration
-from synthesizer.Fusion3D import fusion3d, create_matching_dict
+from synthesizer.functions_3D.Fusion3D import fusion3d
+from synthesizer.functions_2D.Matching2D import create_matching_dict2d
+from synthesizer.functions_3D.Matching3D import create_matching_dict3d
 from synthesizer.Trainer import optimize
 
 
@@ -90,7 +95,13 @@ class HybridDataGenerator:
             if not np.any(seg):
                 # continue if sample contains no anomaly
                 continue
-            anomalies, anomalies_roi = crop_and_center_anomaly_3d(img, seg, self._config.anomaly_size)
+
+            if img.ndim == 3:
+                anomalies, anomalies_roi = crop_and_center_anomaly_2d(img, seg, self._config.anomaly_size)
+            elif img.ndim == 4:
+                anomalies, anomalies_roi = crop_and_center_anomaly_3d(img, seg, self._config.anomaly_size)
+            else:
+                raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
 
             i = 0
             # save anomaly cutout for training
@@ -124,7 +135,7 @@ class HybridDataGenerator:
         """
         if anomaly_folder is None:
             anomaly_folder = os.path.join(self._config.study_folder, "anomaly_data")
-        self._anomaly_dataset = AnomalyDataset3D(
+        self._anomaly_dataset = AnomalyDataset(
             anomaly_folder,  # oder samples=[...]
             return_filename=True,
             load_to_ram=True,
@@ -200,6 +211,10 @@ class HybridDataGenerator:
         model_name = t.user_attrs['model_name']
         if model_name == "VAE_ResNet_3D":
             self._model = ResNetVAE3D(anomaly_size[0], Config(**params))
+        elif model_name == "VAE_ResNet_2D":
+            self._model = ResNetVAE2D(anomaly_size[0], Config(**params))
+        else:
+            raise ValueError(f"Unknown model: {model_name}")
         self._model.warmup(self._config.anomaly_size)
         self._model.load_state_dict(torch.load(t.user_attrs['model_path']))
 
@@ -232,7 +247,7 @@ class HybridDataGenerator:
 
         for img, basename in self._anomaly_dataset:
             syn_anomaly_sample = self._model.generate_synth_sample(img)
-            save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(save_folder, basename)))
+            save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(save_folder, basename)), overwrite=True)
 
         self.load_synth_anomalies(save_folder)
 
@@ -260,7 +275,7 @@ class HybridDataGenerator:
             transformation_file = os.path.join(self._config.study_folder, "anomaly_transformations.json")
 
         self._config.load_anomaly_transformations(transformation_file)
-        self._synth_anomaly_dataset = AnomalyDataset3D(
+        self._synth_anomaly_dataset = AnomalyDataset(
             synth_anomaly_folder,  # oder samples=[...]
             return_filename=True,
             load_to_ram=True,
@@ -306,17 +321,21 @@ class HybridDataGenerator:
             roi_folder = os.path.join(self._config.study_folder, "anomaly_roi_data")
         if csv_file_path is None:
             csv_file_path = os.path.join(self._config.study_folder, "matching_dict.csv")
-        _roi_dataset = AnomalyDataset3D(
+        _roi_dataset = AnomalyDataset(
             roi_folder,
             return_filename=True,
             load_to_ram=True,
             dtype=torch.float32,
             numpy_mode=True
         )
+        img = _roi_dataset.__getitem__(0)[0]
+        if img.ndim == 3:
+            _data = create_matching_dict2d(control_samples_dataloader, _roi_dataset, self._config, matching_routine=matching_routine, anomaly_duplicates=True)
+        elif img.ndim == 4:
+            _data = create_matching_dict3d(control_samples_dataloader, _roi_dataset, self._config, matching_routine=matching_routine, anomaly_duplicates=True)
+        else:
+            raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
 
-
-
-        _data = create_matching_dict(control_samples_dataloader, _roi_dataset, self._config, matching_routine=matching_routine, anomaly_duplicates=True)
         df_detection = pd.DataFrame(_data, columns=["control", "anomaly", "position_factor"])
         df_detection.to_csv(csv_file_path, sep=',', encoding='utf-8', index=False)
 
@@ -350,12 +369,12 @@ class HybridDataGenerator:
           - finds the matched anomaly basename + position factor for the control sample
           - loads the corresponding synthetic anomaly volume
           - looks up the scale factor from stored transformations
-          - calls fusion3d(...) to obtain (fused_image, fused_segmentation)
+          - calls fusion3d/2d(...) to obtain (fused_image, fused_segmentation)
 
         Inputs
         ------
         control_samples_array:
-            The control image/volume as a numpy array (shape must match what fusion3d expects).
+            The control image/volume as a numpy array (shape must match what fusion3d or fusion2d expects).
         basename_of_control_sample:
             Key used to look up the matched anomaly and fusion position in `self._config.matching_dict`.
 
@@ -374,6 +393,12 @@ class HybridDataGenerator:
         anomaly_basename = self._config.matching_dict[basename_of_control_sample]["anomaly"]
         fusion_position = self._config.matching_dict[basename_of_control_sample]["position_factor"]
         synth_anomaly_image = self._synth_anomaly_dataset.load_numpy_by_basename(anomaly_basename)
-        img, seg = fusion3d(control_samples_array, synth_anomaly_image, self._config.syn_anomaly_transformations[anomaly_basename]["scale_factor"], fusion_position, self._config.fusion_mask_params)
+
+        if control_samples_array.ndim == 3:
+            img, seg = fusion2d(control_samples_array, synth_anomaly_image, self._config.syn_anomaly_transformations[anomaly_basename]["scale_factor"], fusion_position, self._config.fusion_mask_params)
+        elif control_samples_array.ndim == 4:
+            img, seg = fusion3d(control_samples_array, synth_anomaly_image, self._config.syn_anomaly_transformations[anomaly_basename]["scale_factor"], fusion_position, self._config.fusion_mask_params)
+        else:
+            raise ValueError(f"Unexpected shape: {control_samples_array.shape}, Supported: (C, H, W) or (C, D, H, W)")
 
         return img, seg

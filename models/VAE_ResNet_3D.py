@@ -804,32 +804,30 @@ class ResNetVAE3D(nn.Module):
         np.ndarray
             Reconstruction as float32, shape (C, D, H, W).
 
-        Notes
-        -----
-        Your current implementation does `x = torch.unsqueeze(x, 0)` even after already adding a batch dim.
-        This can accidentally create shape (1,1,C,D,H,W). If you see shape errors during inference,
-        you likely want to remove the extra unsqueeze.
         """
         device = torch.device(device)
         model = self.to(device)
         model.eval()
 
-        # Convert numpy -> torch and ensure batch dimension
+        # Convert numpy -> torch
         if not isinstance(sample, torch.Tensor):
             x = torch.as_tensor(sample)
-            if x.ndim == 4:
-                x = x.unsqueeze(0)  # (1, C, D, H, W)
-            if x.ndim != 5:
-                raise ValueError(f"Expected 4D or 5D input, got {tuple(x.shape)}")
         else:
             x = sample
+
+        x = x.float()
+
+        # ensure batch dimension
+        if x.ndim == 4:  # (C,D,H,W) -> (1,C,D,H,W)
+            x = x.unsqueeze(0)
+        elif x.ndim == 5:  # already batched (1,C,D,H,W) or (B,C,D,H,W)
+            pass
+        else:
+            raise ValueError(f"Expected (C,D,H,W) or (B,C,D,H,W), got {tuple(x.shape)}")
 
         if clamp_01:
             x = x.clamp(0.0, 1.0)
 
-        # NOTE: This adds an extra batch dimension even if x already has one.
-        # If x is already (1,C,D,H,W), then unsqueeze -> (1,1,C,D,H,W) which breaks forward().
-        x = torch.unsqueeze(x, 0)
 
         x = x.to(device)
 
