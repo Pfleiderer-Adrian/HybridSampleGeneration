@@ -105,14 +105,14 @@ To fine-tune the configuration or debug the generation pipeline, you can visuali
 Use the lightweight project viewer located at `./data_handler/Visualizer.py`:
 
 ```bash
-python ./data_handler/Visualizer.py /filepath/to/your/file.npy
+python ./data_handler/Visualizer.py /filepath/to/your/project/results/study_name
 ```
 
 **Features:**
 - Depth (D) navigation via a mouse-draggable slider (and mouse wheel scrolling over the image)
-- Contrast control via a mouse-draggable slider (window/level style)
+- Contrast control via a mouse-draggable slider
 
->The viewer expects .npy arrays with shape (C, D, H, W).
+>The viewer expects .npy arrays with shape (C, D, H, W) or (C, H, W).
 
 ---
 
