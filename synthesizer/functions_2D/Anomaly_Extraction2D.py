@@ -242,6 +242,7 @@ def crop_and_center_anomaly_2d(img, seg, target_size, separated_anomaly=True, mi
             continue
 
         result = img[:, hsl, wsl]  # (C,h,w)
+        result = np.where(region_mask, result, np.min(img))
 
         ch, cw = center_of_mass(binary2d, labeled, ridx)
         centroid_voxel = (int(round(ch)), int(round(cw)))
