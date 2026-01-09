@@ -9,7 +9,6 @@ import matplotlib
 
 def _select_gui_backend(prefer: str = "tk") -> str:
     """Select and activate a Matplotlib GUI backend (QtAgg or TkAgg)."""
-
     prefer = (prefer or "").lower().strip()
 
     def try_qt() -> bool:
@@ -69,11 +68,8 @@ def _normalize_exts(exts: Sequence[str]) -> Tuple[str, ...]:
 
 def _index_folder(folder: str, exts: Tuple[str, ...]) -> Dict[str, str]:
     """Return mapping: basename -> fullpath for the allowed extensions."""
-    # Fallback behavior: if folder does not exist, return empty mapping
-    # so the GUI can show placeholders instead of crashing.
     if not os.path.isdir(folder):
         return {}
-
     mapping: Dict[str, str] = {}
     for name in os.listdir(folder):
         full = os.path.join(folder, name)
@@ -82,7 +78,6 @@ def _index_folder(folder: str, exts: Tuple[str, ...]) -> Dict[str, str]:
         base, ext = os.path.splitext(name)
         if ext.lower() not in exts:
             continue
-        # Keep first occurrence per basename
         mapping.setdefault(base, full)
     return mapping
 
@@ -101,13 +96,12 @@ def _load_array(path: str) -> np.ndarray:
                 raise ValueError(f"Empty npz: {path}")
             return z[keys[0]]
         return z
-    # Fallback: try np.load
     return np.load(path)
 
 
-def _robust_window_params(vol: np.ndarray) -> Tuple[float, float]:
-    """Return (center, half0) from robust percentiles over the volume."""
-    v = vol.astype(np.float32, copy=False)
+def _robust_window_params(arr: np.ndarray) -> Tuple[float, float]:
+    """Return (center, half0) from robust percentiles over the array (2D/3D/RGB)."""
+    v = arr.astype(np.float32, copy=False)
     finite = v[np.isfinite(v)]
     if finite.size == 0:
         lo, hi = 0.0, 1.0
@@ -144,7 +138,7 @@ def _set_slider_range(slider, vmin: float, vmax: float, val: float):
     except Exception:
         pass
     try:
-        slider.valstep = 1  # depth is integer
+        slider.valstep = 1
     except Exception:
         pass
     slider.set_val(val)
@@ -166,41 +160,130 @@ class View:
     source: str
     ax: any
     im: any
+    ax_depth: any
+    ax_contrast: any
     s_depth: any
     s_contrast: any
-    vol: Optional[np.ndarray] = None  # (D,H,W)
+
+    # Data holders (mutually exclusive per mode)
+    vol3d: Optional[np.ndarray] = None      # (D,H,W)
+    img2d: Optional[np.ndarray] = None      # (H,W)
+    vol3d_rgb: Optional[np.ndarray] = None  # (D,H,W,3)
+    img2d_rgb: Optional[np.ndarray] = None  # (H,W,3)
+
+    mode: str = "none"  # "3d_gray", "2d_gray", "3d_rgb", "2d_rgb", "none"
     center: float = 0.0
     half0: float = 1.0
 
-    def set_volume(self, vol_dhw: np.ndarray):
-        self.vol = vol_dhw.astype(np.float32, copy=False)
-        self.center, self.half0 = _robust_window_params(self.vol)
+    def _set_depth_visible(self, visible: bool):
+        self.ax_depth.set_visible(bool(visible))
+        # Move contrast slider up if depth hidden
+        l, _, w, h = self.ax_contrast.get_position().bounds
+        y = 0.11 if visible else 0.16
+        self.ax_contrast.set_position([l, y, w, h])
+
+    def set_placeholder(self):
+        self.mode = "none"
+        self.vol3d = None
+        self.img2d = None
+        self.vol3d_rgb = None
+        self.img2d_rgb = None
+        self.center, self.half0 = 0.0, 1.0
+        self._set_depth_visible(False)
+
+    def set_volume_3d_gray(self, vol_dhw: np.ndarray):
+        self.mode = "3d_gray"
+        self.vol3d = vol_dhw.astype(np.float32, copy=False)
+        self.img2d = None
+        self.vol3d_rgb = None
+        self.img2d_rgb = None
+        self.center, self.half0 = _robust_window_params(self.vol3d)
+        self._set_depth_visible(True)
+
+    def set_image_2d_gray(self, img_hw: np.ndarray):
+        self.mode = "2d_gray"
+        self.img2d = img_hw.astype(np.float32, copy=False)
+        self.vol3d = None
+        self.vol3d_rgb = None
+        self.img2d_rgb = None
+        self.center, self.half0 = _robust_window_params(self.img2d)
+        self._set_depth_visible(False)
+
+    def set_volume_3d_rgb(self, vol_dhw3: np.ndarray):
+        self.mode = "3d_rgb"
+        self.vol3d_rgb = vol_dhw3.astype(np.float32, copy=False)
+        self.vol3d = None
+        self.img2d = None
+        self.img2d_rgb = None
+        self.center, self.half0 = _robust_window_params(self.vol3d_rgb)
+        self._set_depth_visible(True)
+
+    def set_image_2d_rgb(self, img_hw3: np.ndarray):
+        self.mode = "2d_rgb"
+        self.img2d_rgb = img_hw3.astype(np.float32, copy=False)
+        self.vol3d = None
+        self.img2d = None
+        self.vol3d_rgb = None
+        self.center, self.half0 = _robust_window_params(self.img2d_rgb)
+        self._set_depth_visible(False)
 
     @property
     def D(self) -> int:
-        if self.vol is None:
-            return 0
-        return int(self.vol.shape[0])
+        if self.vol3d is not None:
+            return int(self.vol3d.shape[0])
+        if self.vol3d_rgb is not None:
+            return int(self.vol3d_rgb.shape[0])
+        return 0
+
+    def _normalize_rgb(self, rgb: np.ndarray, vmin: float, vmax: float) -> np.ndarray:
+        denom = (vmax - vmin) if (vmax != vmin) else 1.0
+        out = (rgb - vmin) / denom
+        return np.clip(out, 0.0, 1.0)
 
     def render(self):
-        if self.vol is None or self.D <= 0:
-            self.im.set_data(np.zeros((10, 10), dtype=np.float32))
-            self.im.set_clim(0.0, 1.0)
-            self.ax.set_title(f"{self.label}\n{self.source} | (no data)")
+        if self.mode == "none":
             return
 
-        d = int(self.s_depth.val)
-        d = max(0, min(d, self.D - 1))
         contrast = float(self.s_contrast.val)
         vmin, vmax = _window_limits(self.center, self.half0, contrast)
 
-        self.im.set_data(self.vol[d])
-        self.im.set_clim(vmin, vmax)
-        # NOTE: basename replaced by "/parent/folder"
-        self.ax.set_title(
-            f"{self.label}\n{self.source} | d={d}/{self.D - 1} | c={contrast:.2f}",
-            fontsize=10,
-        )
+        if self.mode == "3d_gray":
+            d = max(0, min(int(self.s_depth.val), self.D - 1))
+            self.im.set_data(self.vol3d[d])
+            self.im.set_clim(vmin, vmax)
+            self.ax.set_title(
+                f"{self.label}\n{self.source} | d={d}/{self.D - 1} | c={contrast:.2f}",
+                fontsize=10,
+            )
+            return
+
+        if self.mode == "2d_gray":
+            self.im.set_data(self.img2d)
+            self.im.set_clim(vmin, vmax)
+            self.ax.set_title(
+                f"{self.label}\n{self.source} | c={contrast:.2f}",
+                fontsize=10,
+            )
+            return
+
+        if self.mode == "3d_rgb":
+            d = max(0, min(int(self.s_depth.val), self.D - 1))
+            rgb = self._normalize_rgb(self.vol3d_rgb[d], vmin, vmax)
+            self.im.set_data(rgb)  # (H,W,3) => RGB
+            self.ax.set_title(
+                f"{self.label}\n{self.source} | d={d}/{self.D - 1} | c={contrast:.2f}",
+                fontsize=10,
+            )
+            return
+
+        if self.mode == "2d_rgb":
+            rgb = self._normalize_rgb(self.img2d_rgb, vmin, vmax)
+            self.im.set_data(rgb)
+            self.ax.set_title(
+                f"{self.label}\n{self.source} | c={contrast:.2f}",
+                fontsize=10,
+            )
+            return
 
 
 def visualize_three_folders(
@@ -217,12 +300,14 @@ def visualize_three_folders(
         "Generated Synth. Anomaly",
     ),
 ):
-    """GUI: show 3 volumes side-by-side (one per folder) with per-view depth/contrast sliders.
+    """
+    GUI: show 3 matched arrays side-by-side (one per folder) with per-view sliders.
 
-    Volumes are *paired by basename*. If a folder or a particular file is missing,
-    the corresponding panel shows a fallback placeholder text instead of crashing.
+    Supported shapes:
+      - (C,D,H,W): if C==3 => RGB slices, else => grayscale of selected --channel
+      - (C,H,W):   if C==3 => RGB,        else => grayscale of selected --channel
 
-    Above each image we show: '/parent/folder | depth | contrast' (instead of the basename).
+    Depth slider is shown ONLY for (C,D,H,W) cases.
     """
 
     _select_gui_backend(prefer=backend_preference)
@@ -236,10 +321,8 @@ def visualize_three_folders(
     idx2 = _index_folder(folder2, exts_n)
     idx3 = _index_folder(folder3, exts_n)
 
-    # Use UNION (not intersection) so we can still browse sets even if one folder/file is missing.
     all_names = sorted(set(idx1.keys()) | set(idx2.keys()) | set(idx3.keys()))
     if not all_names:
-        # No files anywhere: still open GUI with placeholders.
         all_names = ["(no files found)"]
 
     if labels is None or len(labels) != 3:
@@ -250,7 +333,7 @@ def visualize_three_folders(
 
     fig, axs = plt.subplots(1, 3, figsize=(15, 6))
     try:
-        fig.canvas.manager.set_window_title("3-Volume Set Viewer")
+        fig.canvas.manager.set_window_title("3-Array Set Viewer")
     except Exception:
         pass
 
@@ -259,9 +342,11 @@ def visualize_three_folders(
     views: List[View] = []
     for i, ax in enumerate(axs):
         ax.set_axis_off()
+
+        # Start with a grayscale placeholder; RGB updates via set_data(H,W,3) later.
         im = ax.imshow(np.zeros((10, 10), dtype=np.float32), cmap=cmap, vmin=0.0, vmax=1.0)
 
-        # Align sliders under each image axes
+        # Sliders under each image
         l, b, w, h = ax.get_position().bounds
         ax_depth = fig.add_axes([l, 0.16, w, 0.03])
         ax_contrast = fig.add_axes([l, 0.11, w, 0.03])
@@ -269,15 +354,18 @@ def visualize_three_folders(
         s_depth = Slider(ax_depth, "Depth (D)", 0, 1, valinit=0, valstep=1)
         s_contrast = Slider(ax_contrast, "Contrast", 0.2, 5.0, valinit=1.0)
 
-        view = View(
+        v = View(
             label=str(labels[i]),
             source=str(sources[i]),
             ax=ax,
             im=im,
+            ax_depth=ax_depth,
+            ax_contrast=ax_contrast,
             s_depth=s_depth,
             s_contrast=s_contrast,
         )
-        views.append(view)
+        v._set_depth_visible(False)
+        views.append(v)
 
     state = {"set_idx": 0}
 
@@ -290,50 +378,70 @@ def visualize_three_folders(
         for v, idx_map, folder in zip(views, idxs, folders):
             path = idx_map.get(basename)
 
-            # Missing folder or missing file for this basename -> show placeholder
+            # Missing folder or file -> placeholder
             if path is None or not os.path.isfile(path):
-                v.vol = None
-                v.center, v.half0 = 0.0, 1.0
-
-                # Keep sliders usable (but inert)
-                _set_slider_range(v.s_depth, 0, 1, 0)
+                v.set_placeholder()
                 v.s_contrast.set_val(1.0)
+                _set_slider_range(v.s_depth, 0, 1, 0)
 
                 v.im.set_data(np.zeros((10, 10), dtype=np.float32))
                 v.im.set_clim(0.0, 1.0)
 
-                if not os.path.isdir(folder):
-                    msg = f"(missing folder)"
-                else:
-                    msg = f"(missing file: {basename})"
+                msg = "(missing folder)" if not os.path.isdir(folder) else f"(missing file: {basename})"
                 v.ax.set_title(f"{v.label}\n{v.source}\n{msg}", fontsize=10)
                 continue
 
-            # Have a file -> load normally
             arr = _load_array(path)
-            if arr.ndim != 4:
-                raise ValueError(f"Expected (C,D,H,W) in {path}, got {arr.shape}")
-            C, D, H, W = arr.shape
-            if not (0 <= channel < C):
-                raise ValueError(f"Channel {channel} out of range for {path}: C={C}")
 
-            vol = arr[channel]  # (D,H,W)
-            v.set_volume(vol)
-            d0 = v.D // 2
-            _set_slider_range(v.s_depth, 0, max(v.D - 1, 0), d0)
-            v.s_contrast.set_val(1.0)
-            v.render()
+            if arr.ndim == 4:
+                # (C,D,H,W)
+                C, D, H, W = arr.shape
+                if C == 3:
+                    vol_rgb = np.transpose(arr[:3], (1, 2, 3, 0))  # (D,H,W,3)
+                    v.set_volume_3d_rgb(vol_rgb)
+                    d0 = v.D // 2
+                    _set_slider_range(v.s_depth, 0, max(v.D - 1, 0), d0)
+                    v.s_contrast.set_val(1.0)
+                    v.render()
+                else:
+                    if not (0 <= channel < C):
+                        raise ValueError(f"Channel {channel} out of range for {path}: C={C}")
+                    vol = arr[channel]  # (D,H,W)
+                    v.set_volume_3d_gray(vol)
+                    d0 = v.D // 2
+                    _set_slider_range(v.s_depth, 0, max(v.D - 1, 0), d0)
+                    v.s_contrast.set_val(1.0)
+                    v.render()
 
-        # You can keep basename here (it helps browsing sets). If you want it removed too, tell me.
+            elif arr.ndim == 3:
+                # (C,H,W)
+                C, H, W = arr.shape
+                if C == 3:
+                    img_rgb = np.transpose(arr[:3], (1, 2, 0))  # (H,W,3)
+                    v.set_image_2d_rgb(img_rgb)
+                    _set_slider_range(v.s_depth, 0, 1, 0)  # hidden
+                    v.s_contrast.set_val(1.0)
+                    v.render()
+                else:
+                    if not (0 <= channel < C):
+                        raise ValueError(f"Channel {channel} out of range for {path}: C={C}")
+                    img = arr[channel]  # (H,W)
+                    v.set_image_2d_gray(img)
+                    _set_slider_range(v.s_depth, 0, 1, 0)  # hidden
+                    v.s_contrast.set_val(1.0)
+                    v.render()
+            else:
+                raise ValueError(
+                    f"Expected (C,D,H,W) or (C,H,W) in {path}, got shape {arr.shape}"
+                )
+
         fig.suptitle(f"Set {set_idx + 1}/{len(all_names)}: {basename}", fontsize=12)
         fig.canvas.draw_idle()
-
         state["set_idx"] = set_idx
 
     def on_any_slider(_):
         for v in views:
-            # Keep placeholder titles as-is for missing views
-            if v.vol is None or v.D <= 0:
+            if v.mode == "none":
                 continue
             v.render()
         fig.canvas.draw_idle()
@@ -343,10 +451,10 @@ def visualize_three_folders(
         v.s_contrast.on_changed(on_any_slider)
 
     def on_scroll(event):
-        # Scroll should only affect the view whose axes is under the cursor
+        # Scroll affects only the view whose image axes is under cursor, and only if it's 3D.
         for v in views:
             if event.inaxes == v.ax:
-                if v.vol is None or v.D <= 0:
+                if v.mode not in ("3d_gray", "3d_rgb") or v.D <= 0:
                     break
                 d = int(v.s_depth.val)
                 step = 1 if event.button == "up" else -1
@@ -365,11 +473,9 @@ def visualize_three_folders(
 
     btn_next.on_clicked(on_next)
 
-    # Load first set on start
     load_set(0)
 
     import matplotlib.pyplot as plt
-
     plt.show(block=True)
     return fig
 
@@ -377,13 +483,13 @@ def visualize_three_folders(
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Visualize 3 matched volumes (C,D,H,W) from 3 folders side-by-side. "
-            "Files are matched by identical basename across folders."
+            "Visualize 3 matched arrays from 3 folders side-by-side. "
+            "Supports (C,D,H,W) and (C,H,W). If C==3 => RGB, if C!=3 => grayscale channel."
         )
     )
     parser.add_argument("folder", help="Result Folder")
-    parser.add_argument("--channel", type=int, default=0, help="Channel index to display (default: 0)")
-    parser.add_argument("--cmap", default="gray", help="Matplotlib colormap (default: gray)")
+    parser.add_argument("--channel", type=int, default=0, help="Channel index for grayscale (default: 0)")
+    parser.add_argument("--cmap", default="gray", help="Matplotlib colormap for grayscale (default: gray)")
     parser.add_argument("--backend", choices=["tk", "qt"], default="tk", help="Preferred GUI backend")
     parser.add_argument(
         "--exts",

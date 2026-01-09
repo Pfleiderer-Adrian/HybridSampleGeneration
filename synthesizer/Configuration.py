@@ -24,7 +24,7 @@ class Configuration:
 
     This object can be serialized/deserialized via jsonpickle.
     """
-    def __init__(self, study_name, model_name, anomaly_size) -> None:
+    def __init__(self, study_name, model_name, anomaly_size, save_path=None) -> None:
         """
         Create a new configuration instance.
 
@@ -50,7 +50,11 @@ class Configuration:
             raise ValueError(f"Model {model_name} is not supported. \nCurrently Supported models: {ALLOWED_MODELS}")
         self.model_name = model_name
         self.config_name = None
-        self.study_folder = os.path.join(os.path.join(os.getcwd(),"results"), study_name)
+        if save_path is None:
+            self.study_folder = os.path.join(os.path.join(os.getcwd(),"results"), study_name)
+        else:
+            self.study_folder = os.path.join(os.path.join(save_path,"results"), study_name)
+
 
         # synthesizer parameter
         self.anomaly_size = anomaly_size
@@ -92,8 +96,8 @@ class Configuration:
             _VAE3D_min_params = asdict(VAE_ResNet_3D.Config(
                 n_res_blocks=4,
                 n_levels=4,
-                z_channels=32,
-                bottleneck_dim=32,
+                z_channels=64,
+                bottleneck_dim=64,
                 use_multires_skips = True,
                 recon_weight = 1.0,
                 beta_kl = 1.0))
@@ -108,7 +112,7 @@ class Configuration:
             self.model_params = {"min": _VAE3D_min_params, "max": _VAE3D_max_params}
 
         if model_name == "VAE_ResNet_2D":
-            _VAE3D_min_params = asdict(VAE_ResNet_2D.Config(
+            _VAE2D_min_params = asdict(VAE_ResNet_2D.Config(
                 n_res_blocks=4,
                 n_levels=4,
                 z_channels=32,
@@ -116,7 +120,7 @@ class Configuration:
                 use_multires_skips = True,
                 recon_weight = 1.0,
                 beta_kl = 1.0))
-            _VAE3D_max_params = asdict(VAE_ResNet_2D.Config(
+            _VAE2D_max_params = asdict(VAE_ResNet_2D.Config(
                 n_res_blocks=8,
                 n_levels=8,
                 z_channels=32,
@@ -124,7 +128,7 @@ class Configuration:
                 use_multires_skips = True,
                 recon_weight = 5.0,
                 beta_kl = 5.0))
-            self.model_params = {"min": _VAE3D_min_params, "max": _VAE3D_max_params}
+            self.model_params = {"min": _VAE2D_min_params, "max": _VAE2D_max_params}
 
     # set hyperparameter space. need min and max config of model.py
     def set_hyperparameter_space(self, min_config, max_config):

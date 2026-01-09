@@ -96,12 +96,13 @@ def objective(trial: Trial, config: Configuration, dataset):
     max_params = config.model_params["max"]
     params = {}
     for key, value in min_params.items():
-        if value is int:
-            params[key] = trial.suggest_int(key, value, max_params[key])
-        if value is float:
-            params[key] = trial.suggest_float(key, value, max_params[key])
-        if value is bool:
+        if isinstance(value, bool):
             params[key] = trial.suggest_categorical(key, [True, False])
+        elif isinstance(value, int):
+            params[key] = trial.suggest_int(key, value, max_params[key])
+        elif isinstance(value, float):
+            params[key] = trial.suggest_float(key, value, max_params[key])
+
 
     # 2. Create the model with chosen hyperparameters
     model = None
