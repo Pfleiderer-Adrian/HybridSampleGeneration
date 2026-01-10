@@ -58,6 +58,7 @@ class Configuration:
 
         # synthesizer parameter
         self.anomaly_size = anomaly_size
+        self.clamp01_output = False
         self.matching_dict= {}
         self.syn_anomaly_transformations = {}
         self.background_threshold = None

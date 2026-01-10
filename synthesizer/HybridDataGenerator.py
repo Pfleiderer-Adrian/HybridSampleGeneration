@@ -246,7 +246,7 @@ class HybridDataGenerator:
         os.makedirs(save_folder, exist_ok=True)
 
         for img, basename in self._anomaly_dataset:
-            syn_anomaly_sample = self._model.generate_synth_sample(img)
+            syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
             save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(save_folder, basename)), overwrite=True)
 
         self.load_synth_anomalies(save_folder)

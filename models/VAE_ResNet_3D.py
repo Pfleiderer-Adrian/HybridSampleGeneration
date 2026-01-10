@@ -392,6 +392,8 @@ class Config:
     use_multires_skips: bool = True
     recon_weight: float = 100.0
     beta_kl: float = 1.0
+    recon_loss: str = "smoothl1"  # 'smoothl1' or 'mse'
+    recon_smoothl1_beta: float = 1.0
 
 
 class ResNetVAE3D(nn.Module):
@@ -399,8 +401,14 @@ class ResNetVAE3D(nn.Module):
     3D ResNet-VAE.
 
     Expected input:
-      - x: (B, C, D, H, W), float in [0,1]
-      - If input looks like 0..255, it is automatically normalized by max value.
+      - x: (B, C, D, H, W), float (continuous intensities).
+
+    Notes
+    -----
+    This VAE variant uses a *continuous* reconstruction objective (MSE / SmoothL1) and a
+    *linear* decoder output (no sigmoid). Therefore we do **not** clamp or auto-rescale inputs
+    inside the model. Do any desired normalization in your dataset / pipeline (e.g., per-scan
+    z-score, robust median/MAD, or percentile clipping).
 
     Forward output is a dict:
       - recon: reconstructed x (B,C,D,H,W)
@@ -528,14 +536,8 @@ class ResNetVAE3D(nn.Module):
 
         x = x.float()
 
-        # Auto-normalize if values look like 0..255
-        if x.numel() > 0 and x.max().detach().item() > 1.0:
-            m = x.max().detach()
-            if m > 0:
-                x = x / m
-
-        # Clamp into [0,1] for BCE reconstruction loss stability
-        x = x.clamp(0.0, 1.0)
+        # NOTE: Continuous-intensity model: do NOT auto-rescale or clamp here.
+        # Apply any normalization outside the model (recommended).
 
         device = x.device
         B = x.shape[0]
@@ -562,7 +564,7 @@ class ResNetVAE3D(nn.Module):
 
         # Decode: bottleneck -> latent feature map -> decoder -> recon
         h_dec = self.fc_decode(z).reshape(B, self.cfg.z_channels, *latent_dhw)
-        recon = torch.sigmoid(self.decoder(h_dec))  # sigmoid because we use BCE loss
+        recon = self.decoder(h_dec)  # linear output for continuous intensities
 
         # Crop recon back to original spatial size
         recon = _crop_like_3d(recon, ref_dhw)
@@ -575,7 +577,7 @@ class ResNetVAE3D(nn.Module):
 
     def loss(self, out: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
-        Compute VAE loss = recon_weight * BCE(recon,x) + beta_kl * KL(mu,logvar).
+        Compute VAE loss = recon_weight * ReconLoss(recon,x) + beta_kl * KL(mu,logvar).
 
         Inputs
         ------
@@ -595,7 +597,18 @@ class ResNetVAE3D(nn.Module):
         mu, logvar = out["mu"], out["logvar"]
 
         # Reconstruction loss (mean over all voxels)
-        recon_loss = F.binary_cross_entropy(recon, x, reduction="mean")
+        # Reconstruction loss (mean over all voxels)
+        if getattr(self.cfg, "recon_loss", "smoothl1").lower() == "mse":
+            recon_loss = F.mse_loss(recon, x, reduction="mean")
+        else:
+            # SmoothL1 (Huber) is usually a good default for medical volumes (robust to outliers).
+            beta = float(getattr(self.cfg, "recon_smoothl1_beta", 1.0))
+            try:
+                recon_loss = F.smooth_l1_loss(recon, x, reduction="mean", beta=beta)
+            except TypeError:
+                # Older PyTorch without 'beta' argument
+                recon_loss = F.smooth_l1_loss(recon, x, reduction="mean")
+
 
         # KL divergence term (mean over batch)
         kl = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
@@ -797,7 +810,7 @@ class ResNetVAE3D(nn.Module):
         device:
             Device for inference.
         clamp_01:
-            If True, clamp input and output to [0,1].
+            If True, clamp input and output to [0,1]. For continuous-intensity usage, set this to False.
 
         Outputs
         -------
@@ -901,9 +914,6 @@ class ResNetVAE3D(nn.Module):
             self.train()
 
         return self
-
-
-
 
 if __name__ == "__main__":
     # debug

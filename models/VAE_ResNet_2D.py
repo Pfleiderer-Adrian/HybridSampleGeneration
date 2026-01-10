@@ -267,14 +267,22 @@ class Config:
     recon_weight: float = 100.0
     beta_kl: float = 1.0
 
+    # --- continuous-intensity reconstruction (Option B) ---
+    # Default: SmoothL1 (Huber) is typically more robust for MRI intensities than BCE.
+    # Supported: "smoothl1" | "mse"
+    recon_loss: str = "smoothl1"
+    # Only used when recon_loss == "smoothl1". (PyTorch calls this parameter "beta".)
+    recon_smoothl1_beta: float = 1.0
+
 
 class ResNetVAE2D(nn.Module):
     """
     2D ResNet-VAE.
 
     Expected input:
-      - x: (B, C, H, W), float in [0,1]
-      - If input looks like 0..255, it is automatically normalized by max value.
+      - x: (B, C, H, W), float (continuous intensities; e.g. MRI)
+      - No implicit clamping to [0,1]. If you want standardization/normalization,
+        do it in your dataset/pipeline (recommended: z-score or robust scaling).
 
     Forward output:
       - recon: (B,C,H,W)
@@ -330,15 +338,8 @@ class ResNetVAE2D(nn.Module):
         if x.shape[1] != self.in_channels:
             raise ValueError(f"Expected C={self.in_channels}, got C={x.shape[1]}")
 
+        # Continuous-valued inputs: keep intensities as-is (no auto-normalization / clamping).
         x = x.float()
-
-        # Auto-normalize if values look like 0..255
-        if x.numel() > 0 and x.max().detach().item() > 1.0:
-            m = x.max().detach()
-            if m > 0:
-                x = x / m
-
-        x = x.clamp(0.0, 1.0)
 
         device = x.device
         B = x.shape[0]
@@ -359,7 +360,8 @@ class ResNetVAE2D(nn.Module):
         z = self.reparameterize(mu, logvar)
 
         h_dec = self.fc_decode(z).reshape(B, self.cfg.z_channels, *latent_hw)
-        recon = torch.sigmoid(self.decoder(h_dec))
+        # Linear reconstruction head (no sigmoid) for continuous intensities.
+        recon = self.decoder(h_dec)
 
         recon = _crop_like_2d(recon, ref_hw)
         x_ref = _crop_like_2d(x_pad, ref_hw) if sum(pad) else x
@@ -371,7 +373,21 @@ class ResNetVAE2D(nn.Module):
         x = out["x_ref"]
         mu, logvar = out["mu"], out["logvar"]
 
-        recon_loss = F.binary_cross_entropy(recon, x, reduction="mean")
+        # Continuous-intensity reconstruction loss
+        loss_name = str(getattr(self.cfg, "recon_loss", "smoothl1")).lower()
+        if loss_name in ("smoothl1", "huber", "smooth_l1"):
+            beta = float(getattr(self.cfg, "recon_smoothl1_beta", 1.0))
+            try:
+                recon_loss = F.smooth_l1_loss(recon, x, reduction="mean", beta=beta)
+            except TypeError:
+                # Older PyTorch without beta parameter
+                recon_loss = F.smooth_l1_loss(recon, x, reduction="mean")
+        elif loss_name in ("mse", "l2"):
+            recon_loss = F.mse_loss(recon, x, reduction="mean")
+        else:
+            raise ValueError(
+                f"Unknown cfg.recon_loss={self.cfg.recon_loss!r}. Supported: 'smoothl1' | 'mse'"
+            )
         kl = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
 
         total = self.cfg.recon_weight * recon_loss + self.cfg.beta_kl * kl
@@ -501,11 +517,8 @@ class ResNetVAE2D(nn.Module):
 
         x = x.float()
 
-        # Auto-normalize if values look like 0..255
-        if x.numel() > 0 and x.max().detach().item() > 1.0:
-            m = x.max().detach()
-            if m > 0:
-                x = x / m
+        # Continuous-valued inputs: keep intensities as-is.
+        # (Optional) For legacy pipelines you can set clamp_01=True.
 
         if clamp_01:
             x = x.clamp(0.0, 1.0)
