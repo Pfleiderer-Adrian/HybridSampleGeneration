@@ -286,29 +286,31 @@ class View:
             return
 
 
-def visualize_three_folders(
-    folder1: str,
-    folder2: str,
-    folder3: str,
+def visualize_folders(
+    folders: Sequence[str],
     channel: int = 0,
     cmap: str = "gray",
     backend_preference: str = "tk",
     exts: Sequence[str] = (".npy",),
-    labels: Optional[Sequence[str]] = (
-        "ROI cutout Area",
-        "Real Anomaly cutout",
-        "Generated Synth. Anomaly",
-    ),
+    labels: Optional[Sequence[str]] = None,
+    window_title: str = "Array Set Viewer",
 ):
     """
-    GUI: show 3 matched arrays side-by-side (one per folder) with per-view sliders.
+    GUI: show N matched arrays side-by-side (one per folder) with per-view sliders.
 
-    Supported shapes:
+    Supported shapes (per file; can differ between folders):
       - (C,D,H,W): if C==3 => RGB slices, else => grayscale of selected --channel
       - (C,H,W):   if C==3 => RGB,        else => grayscale of selected --channel
 
     Depth slider is shown ONLY for (C,D,H,W) cases.
+
+    Notes:
+      - Files are matched by basename (filename without extension) across all folders.
+      - Missing files/folders are displayed as placeholders (per view).
     """
+
+    if not folders:
+        raise ValueError("folders must contain at least one folder path.")
 
     _select_gui_backend(prefer=backend_preference)
 
@@ -317,23 +319,22 @@ def visualize_three_folders(
 
     exts_n = _normalize_exts(exts)
 
-    idx1 = _index_folder(folder1, exts_n)
-    idx2 = _index_folder(folder2, exts_n)
-    idx3 = _index_folder(folder3, exts_n)
-
-    all_names = sorted(set(idx1.keys()) | set(idx2.keys()) | set(idx3.keys()))
+    idx_maps = [_index_folder(f, exts_n) for f in folders]
+    all_names = sorted(set().union(*[set(m.keys()) for m in idx_maps]))
     if not all_names:
         all_names = ["(no files found)"]
 
-    if labels is None or len(labels) != 3:
-        labels = ["Folder 1", "Folder 2", "Folder 3"]
+    n = len(folders)
+    if labels is None or len(labels) != n:
+        labels = [f"Folder {i+1}" for i in range(n)]
 
-    folders = [folder1, folder2, folder3]
     sources = [_folder_tag(f) for f in folders]
 
-    fig, axs = plt.subplots(1, 3, figsize=(15, 6))
+    fig, axs = plt.subplots(1, n, figsize=(5 * n, 6))
+    if n == 1:
+        axs = [axs]
     try:
-        fig.canvas.manager.set_window_title("3-Array Set Viewer")
+        fig.canvas.manager.set_window_title(window_title)
     except Exception:
         pass
 
@@ -373,9 +374,7 @@ def visualize_three_folders(
         set_idx = int(set_idx) % len(all_names)
         basename = all_names[set_idx]
 
-        idxs = [idx1, idx2, idx3]
-
-        for v, idx_map, folder in zip(views, idxs, folders):
+        for v, idx_map, folder in zip(views, idx_maps, folders):
             path = idx_map.get(basename)
 
             # Missing folder or file -> placeholder
@@ -475,16 +474,50 @@ def visualize_three_folders(
 
     load_set(0)
 
-    import matplotlib.pyplot as plt
     plt.show(block=True)
     return fig
 
 
+def visualize_four_folders(
+    folder1: str,
+    folder2: str,
+    folder3: str,
+    folder4: str,
+    channel: int = 0,
+    cmap: str = "gray",
+    backend_preference: str = "tk",
+    exts: Sequence[str] = (".npy",),
+    labels: Optional[Sequence[str]] = (
+        "ROI cutout Area",
+        "Real Anomaly cutout",
+        "Generated Synth. Anomaly",
+        "Fusioned Hybrid Sample",
+    ),
+):
+    """
+    GUI: show 4 matched arrays side-by-side (one per folder) with per-view sliders.
+
+    Supported shapes:
+      - (C,D,H,W): if C==3 => RGB slices, else => grayscale of selected --channel
+      - (C,H,W):   if C==3 => RGB,        else => grayscale of selected --channel
+
+    Depth slider is shown ONLY for (C,D,H,W) cases.
+    """
+    return visualize_folders(
+        folders=[folder1, folder2, folder3, folder4],
+        channel=channel,
+        cmap=cmap,
+        backend_preference=backend_preference,
+        exts=exts,
+        labels=labels,
+        window_title="4-Array Set Viewer",
+    )
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Visualize 3 matched arrays from 3 folders side-by-side. "
-            "Supports (C,D,H,W) and (C,H,W). If C==3 => RGB, if C!=3 => grayscale channel."
+            "Visualize 4 matched arrays from 4 folders side-by-side. "
+            "Supports (C,D,H,W) and (C,H,W). If C==3 => RGB, if C!=3 => grayscale channel. The 4th view is loaded from the fixed subfolder 'generated_hybrid_samples'."
         )
     )
     parser.add_argument("folder", help="Result Folder")
@@ -503,11 +536,13 @@ def main():
     anomaly_folder = os.path.join(args.folder, "anomaly_data")
     roi_folder = os.path.join(args.folder, "anomaly_roi_data")
     synth_folder = os.path.join(args.folder, "synth_anomaly_data")
+    fusion_folder = os.path.join(args.folder, os.path.join("generated_hybrid_samples", "images_npy"))
 
-    visualize_three_folders(
+    visualize_four_folders(
         roi_folder,
         anomaly_folder,
         synth_folder,
+        fusion_folder,
         channel=args.channel,
         cmap=args.cmap,
         backend_preference=args.backend,

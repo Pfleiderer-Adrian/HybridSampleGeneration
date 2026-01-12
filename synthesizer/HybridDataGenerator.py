@@ -361,7 +361,7 @@ class HybridDataGenerator:
         self._config.load_matching_csv(csv_file_path)
 
 
-    def fusion_synth_anomalies(self, control_samples_array, basename_of_control_sample) -> Tuple[np.ndarray, np.ndarray]:
+    def fusion_synth_anomalies(self, control_samples_array, basename_of_control_sample, save_npy=True, save_path=None) -> Tuple[np.ndarray, np.ndarray]:
         """
         Fuse a synthetic anomaly into a control sample according to the loaded matching dict.
 
@@ -377,6 +377,10 @@ class HybridDataGenerator:
             The control image/volume as a numpy array (shape must match what fusion3d or fusion2d expects).
         basename_of_control_sample:
             Key used to look up the matched anomaly and fusion position in `self._config.matching_dict`.
+        save_npy
+            if True: saves generated hybrid images and segmentations as .npy -> for visualizer / debugging
+        save_path:
+            path to folder for npy files - only wenn save_npy is True
 
         Outputs
         -------
@@ -400,5 +404,18 @@ class HybridDataGenerator:
             img, seg = fusion3d(control_samples_array, synth_anomaly_image, self._config.syn_anomaly_transformations[anomaly_basename]["scale_factor"], fusion_position, self._config.fusion_mask_params)
         else:
             raise ValueError(f"Unexpected shape: {control_samples_array.shape}, Supported: (C, H, W) or (C, D, H, W)")
+
+        if save_npy:
+            if save_path is None:
+                save_path = os.path.join(self._config.study_folder, "generated_hybrid_samples")
+            img_folder = os.path.join(save_path,"images_npy")
+            seg_folder = os.path.join(save_path,"segmentations_npy")
+            os.makedirs(img_folder, exist_ok=True)
+            os.makedirs(seg_folder, exist_ok=True)
+
+            img_path = os.path.join(img_folder, anomaly_basename)
+            seg_path = os.path.join(seg_folder, anomaly_basename)
+            save_numpy_as_npy(img, img_path, overwrite=True)
+            save_numpy_as_npy(seg, seg_path, overwrite=True)
 
         return img, seg
