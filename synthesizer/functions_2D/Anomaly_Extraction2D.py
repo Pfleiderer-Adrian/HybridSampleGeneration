@@ -261,7 +261,7 @@ def crop_and_center_anomaly_2d(img, seg, target_size, min_anomaly_percentage=0.0
         }
 
         #size_spatial = tuple(max(1, s + 10) for s in result.shape[-2:])
-        anomalies_roi.append(crop_square_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False))
+        anomalies_roi.append(crop_square_clip(img, centroid_voxel, result.shape[-2:], centroid_is_normalized=False))
 
         anomalies.append((padded_arr, meta_data))
 

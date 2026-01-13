@@ -98,7 +98,7 @@ class Configuration:
             _VAE3D_min_params = asdict(VAE_ResNet_3D.Config(
                 n_res_blocks=4,
                 n_levels=4,
-                z_channels=64,
+                z_channels=self.anomaly_size[0],
                 bottleneck_dim=64,
                 use_multires_skips = False,
                 recon_weight = 1.0,
@@ -107,7 +107,7 @@ class Configuration:
             _VAE3D_max_params = asdict(VAE_ResNet_3D.Config(
                 n_res_blocks=5,
                 n_levels=5,
-                z_channels=128,
+                z_channels=self.anomaly_size[0],
                 bottleneck_dim=128,
                 use_multires_skips = False,
                 recon_weight = 1,
