@@ -57,7 +57,7 @@ def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, ma
     # ------------------------------------------------------------
     if matching_routine == "fixed_from_extraction":
         i = 0
-        for control, _, control_filename in tqdm(control_sample_dataloader):
+        for control, _, control_filename, *ignored in tqdm(control_sample_dataloader):
             # Stop if ROI dataset is exhausted
             if i >= roi_dataloader.__len__():
                 if anomaly_duplicates:
@@ -65,7 +65,7 @@ def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, ma
                     roi, roi_filename = roi_dataloader[i]
                     i += 1
                 else:
-                    roi, roi_filename = None, None
+                    break
             else:
                 roi, roi_filename = roi_dataloader[i]
                 i += 1
@@ -86,7 +86,7 @@ def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, ma
     # ------------------------------------------------------------
     if matching_routine == "local":
         i = 0
-        for control, _, control_filename in tqdm(control_sample_dataloader):
+        for control, _, control_filename, *ignored in tqdm(control_sample_dataloader):
             highest_sim_position_factor = None
 
             # Stop if ROI dataset is exhausted
@@ -96,7 +96,7 @@ def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, ma
                     roi, roi_filename = roi_dataloader[i]
                     i += 1
                 else:
-                    roi, roi_filename = None, None
+                    break
             else:
                 roi, roi_filename = roi_dataloader[i]
                 i += 1
@@ -113,13 +113,13 @@ def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, ma
                         (np.array((1,) + opt_center) / np.array(control.shape)).astype(float).tolist()
                     )
 
-            matching_data.append([control_filename, roi_filename, highest_sim_position_factor])
+                matching_data.append([control_filename, roi_filename, highest_sim_position_factor])
 
     # ------------------------------------------------------------
     # Routine: global (search best ROI for each control; avoid reusing ROI)
     # ------------------------------------------------------------
     if matching_routine == "global":
-        for control, _, control_filename in control_sample_dataloader:
+        for control, _, control_filename, *ignored in control_sample_dataloader:
             highest_sim = -np.inf
             highest_sim_roi_name = None
             highest_sim_position_factor = None
@@ -136,7 +136,7 @@ def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, ma
                     highest_sim_position_factor = (
                         (np.array((1,) + opt_center) / np.array(control.shape)).astype(float).tolist()
                     )
-
+            
             if highest_sim_roi_name is None:
                 raise RuntimeError(f"No match found for {control_filename}")
 

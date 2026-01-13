@@ -190,11 +190,13 @@ class ResNetDecoder2D(nn.Module):
         z_channels: int,
         use_multires_skips: bool = True,
         leak: float = 0.2,
+        use_transpose_conv: bool = True,
     ):
         super().__init__()
         self.n_levels = n_levels
         self.use_multires_skips = use_multires_skips
         self.max_filters = 2 ** (n_levels + 3)
+        self.use_transpose_conv = use_transpose_conv
 
         self.input_conv = nn.Sequential(
             nn.Conv2d(z_channels, self.max_filters, 3, 1, 1, bias=False),
@@ -206,16 +208,26 @@ class ResNetDecoder2D(nn.Module):
         self.res_stages = nn.ModuleList()
         self.skip_stages = nn.ModuleList()
 
+        def upsample_block(in_ch: int, out_ch: int, scale: int) -> nn.Sequential:
+            if self.use_transpose_conv:
+                return nn.Sequential(
+                    nn.ConvTranspose2d(in_ch, out_ch, kernel_size=scale, stride=scale, padding=0, bias=False),
+                    nn.BatchNorm2d(out_ch),
+                    nn.LeakyReLU(leak, inplace=True),
+                )
+            return nn.Sequential(
+                nn.Upsample(scale_factor=scale, mode="bilinear", align_corners=False),
+                nn.Conv2d(in_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=False),
+                nn.BatchNorm2d(out_ch),
+                nn.LeakyReLU(leak, inplace=True),
+            )
+
         prev_ch = self.max_filters
         for i in range(n_levels):
             n_filters = 2 ** (self.n_levels - i + 2)
 
             self.up_stages.append(
-                nn.Sequential(
-                    nn.ConvTranspose2d(prev_ch, n_filters, kernel_size=2, stride=2, padding=0, bias=False),
-                    nn.BatchNorm2d(n_filters),
-                    nn.LeakyReLU(leak, inplace=True),
-                )
+                upsample_block(prev_ch, n_filters, scale=2)
             )
             prev_ch = n_filters
 
@@ -228,11 +240,7 @@ class ResNetDecoder2D(nn.Module):
             if use_multires_skips:
                 ks = 2 ** (i + 1)
                 self.skip_stages.append(
-                    nn.Sequential(
-                        nn.ConvTranspose2d(self.max_filters, n_filters, kernel_size=ks, stride=ks, padding=0, bias=False),
-                        nn.BatchNorm2d(n_filters),
-                        nn.LeakyReLU(leak, inplace=True),
-                    )
+                    upsample_block(self.max_filters, n_filters, scale=ks)
                 )
 
         self.output_conv = nn.Conv2d(prev_ch, out_channels, 3, 1, 1, bias=True)
@@ -273,6 +281,9 @@ class Config:
     recon_loss: str = "smoothl1"
     # Only used when recon_loss == "smoothl1". (PyTorch calls this parameter "beta".)
     recon_smoothl1_beta: float = 1.0
+    # If True, decoder uses ConvTranspose2d for upsampling. If False, uses Upsample(bilinear)+Conv2d.
+    use_transpose_conv: bool = True
+    use_transpose_conv: bool = True
 
 
 class ResNetVAE2D(nn.Module):
@@ -308,6 +319,7 @@ class ResNetVAE2D(nn.Module):
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
             use_multires_skips=cfg.use_multires_skips,
+            use_transpose_conv=cfg.use_transpose_conv,
         )
 
         self.fc_mu: Optional[nn.Linear] = None

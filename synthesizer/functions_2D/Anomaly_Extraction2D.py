@@ -152,7 +152,7 @@ def _spatial_target_size(target_size):
     raise ValueError(f"target_size must be (H,W) or (C,H,W). Got {target_size}")
 
 
-def crop_and_center_anomaly_2d(img, seg, target_size, separated_anomaly=True, min_region_pixels=0):
+def crop_and_center_anomaly_2d(img, seg, target_size, min_anomaly_percentage=0.05, separated_anomaly=True):
     """
     Extract connected anomaly regions from a 2D segmentation mask and return:
       - normalized-size anomaly cutouts (C, tH, tW) via resize+pad
@@ -226,8 +226,7 @@ def crop_and_center_anomaly_2d(img, seg, target_size, separated_anomaly=True, mi
     anomalies = []
     anomalies_roi = []
 
-    if min_region_pixels <= 0:
-        min_region_pixels = int(0.05 * (target_size[0] * target_size[1]))
+    min_region_pixels = int(min_anomaly_percentage* (target_size[0] * target_size[1]))
 
     for ridx, region in enumerate(regions, start=1):
         if region is None:
@@ -261,7 +260,7 @@ def crop_and_center_anomaly_2d(img, seg, target_size, separated_anomaly=True, mi
             "shape": shape
         }
 
-        size_spatial = tuple(max(1, s + 10) for s in result.shape[-2:])
+        #size_spatial = tuple(max(1, s + 10) for s in result.shape[-2:])
         anomalies_roi.append(crop_square_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False))
 
         anomalies.append((padded_arr, meta_data))

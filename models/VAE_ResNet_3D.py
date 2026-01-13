@@ -288,11 +288,13 @@ class ResNetDecoder3D(nn.Module):
         z_channels: int,
         use_multires_skips: bool = True,
         leak: float = 0.2,
+        use_transpose_conv: bool = True,
     ):
         super().__init__()
         self.n_levels = n_levels
         self.use_multires_skips = use_multires_skips
         self.max_filters = 2 ** (n_levels + 3)
+        self.use_transpose_conv = use_transpose_conv
 
         # Project latent channels to max_filters
         self.input_conv = nn.Sequential(
@@ -305,6 +307,20 @@ class ResNetDecoder3D(nn.Module):
         self.res_stages = nn.ModuleList()
         self.skip_stages = nn.ModuleList()
 
+        def upsample_block(in_ch: int, out_ch: int, scale: int) -> nn.Sequential:
+            if self.use_transpose_conv:
+                return nn.Sequential(
+                    nn.ConvTranspose3d(in_ch, out_ch, kernel_size=scale, stride=scale, padding=0, bias=False),
+                    nn.BatchNorm3d(out_ch),
+                    nn.LeakyReLU(leak, inplace=True),
+                )
+            return nn.Sequential(
+                nn.Upsample(scale_factor=scale, mode="trilinear", align_corners=False),
+                nn.Conv3d(in_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=False),
+                nn.BatchNorm3d(out_ch),
+                nn.LeakyReLU(leak, inplace=True),
+            )
+
         # Start from max_filters and go up in resolution
         prev_ch = self.max_filters
         for i in range(n_levels):
@@ -313,11 +329,7 @@ class ResNetDecoder3D(nn.Module):
 
             # Upsample by factor 2
             self.up_stages.append(
-                nn.Sequential(
-                    nn.ConvTranspose3d(prev_ch, n_filters, kernel_size=2, stride=2, padding=0, bias=False),
-                    nn.BatchNorm3d(n_filters),
-                    nn.LeakyReLU(leak, inplace=True),
-                )
+                upsample_block(prev_ch, n_filters, scale=2)
             )
             prev_ch = n_filters
 
@@ -335,11 +347,7 @@ class ResNetDecoder3D(nn.Module):
             if use_multires_skips:
                 ks = 2 ** (i + 1)
                 self.skip_stages.append(
-                    nn.Sequential(
-                        nn.ConvTranspose3d(self.max_filters, n_filters, kernel_size=ks, stride=ks, padding=0, bias=False),
-                        nn.BatchNorm3d(n_filters),
-                        nn.LeakyReLU(leak, inplace=True),
-                    )
+                    upsample_block(self.max_filters, n_filters, scale=ks)
                 )
 
         # Output reconstruction conv
@@ -384,6 +392,8 @@ class Config:
         Weight for reconstruction loss term.
     beta_kl:
         Weight for KL divergence term.
+    use_transpose_conv:
+        If True, decoder uses ConvTranspose3d for upsampling. If False, uses Upsample(trilinear)+Conv3d.
     """
     n_res_blocks: int = 8
     n_levels: int = 4
@@ -394,6 +404,7 @@ class Config:
     beta_kl: float = 1.0
     recon_loss: str = "smoothl1"  # 'smoothl1' or 'mse'
     recon_smoothl1_beta: float = 1.0
+    use_transpose_conv: bool = True
 
 
 class ResNetVAE3D(nn.Module):
@@ -452,6 +463,7 @@ class ResNetVAE3D(nn.Module):
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
             use_multires_skips=cfg.use_multires_skips,
+            use_transpose_conv=cfg.use_transpose_conv,
         )
 
         # Lazy FC layers (depend on latent spatial size)

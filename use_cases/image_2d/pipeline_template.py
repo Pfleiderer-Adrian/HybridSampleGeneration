@@ -55,6 +55,10 @@ if __name__ == "__main__":
     # iterate over your control samples
     for control_image, _, basename in dataloader_samples_without_anomalies:
 
+        if basename not in config.matching_dict:
+            print(basename+" not found in matching dict")
+            continue
+
         # 5) Fuse synthetic anomaly into one control sample
         img, seg = HDG.fusion_synth_anomalies(control_image, basename)
 

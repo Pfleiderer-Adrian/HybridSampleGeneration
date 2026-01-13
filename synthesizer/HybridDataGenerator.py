@@ -97,9 +97,9 @@ class HybridDataGenerator:
                 continue
 
             if img.ndim == 3:
-                anomalies, anomalies_roi = crop_and_center_anomaly_2d(img, seg, self._config.anomaly_size)
+                anomalies, anomalies_roi = crop_and_center_anomaly_2d(img, seg, self._config.anomaly_size, min_anomaly_percentage=self._config.min_anomaly_percentage)
             elif img.ndim == 4:
-                anomalies, anomalies_roi = crop_and_center_anomaly_3d(img, seg, self._config.anomaly_size)
+                anomalies, anomalies_roi = crop_and_center_anomaly_3d(img, seg, self._config.anomaly_size, min_anomaly_percentage=self._config.min_anomaly_percentage)
             else:
                 raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
 
