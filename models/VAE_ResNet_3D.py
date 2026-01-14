@@ -392,8 +392,16 @@ class Config:
         Weight for reconstruction loss term.
     beta_kl:
         Weight for KL divergence term.
+    recon_loss:
+        Reconstruction loss: "smoothl1" or "mse".
+    recon_smoothl1_beta:
+        Beta (delta) parameter for SmoothL1.
     use_transpose_conv:
         If True, decoder uses ConvTranspose3d for upsampling. If False, uses Upsample(trilinear)+Conv3d.
+    fg_weight:
+        Foreground weight for reconstruction loss (background weight is 1.0).
+    fg_threshold:
+        Foreground threshold on |x| used to build the weighting mask.
     """
     n_res_blocks: int = 8
     n_levels: int = 4
@@ -405,6 +413,8 @@ class Config:
     recon_loss: str = "smoothl1"  # 'smoothl1' or 'mse'
     recon_smoothl1_beta: float = 1.0
     use_transpose_conv: bool = True
+    fg_weight: float = 1.0
+    fg_threshold: float = 0.0
 
 
 class ResNetVAE3D(nn.Module):
@@ -609,17 +619,27 @@ class ResNetVAE3D(nn.Module):
         mu, logvar = out["mu"], out["logvar"]
 
         # Reconstruction loss (mean over all voxels)
-        # Reconstruction loss (mean over all voxels)
-        if getattr(self.cfg, "recon_loss", "smoothl1").lower() == "mse":
-            recon_loss = F.mse_loss(recon, x, reduction="mean")
+        loss_name = getattr(self.cfg, "recon_loss", "smoothl1").lower()
+        if loss_name == "mse":
+            recon_per_voxel = (recon - x) ** 2
         else:
             # SmoothL1 (Huber) is usually a good default for medical volumes (robust to outliers).
             beta = float(getattr(self.cfg, "recon_smoothl1_beta", 1.0))
             try:
-                recon_loss = F.smooth_l1_loss(recon, x, reduction="mean", beta=beta)
+                recon_per_voxel = F.smooth_l1_loss(recon, x, reduction="none", beta=beta)
             except TypeError:
                 # Older PyTorch without 'beta' argument
-                recon_loss = F.smooth_l1_loss(recon, x, reduction="mean")
+                recon_per_voxel = F.smooth_l1_loss(recon, x, reduction="none")
+
+        # Foreground-weighted loss to reduce background dominance.
+        fg_weight = float(getattr(self.cfg, "fg_weight", 1.0))
+        fg_threshold = float(getattr(self.cfg, "fg_threshold", 0.0))
+        if fg_weight != 1.0:
+            fg_mask = (x.abs() > fg_threshold).float()
+            weights = torch.where(fg_mask > 0, fg_weight, 1.0)
+            recon_loss = (recon_per_voxel * weights).mean()
+        else:
+            recon_loss = recon_per_voxel.mean()
 
 
         # KL divergence term (mean over batch)

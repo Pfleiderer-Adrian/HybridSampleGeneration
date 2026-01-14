@@ -76,6 +76,35 @@ def resize_and_pad_2d(arr, target_size, order=1, *, random_offset=False, rng=Non
     return arr_padded, tuple(scale_spatial)
 
 
+def _normalize_anomaly(arr, normalization, eps):
+    """
+    Normalize a cutout for training and return normalization metadata.
+
+    Supported normalization:
+      - "zscore": (x - mean) / std
+      - "zscore_median": (x - median) / mad
+    """
+    if normalization is None or str(normalization).lower() in ("none", "null"):
+        return arr, {"norm_type": None}
+
+    norm = str(normalization).lower()
+    if norm in ("zscore", "z-score", "z_score"):
+        mean = float(np.mean(arr))
+        std = float(np.std(arr))
+        if std < eps:
+            std = eps
+        return (arr - mean) / std, {"norm_type": "zscore", "norm_mean": mean, "norm_std": std}
+
+    if norm in ("zscore_median", "z-score-median", "zscore-median"):
+        median = float(np.median(arr))
+        mad = float(np.median(np.abs(arr - median)))
+        if mad < eps:
+            mad = eps
+        return (arr - median) / mad, {"norm_type": "zscore_median", "norm_median": median, "norm_mad": mad}
+
+    raise ValueError(f"Unknown normalization: {normalization!r}")
+
+
 def crop_square_clip(arr, centroid, size, centroid_is_normalized=None):
     """
     Crop a square/rect subregion from a 3D (C, H, W) array, clipping to image bounds.
@@ -178,6 +207,8 @@ def crop_and_center_anomaly_2d(
     *,
     random_offset=False,
     rng=None,
+    normalization=None,
+    normalization_eps=1e-8,
 ):
     """
     Extract connected anomaly regions from a 2D segmentation mask and return:
@@ -211,6 +242,10 @@ def crop_and_center_anomaly_2d(
         If True, apply random spatial offsets to anomaly cutouts after resize+pad.
     rng:
         Optional numpy random Generator for reproducible offsets.
+    normalization:
+        Normalization mode for anomaly cutouts: "zscore", "zscore_median", or None.
+    normalization_eps:
+        Small epsilon to avoid division by zero in normalization.
 
     Returns
     -------
@@ -224,6 +259,11 @@ def crop_and_center_anomaly_2d(
               - "centroid_voxel": tuple[int,int], centroid in pixel coords (h,w)
               - "centroid_norm": tuple[float,float], centroid normalized by (H,W)
               - "shape": tuple[int,int,int], original image shape
+              - "norm_type": str or None ("zscore" | "zscore_median" | None)
+              - "norm_mean": float (zscore only)
+              - "norm_std": float (zscore only)
+              - "norm_median": float (zscore_median only)
+              - "norm_mad": float (zscore_median only)
     anomalies_roi:
         list[np.ndarray]
         ROI crops around anomaly centroid, shape (C, h', w') (variable).
@@ -284,6 +324,9 @@ def crop_and_center_anomaly_2d(
             random_offset=random_offset,
             rng=rng,
         )
+        padded_arr, norm_meta = _normalize_anomaly(
+            padded_arr, normalization=normalization, eps=float(normalization_eps)
+        )
         scale_factor = tuple(round(float(ele), 4) for ele in scale_factor)
 
         label_tmp = float(np.max(seg).round(0))
@@ -295,6 +338,7 @@ def crop_and_center_anomaly_2d(
             "centroid_norm": centroid_norm,
             "shape": shape
         }
+        meta_data.update(norm_meta)
 
         #size_spatial = tuple(max(1, s + 10) for s in result.shape[-2:])
         anomalies_roi.append(crop_square_clip(img, centroid_voxel, result.shape[-2:], centroid_is_normalized=False))

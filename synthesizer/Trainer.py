@@ -137,21 +137,26 @@ def objective(trial: Trial, config: Configuration, dataset):
         )
 
     # 3. Start training of the model
-    train_losses, val_losses = train(model=model,
-                    train_loader=_anomaly_train_loader,
-                    val_loader=_anomaly_val_loader,
-                    config = config)
+    directory = os.path.join(config.study_folder, 'trained_models')
+    os.makedirs(directory, exist_ok=True)
+    best_model_path = os.path.join(directory, f"model_trial_{trial.number}_best.pth")
+
+    train_losses, val_losses, best_epoch, best_val = train(
+        model=model,
+        train_loader=_anomaly_train_loader,
+        val_loader=_anomaly_val_loader,
+        config=config,
+        best_model_path=best_model_path,
+    )
 
     for key, value in params.items():
         trial.set_user_attr(key, value)
 
-    # save trained model
-    directory = os.path.join(config.study_folder, 'trained_models')
-    os.makedirs(directory, exist_ok=True)
-
-    model_path = directory + f"/model_trial_{trial.number}.pth"
-    torch.save(model.state_dict(), model_path)
+    # save trained model (best epoch)
+    model_path = best_model_path
     trial.set_user_attr("model_path", model_path)
+    trial.set_user_attr("best_epoch", best_epoch)
+    trial.set_user_attr("best_val_loss", float(best_val))
     trial.set_user_attr("params", params)
     trial.set_user_attr("anomaly_size", config.anomaly_size)
     trial.set_user_attr("model_name", config.model_name)
@@ -160,7 +165,7 @@ def objective(trial: Trial, config: Configuration, dataset):
     return min(val_losses)
 
 
-def train(model, train_loader, val_loader, config):
+def train(model, train_loader, val_loader, config, *, best_model_path=None):
     """
     Train a model for up to `config.epochs` epochs using `model.fit_epoch(...)`.
 
@@ -184,11 +189,15 @@ def train(model, train_loader, val_loader, config):
 
     Outputs
     -------
-    (train_history, val_history):
+    (train_history, val_history, best_epoch, best_val):
         train_history: list[float]
             Per-epoch training loss (train_loss["total"]).
         val_history: list[float]
             Per-epoch validation loss (val_loss["total"]).
+        best_epoch: int
+            Epoch index (1-based) with the lowest validation loss.
+        best_val: float
+            Lowest validation loss observed.
 
     Side effects
     ------------
@@ -197,6 +206,8 @@ def train(model, train_loader, val_loader, config):
     """
     train_history = []
     val_history = []
+    best_epoch = 0
+    best_val = float("inf")
     log_template = "\nEpoch {ep:03d}: lr: {learning_rate:0.5f}, train_loss: {t_loss:0.4f}, val_loss {v_loss:0.4f}, val_recon {v_recon:0.4f}, val_kl {v_kl:0.4f}, val_recon_weighted {v_recon_w:0.4f}, val_kl_weighted {v_kl_w:0.4f}"
 
     with tqdm(desc="epoch", total=config.epochs) as pbar_outer:
@@ -223,6 +234,13 @@ def train(model, train_loader, val_loader, config):
             train_history.append(train_loss["total"])
             val_history.append(val_loss["total"])
 
+            # Track best epoch and optionally save best checkpoint
+            if val_loss["total"] < best_val:
+                best_val = float(val_loss["total"])
+                best_epoch = epoch + 1
+                if best_model_path is not None:
+                    torch.save(model.state_dict(), best_model_path)
+
             # update progress bar
             tqdm.write(log_template.format(ep=epoch + 1, learning_rate=scheduler.get_last_lr()[0], t_loss=train_loss["total"],
                                            v_loss=val_loss["total"], v_recon=val_loss["recon"], v_kl=val_loss["kl"], v_recon_w=val_loss["recon_weighted"], v_kl_w=val_loss["kl_weighted"]))
@@ -239,4 +257,4 @@ def train(model, train_loader, val_loader, config):
                 if early_stopping.early_stop:
                     print("Early stopping")
                     break
-    return train_history, val_history
+    return train_history, val_history, best_epoch, best_val

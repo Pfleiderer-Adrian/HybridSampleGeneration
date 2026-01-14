@@ -368,6 +368,10 @@ class Config:
         Beta (delta) parameter for SmoothL1.
     use_transpose_conv:
         If True, decoder uses ConvTranspose2d for upsampling. If False, uses Upsample+Conv2d.
+    fg_weight:
+        Foreground weight for reconstruction loss (background weight is 1.0).
+    fg_threshold:
+        Foreground threshold on |x| used to build the weighting mask.
     """
     n_res_blocks: int = 8
     n_levels: int = 4
@@ -385,7 +389,8 @@ class Config:
     recon_smoothl1_beta: float = 1.0
     # If True, decoder uses ConvTranspose2d for upsampling. If False, uses Upsample(bilinear)+Conv2d.
     use_transpose_conv: bool = True
-    use_transpose_conv: bool = True
+    fg_weight: float = 1.0
+    fg_threshold: float = 0.0
 
 
 class ResNetVAE2D(nn.Module):
@@ -582,16 +587,26 @@ class ResNetVAE2D(nn.Module):
         if loss_name in ("smoothl1", "huber", "smooth_l1"):
             beta = float(getattr(self.cfg, "recon_smoothl1_beta", 1.0))
             try:
-                recon_loss = F.smooth_l1_loss(recon, x, reduction="mean", beta=beta)
+                recon_per_pixel = F.smooth_l1_loss(recon, x, reduction="none", beta=beta)
             except TypeError:
                 # Older PyTorch without beta parameter
-                recon_loss = F.smooth_l1_loss(recon, x, reduction="mean")
+                recon_per_pixel = F.smooth_l1_loss(recon, x, reduction="none")
         elif loss_name in ("mse", "l2"):
-            recon_loss = F.mse_loss(recon, x, reduction="mean")
+            recon_per_pixel = (recon - x) ** 2
         else:
             raise ValueError(
                 f"Unknown cfg.recon_loss={self.cfg.recon_loss!r}. Supported: 'smoothl1' | 'mse'"
             )
+
+        # Foreground-weighted loss to reduce background dominance.
+        fg_weight = float(getattr(self.cfg, "fg_weight", 1.0))
+        fg_threshold = float(getattr(self.cfg, "fg_threshold", 0.0))
+        if fg_weight != 1.0:
+            fg_mask = (x.abs() > fg_threshold).float()
+            weights = torch.where(fg_mask > 0, fg_weight, 1.0)
+            recon_loss = (recon_per_pixel * weights).mean()
+        else:
+            recon_loss = recon_per_pixel.mean()
         # KL divergence term (mean over batch)
         kl = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
 

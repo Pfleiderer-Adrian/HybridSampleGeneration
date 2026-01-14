@@ -65,6 +65,8 @@ class Configuration:
         # synthesizer parameter
         self.min_anomaly_percentage = 0.05
         self.clamp01_output = False
+        self.normalization = "z-score"
+        self.normalization_eps = 1e-6
         self.matching_dict= {}
         self.syn_anomaly_transformations = {}
         self.background_threshold = None
@@ -108,6 +110,8 @@ class Configuration:
                 use_multires_skips = True,
                 recon_weight = 200.0,
                 beta_kl = 0.05,
+                fg_weight=10.0,
+                fg_threshold=-5.0,
                 use_transpose_conv = False))
             _VAE3D_max_params = asdict(VAE_ResNet_3D.Config(
                 n_res_blocks=5,
@@ -117,6 +121,8 @@ class Configuration:
                 use_multires_skips = True,
                 recon_weight = 300.0,
                 beta_kl = 0.1,
+                fg_weight=10.0,
+                fg_threshold=-5.0,
                 use_transpose_conv=False))
             self.model_params = {"min": _VAE3D_min_params, "max": _VAE3D_max_params}
 

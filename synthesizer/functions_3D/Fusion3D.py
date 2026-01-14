@@ -6,8 +6,35 @@ from skimage.feature import match_template
 from scipy.ndimage import binary_fill_holes
 
 
-def fusion3d(control_image, synth_anomaly_image, scale_factor, position_factor,
-             fusion_mask_params, background_threshold=None):
+def _denormalize_anomaly(anom, normalization_meta):
+    if not normalization_meta:
+        return anom
+
+    norm_type = normalization_meta.get("norm_type")
+    if norm_type == "zscore":
+        mean = normalization_meta.get("norm_mean")
+        std = normalization_meta.get("norm_std")
+        if mean is None or std is None:
+            return anom
+        return anom * float(std) + float(mean)
+    if norm_type == "zscore_median":
+        median = normalization_meta.get("norm_median")
+        mad = normalization_meta.get("norm_mad")
+        if median is None or mad is None:
+            return anom
+        return anom * float(mad) + float(median)
+
+    return anom
+
+
+def fusion3d(
+    control_image,
+    synth_anomaly_image,
+    anomaly_meta,
+    position_factor,
+    fusion_mask_params,
+    background_threshold=None,
+):
     """
     Fuse a synthetic anomaly into a control image/volume using alpha blending.
 
@@ -29,11 +56,12 @@ def fusion3d(control_image, synth_anomaly_image, scale_factor, position_factor,
     synth_anomaly_image:
         np.ndarray, shape (C, D, H, W)
         The synthetic anomaly cutout/volume.
-    scale_factor:
-        Either:
-          - scalar -> isotropic scale for (D,H,W)
-          - tuple/list of length 3 -> (scale_D, scale_H, scale_W)
-        Applied only to spatial axes (C unchanged).
+    anomaly_meta:
+        dict with metadata for this anomaly (typically from config.syn_anomaly_transformations[anomaly_basename]).
+        Must contain:
+          - "scale_factor": scalar or tuple/list of length 3
+        May contain normalization keys:
+          - "norm_type" and corresponding parameters (see _denormalize_anomaly).
     position_factor:
         Iterable length 3 (D,H,W), typically in [0,1]:
         Example: (0.5, 0.5, 0.5) inserts anomaly centered in the middle of the volume.
@@ -50,7 +78,6 @@ def fusion3d(control_image, synth_anomaly_image, scale_factor, position_factor,
         float or None.
         If None: defaults to min(anomaly) + 0.01.
         Used to decide what is foreground vs background in the anomaly.
-
     Outputs
     -------
     fused_image:
@@ -67,7 +94,15 @@ def fusion3d(control_image, synth_anomaly_image, scale_factor, position_factor,
     """
     # Ensure float32 for arithmetic stability (no copy if already float32)
     ctrl = control_image.astype(np.float32, copy=False)
+    if anomaly_meta is None:
+        raise ValueError("anomaly_meta must be provided (needs at least 'scale_factor').")
+
+    scale_factor = anomaly_meta.get("scale_factor")
+    if scale_factor is None:
+        raise ValueError("anomaly_meta is missing required key 'scale_factor'.")
+
     anom = synth_anomaly_image.astype(np.float32, copy=False)
+    anom = _denormalize_anomaly(anom, anomaly_meta)
 
     # Validate dimensionality (expects channel-first 3D volumes)
     if ctrl.ndim != 4 or anom.ndim != 4:

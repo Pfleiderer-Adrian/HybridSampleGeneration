@@ -92,6 +92,8 @@ class HybridDataGenerator:
             If True, apply random spatial offsets to anomaly cutouts after resize+pad.
         rng:
             Optional numpy random Generator for reproducible offsets.
+        Note:
+            Normalization is controlled via config.normalization and config.normalization_eps.
 
         Outputs
         -------
@@ -117,7 +119,9 @@ class HybridDataGenerator:
                     self._config.anomaly_size,
                     min_anomaly_percentage=self._config.min_anomaly_percentage,
                     random_offset=self._config.random_offset,
-                    rng=self._config.rng,
+                    rng=rng,
+                    normalization=self._config.normalization,
+                    normalization_eps=self._config.normalization_eps,
                 )
             elif img.ndim == 4:
                 anomalies, anomalies_roi = crop_and_center_anomaly_3d(
@@ -126,7 +130,9 @@ class HybridDataGenerator:
                     self._config.anomaly_size,
                     min_anomaly_percentage=self._config.min_anomaly_percentage,
                     random_offset=self._config.random_offset,
-                    rng=self._config.rng,
+                    rng=rng,
+                    normalization=self._config.normalization,
+                    normalization_eps=self._config.normalization_eps,
                 )
             else:
                 raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
@@ -434,10 +440,34 @@ class HybridDataGenerator:
         fusion_position = self._config.matching_dict[basename_of_control_sample]["position_factor"]
         synth_anomaly_image = self._synth_anomaly_dataset.load_numpy_by_basename(anomaly_basename)
 
+        anomaly_meta = self._config.syn_anomaly_transformations.get(anomaly_basename, {})
+
+        # Warn if user enabled normalization but transformations do not include normalization metadata.
+        if self._config.normalization is not None:
+            norm_type = anomaly_meta.get("norm_type", None)
+            if norm_type is None:
+                self._log_step(
+                    f"WARNING: config.normalization={self._config.normalization!r} but "
+                    f"no normalization metadata found for {anomaly_basename!r}. "
+                    f"Re-extract anomalies to populate norm_* fields (and re-generate synth anomalies)."
+                )
+
         if control_samples_array.ndim == 3:
-            img, seg = fusion2d(control_samples_array, synth_anomaly_image, self._config.syn_anomaly_transformations[anomaly_basename]["scale_factor"], fusion_position, self._config.fusion_mask_params)
+            img, seg = fusion2d(
+                control_samples_array,
+                synth_anomaly_image,
+                anomaly_meta,
+                fusion_position,
+                self._config.fusion_mask_params,
+            )
         elif control_samples_array.ndim == 4:
-            img, seg = fusion3d(control_samples_array, synth_anomaly_image, self._config.syn_anomaly_transformations[anomaly_basename]["scale_factor"], fusion_position, self._config.fusion_mask_params)
+            img, seg = fusion3d(
+                control_samples_array,
+                synth_anomaly_image,
+                anomaly_meta,
+                fusion_position,
+                self._config.fusion_mask_params,
+            )
         else:
             raise ValueError(f"Unexpected shape: {control_samples_array.shape}, Supported: (C, H, W) or (C, D, H, W)")
 
