@@ -77,7 +77,7 @@ class Configuration:
         self.val_ratio = 0.2
         self.batch_size = 32
         self.epochs = 40
-        self.lr = 1e-4
+        self.lr = 1e-3
         self.log_every = 50
         self.early_stopping = True
         self.early_stopping_params = {
@@ -98,20 +98,20 @@ class Configuration:
             _VAE3D_min_params = asdict(VAE_ResNet_3D.Config(
                 n_res_blocks=4,
                 n_levels=4,
-                z_channels=32,
-                bottleneck_dim=128,
+                z_channels=256,
+                bottleneck_dim=256,
                 use_multires_skips = True,
-                recon_weight = 50.0,
+                recon_weight = 100.0,
                 beta_kl = 0.1,
                 use_transpose_conv = False))
             _VAE3D_max_params = asdict(VAE_ResNet_3D.Config(
                 n_res_blocks=5,
                 n_levels=5,
-                z_channels=64,
-                bottleneck_dim=256,
+                z_channels=512,
+                bottleneck_dim=512,
                 use_multires_skips = True,
-                recon_weight = 100.0,
-                beta_kl = 0.5,
+                recon_weight = 200.0,
+                beta_kl = 0.2,
                 use_transpose_conv=False))
             self.model_params = {"min": _VAE3D_min_params, "max": _VAE3D_max_params}
 

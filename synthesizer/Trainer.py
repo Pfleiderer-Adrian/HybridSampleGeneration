@@ -197,7 +197,7 @@ def train(model, train_loader, val_loader, config):
     """
     train_history = []
     val_history = []
-    log_template = "\nEpoch {ep:03d} lr: {learning_rate:0.5f} train_loss: {t_loss:0.4f} val_loss {v_loss:0.4f}"
+    log_template = "\nEpoch {ep:03d}: lr: {learning_rate:0.5f}, train_loss: {t_loss:0.4f}, val_loss {v_loss:0.4f}, val_recon {v_recon:0.4f}, val_kl {v_kl:0.4f}, val_recon_weighted {v_recon_w:0.4f}, val_kl_weighted {v_kl_w:0.4f}"
 
     with tqdm(desc="epoch", total=config.epochs) as pbar_outer:
 
@@ -225,7 +225,7 @@ def train(model, train_loader, val_loader, config):
 
             # update progress bar
             tqdm.write(log_template.format(ep=epoch + 1, learning_rate=scheduler.get_last_lr()[0], t_loss=train_loss["total"],
-                                           v_loss=val_loss["total"]))
+                                           v_loss=val_loss["total"], v_recon=val_loss["recon"], v_kl=val_loss["kl"], v_recon_w=val_loss["recon_weighted"], v_kl_w=val_loss["kl_weighted"]))
             pbar_outer.set_postfix(lr=f"{scheduler.get_last_lr()[0]:.5f}", t_loss=f"{val_loss["total"]:.4f}", v_loss=f"{val_loss["total"]:.4f}")
             pbar_outer.update(1)
 
@@ -235,7 +235,7 @@ def train(model, train_loader, val_loader, config):
 
             # Early stopping
             if config.early_stopping:
-                early_stopping(train_loss["total"], model)
+                early_stopping(val_loss["total"], model)
                 if early_stopping.early_stop:
                     print("Early stopping")
                     break

@@ -625,8 +625,11 @@ class ResNetVAE3D(nn.Module):
         # KL divergence term (mean over batch)
         kl = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
 
-        total = self.cfg.recon_weight * recon_loss + self.cfg.beta_kl * kl
-        return {"total": total, "recon": recon_loss, "kl": kl}
+        recon_weighted = self.cfg.recon_weight * recon_loss
+        kl_weighted = self.cfg.beta_kl * kl
+
+        total = recon_weighted + kl_weighted
+        return {"total": total, "recon": recon_loss, "kl": kl, "recon_weighted": recon_weighted, "kl_weighted": kl_weighted}
 
     def _extract_x(self, batch) -> torch.Tensor:
         """
@@ -727,7 +730,7 @@ class ResNetVAE3D(nn.Module):
             model.train(training)
 
             # Accumulators for averaged metrics
-            run = {"total": 0.0, "recon": 0.0, "kl": 0.0}
+            run = {"total": 0.0, "recon": 0.0, "kl": 0.0, "recon_weighted":0.0, "kl_weighted":0.0}
             n = 0
 
             # Progress bar over batches
