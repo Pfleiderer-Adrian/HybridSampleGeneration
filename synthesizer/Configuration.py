@@ -101,7 +101,7 @@ class Configuration:
                 z_channels=32,
                 bottleneck_dim=128,
                 use_multires_skips = True,
-                recon_weight = 50,
+                recon_weight = 50.0,
                 beta_kl = 0.1,
                 use_transpose_conv = False))
             _VAE3D_max_params = asdict(VAE_ResNet_3D.Config(
@@ -110,7 +110,7 @@ class Configuration:
                 z_channels=64,
                 bottleneck_dim=256,
                 use_multires_skips = True,
-                recon_weight = 100,
+                recon_weight = 100.0,
                 beta_kl = 0.5,
                 use_transpose_conv=False))
             self.model_params = {"min": _VAE3D_min_params, "max": _VAE3D_max_params}
@@ -123,7 +123,7 @@ class Configuration:
                 z_channels=32,
                 bottleneck_dim=64,
                 use_multires_skips = False,
-                recon_weight = 5,
+                recon_weight = 5.0,
                 beta_kl = 0.1,
                 use_transpose_conv=False))
             _VAE2D_max_params = asdict(VAE_ResNet_2D.Config(
@@ -132,7 +132,7 @@ class Configuration:
                 z_channels=64,
                 bottleneck_dim=128,
                 use_multires_skips = False,
-                recon_weight = 100,
+                recon_weight = 100.0,
                 beta_kl = 0.5,
                 use_transpose_conv=False))
             self.model_params = {"min": _VAE2D_min_params, "max": _VAE2D_max_params}
