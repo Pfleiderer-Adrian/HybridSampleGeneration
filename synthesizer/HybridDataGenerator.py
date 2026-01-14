@@ -53,6 +53,9 @@ class HybridDataGenerator:
         self._synth_anomaly_dataset = None
         self._model = None
 
+    def _log_step(self, message: str) -> None:
+        print(f"[HybridDataGenerator] {message}")
+
     def extract_anomalies(self, sample_dataloader:Iterator[Tuple[np.ndarray, np.ndarray, str]], save_folder=None, save_folder_roi=None):
         """
         Extract anomaly cutouts (and anomaly ROIs) from samples that contain anomalies.
@@ -85,6 +88,7 @@ class HybridDataGenerator:
         None
             Side effects: writes .npy files, updates config transformation file, sets self._anomaly_dataset.
         """
+        self._log_step("Step 1/9: Extracting anomaly cutouts and ROI samples.")
         if save_folder is None:
             save_folder = os.path.join(self._config.study_folder, "anomaly_data")
         if save_folder_roi is None:
@@ -133,6 +137,7 @@ class HybridDataGenerator:
         None
             Side effects: sets self._anomaly_dataset and loads config transformations into memory.
         """
+        self._log_step("Step 2/9: Loading anomaly dataset.")
         if anomaly_folder is None:
             anomaly_folder = os.path.join(self._config.study_folder, "anomaly_data")
         self._anomaly_dataset = AnomalyDataset(
@@ -158,6 +163,7 @@ class HybridDataGenerator:
         None
             Side effects: writes Optuna study DB, writes model weights, sets self._model.
         """
+        self._log_step("Step 3/9: Training generator model (with Optuna optimization).")
         if self._anomaly_dataset is None:
             raise ValueError(f"No Anomalies Loaded: Run extract_anomalies or load_anomalies first")
         else:
@@ -184,6 +190,7 @@ class HybridDataGenerator:
         None
             Side effects: sets self._model and loads its weights.
         """
+        self._log_step("Step 4/9: Loading trained generator model.")
         if path_to_db_file is None:
             path_to_db_model = "sqlite:///" + str(os.path.join(self._config.study_folder, self._config.study_name + ".db"))  # Speicherort der Datenbank
         else:
@@ -193,7 +200,6 @@ class HybridDataGenerator:
             study_name=self._config.study_name,  # Name der Studie
             storage=path_to_db_model
         )
-        print(study.user_attrs)
 
         t = None
         if trial_id == -1:
@@ -204,6 +210,8 @@ class HybridDataGenerator:
                 if ts.number == trial_id:
                     t = ts
                     break
+        
+        print(t.user_attrs)
 
         # load model from study
         params = t.user_attrs['params']
@@ -237,6 +245,7 @@ class HybridDataGenerator:
         None
             Side effects: writes synthetic .npy files and sets self._synth_anomaly_dataset via load_synth_anomalies().
         """
+        self._log_step("Step 5/9: Generating synthetic anomalies.")
         if self._anomaly_dataset is None:
             raise ValueError(f"No Anomalies Loaded: Run extract_anomalies or load_anomalies first")
         if self._model is None:
@@ -269,6 +278,7 @@ class HybridDataGenerator:
         None
             Side effects: sets self._synth_anomaly_dataset and loads transformation meta-data into config.
         """
+        self._log_step("Step 6/9: Loading synthetic anomalies and transformation metadata.")
         if synth_anomaly_folder is None:
             synth_anomaly_folder = os.path.join(self._config.study_folder, "synth_anomaly_data")
         if transformation_file is None:
@@ -315,6 +325,7 @@ class HybridDataGenerator:
         None
             Side effects: writes CSV and populates self._config.matching_dict.
         """
+        self._log_step("Step 7/9: Creating matching dictionary between controls and anomalies.")
         if self._synth_anomaly_dataset is None:
             raise ValueError(f"No Synth Anomalies Loaded: Run generate_synth_anomalies or load_synth_anomalies first")
         if roi_folder is None:
@@ -356,6 +367,7 @@ class HybridDataGenerator:
         None
             Side effects: updates self._config.matching_dict.
         """
+        self._log_step("Step 8/9 :Loading matching dictionary.")
         if csv_file_path is None:
             csv_file_path = os.path.join(self._config.study_folder, "matching_dict.csv")
         self._config.load_matching_csv(csv_file_path)
