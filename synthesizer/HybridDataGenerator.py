@@ -56,7 +56,13 @@ class HybridDataGenerator:
     def _log_step(self, message: str) -> None:
         print(f"[HybridDataGenerator] {message}")
 
-    def extract_anomalies(self, sample_dataloader:Iterator[Tuple[np.ndarray, np.ndarray, str]], save_folder=None, save_folder_roi=None):
+    def extract_anomalies(
+        self,
+        sample_dataloader: Iterator[Tuple[np.ndarray, np.ndarray, str]],
+        save_folder=None,
+        save_folder_roi=None,
+        rng=None,
+    ):
         """
         Extract anomaly cutouts (and anomaly ROIs) from samples that contain anomalies.
 
@@ -82,6 +88,10 @@ class HybridDataGenerator:
         save_folder_roi:
             Folder for saving anomaly ROI cutouts (.npy). If None:
             "<study_folder>/anomaly_roi_data"
+        random_offset:
+            If True, apply random spatial offsets to anomaly cutouts after resize+pad.
+        rng:
+            Optional numpy random Generator for reproducible offsets.
 
         Outputs
         -------
@@ -101,9 +111,23 @@ class HybridDataGenerator:
                 continue
 
             if img.ndim == 3:
-                anomalies, anomalies_roi = crop_and_center_anomaly_2d(img, seg, self._config.anomaly_size, min_anomaly_percentage=self._config.min_anomaly_percentage)
+                anomalies, anomalies_roi = crop_and_center_anomaly_2d(
+                    img,
+                    seg,
+                    self._config.anomaly_size,
+                    min_anomaly_percentage=self._config.min_anomaly_percentage,
+                    random_offset=self._config.random_offset,
+                    rng=self._config.rng,
+                )
             elif img.ndim == 4:
-                anomalies, anomalies_roi = crop_and_center_anomaly_3d(img, seg, self._config.anomaly_size, min_anomaly_percentage=self._config.min_anomaly_percentage)
+                anomalies, anomalies_roi = crop_and_center_anomaly_3d(
+                    img,
+                    seg,
+                    self._config.anomaly_size,
+                    min_anomaly_percentage=self._config.min_anomaly_percentage,
+                    random_offset=self._config.random_offset,
+                    rng=self._config.rng,
+                )
             else:
                 raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
 

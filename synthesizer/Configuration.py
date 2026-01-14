@@ -2,7 +2,7 @@ import json
 from dataclasses import asdict
 
 import pandas as pd
-
+import numpy as np
 from models import VAE_ResNet_3D, VAE_ResNet_2D
 import os
 import jsonpickle
@@ -54,10 +54,15 @@ class Configuration:
             self.study_folder = os.path.join(os.path.join(os.getcwd(),"results"), study_name)
         else:
             self.study_folder = os.path.join(os.path.join(save_path,"results"), study_name)
+        # rng for persitence
+        self.rng = np.random.default_rng(42)
 
+
+        # anomaly extraction parameter
+        self.anomaly_size = anomaly_size
+        self.random_offset = True
 
         # synthesizer parameter
-        self.anomaly_size = anomaly_size
         self.min_anomaly_percentage = 0.05
         self.clamp01_output = False
         self.matching_dict= {}
@@ -81,12 +86,12 @@ class Configuration:
         self.log_every = 50
         self.early_stopping = True
         self.early_stopping_params = {
-            "patience": 20,
+            "patience": 25,
             "delta": 0.0001
         }
         self.lr_scheduler = True
         self.lr_scheduler_params = {
-            "patience": 10,
+            "patience": 15,
             "factor": 0.1,
             "threshold": 1e-5,
         }
@@ -98,20 +103,20 @@ class Configuration:
             _VAE3D_min_params = asdict(VAE_ResNet_3D.Config(
                 n_res_blocks=4,
                 n_levels=4,
-                z_channels=256,
-                bottleneck_dim=256,
+                z_channels=32,
+                bottleneck_dim=128,
                 use_multires_skips = True,
-                recon_weight = 100.0,
-                beta_kl = 0.1,
+                recon_weight = 200.0,
+                beta_kl = 0.05,
                 use_transpose_conv = False))
             _VAE3D_max_params = asdict(VAE_ResNet_3D.Config(
                 n_res_blocks=5,
                 n_levels=5,
-                z_channels=512,
-                bottleneck_dim=512,
+                z_channels=64,
+                bottleneck_dim=256,
                 use_multires_skips = True,
-                recon_weight = 200.0,
-                beta_kl = 0.2,
+                recon_weight = 300.0,
+                beta_kl = 0.1,
                 use_transpose_conv=False))
             self.model_params = {"min": _VAE3D_min_params, "max": _VAE3D_max_params}
 

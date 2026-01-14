@@ -2,7 +2,7 @@ import numpy as np
 from scipy.ndimage import zoom, label, find_objects, center_of_mass
 
 
-def resize_and_pad_2d(arr, target_size, order=1):
+def resize_and_pad_2d(arr, target_size, order=1, *, random_offset=False, rng=None):
     """
     Resize (downscale only) and center-pad a 3D tensor (C, H, W) to a target spatial size.
 
@@ -10,6 +10,7 @@ def resize_and_pad_2d(arr, target_size, order=1):
     - Only *downscales* if an input spatial dimension exceeds the target (scale factor < 1).
     - Never upscales (scale factors are capped at 1.0).
     - Pads with the minimum value of `arr` to keep background consistent.
+    - If random_offset=True, distributes padding asymmetrically to randomize anomaly placement.
     - Returns the padded array cropped to exactly (C, tH, tW).
 
     Inputs
@@ -20,6 +21,10 @@ def resize_and_pad_2d(arr, target_size, order=1):
         Target spatial size (tH, tW).
     order:
         Interpolation order for scipy.ndimage.zoom (1=linear).
+    random_offset:
+        If True, apply a random spatial offset by using asymmetric padding.
+    rng:
+        Optional numpy random Generator for reproducible offsets.
 
     Outputs
     -------
@@ -47,8 +52,20 @@ def resize_and_pad_2d(arr, target_size, order=1):
         arr = zoom(arr, (1.0, scale_spatial[0], scale_spatial[1]), order=order)
 
     _, h2, w2 = arr.shape
-    pad_h = (max((tH - h2) // 2, 0), max((tH - h2) - (tH - h2) // 2, 0))
-    pad_w = (max((tW - w2) // 2, 0), max((tW - w2) - (tW - w2) // 2, 0))
+    pad_total_h = max(tH - h2, 0)
+    pad_total_w = max(tW - w2, 0)
+
+    if random_offset:
+        if rng is None:
+            rng = np.random.default_rng()
+        pad_h0 = int(rng.integers(0, pad_total_h + 1))
+        pad_w0 = int(rng.integers(0, pad_total_w + 1))
+    else:
+        pad_h0 = pad_total_h // 2
+        pad_w0 = pad_total_w // 2
+
+    pad_h = (pad_h0, pad_total_h - pad_h0)
+    pad_w = (pad_w0, pad_total_w - pad_w0)
 
     pad_widths = ((0, 0), pad_h, pad_w)
 
@@ -152,7 +169,16 @@ def _spatial_target_size(target_size):
     raise ValueError(f"target_size must be (H,W) or (C,H,W). Got {target_size}")
 
 
-def crop_and_center_anomaly_2d(img, seg, target_size, min_anomaly_percentage=0.05, separated_anomaly=True):
+def crop_and_center_anomaly_2d(
+    img,
+    seg,
+    target_size,
+    min_anomaly_percentage=0.05,
+    separated_anomaly=True,
+    *,
+    random_offset=False,
+    rng=None,
+):
     """
     Extract connected anomaly regions from a 2D segmentation mask and return:
       - normalized-size anomaly cutouts (C, tH, tW) via resize+pad
@@ -181,6 +207,10 @@ def crop_and_center_anomaly_2d(img, seg, target_size, min_anomaly_percentage=0.0
     min_region_pixels:
         Minimum number of pixels for a connected component to be kept.
         If <=0, defaults to 5% of the target crop area.
+    random_offset:
+        If True, apply random spatial offsets to anomaly cutouts after resize+pad.
+    rng:
+        Optional numpy random Generator for reproducible offsets.
 
     Returns
     -------
@@ -247,7 +277,13 @@ def crop_and_center_anomaly_2d(img, seg, target_size, min_anomaly_percentage=0.0
         centroid_voxel = (int(round(ch)), int(round(cw)))
         centroid_norm = (centroid_voxel[0] / H, centroid_voxel[1] / W)
 
-        padded_arr, scale_factor = resize_and_pad_2d(result, target_size=target_size, order=1)
+        padded_arr, scale_factor = resize_and_pad_2d(
+            result,
+            target_size=target_size,
+            order=1,
+            random_offset=random_offset,
+            rng=rng,
+        )
         scale_factor = tuple(round(float(ele), 4) for ele in scale_factor)
 
         label_tmp = float(np.max(seg).round(0))
