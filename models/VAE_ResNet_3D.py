@@ -635,7 +635,7 @@ class ResNetVAE3D(nn.Module):
         fg_weight = float(getattr(self.cfg, "fg_weight", 1.0))
         fg_threshold = float(getattr(self.cfg, "fg_threshold", 0.0))
         if fg_weight != 1.0:
-            fg_mask = (x.abs() > fg_threshold).float()
+            fg_mask = (x > fg_threshold).float()
             weights = torch.where(fg_mask > 0, fg_weight, 1.0)
             recon_loss = (recon_per_voxel * weights).mean()
         else:

@@ -240,7 +240,8 @@ class HybridDataGenerator:
                 if ts.number == trial_id:
                     t = ts
                     break
-        
+        print()
+        print("Loaded Model Number: "+str(t.number))
         print(t.user_attrs)
 
         # load model from study
