@@ -201,8 +201,8 @@ def _spatial_target_size(target_size):
 def crop_and_center_anomaly_2d(
     img,
     seg,
+    config,
     target_size,
-    min_anomaly_percentage=0.05,
     separated_anomaly=True,
     *,
     random_offset=False,
@@ -296,7 +296,7 @@ def crop_and_center_anomaly_2d(
     anomalies = []
     anomalies_roi = []
 
-    min_region_pixels = int(min_anomaly_percentage* (target_size[0] * target_size[1]))
+    min_region_pixels = int(config.min_anomaly_percentage * (target_size[0] * target_size[1]))
 
     for ridx, region in enumerate(regions, start=1):
         if region is None:
@@ -340,8 +340,9 @@ def crop_and_center_anomaly_2d(
         }
         meta_data.update(norm_meta)
 
-        #size_spatial = tuple(max(1, s + 10) for s in result.shape[-2:])
-        anomalies_roi.append(crop_square_clip(img, centroid_voxel, result.shape[-2:], centroid_is_normalized=False))
+        size_spatial = [int(s + max(mp, s * pr)) for s, mp, pr in zip(result.shape[-2:], config.min_pad, config.pad_ratio)]
+
+        anomalies_roi.append(crop_square_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False))
 
         anomalies.append((padded_arr, meta_data))
 
