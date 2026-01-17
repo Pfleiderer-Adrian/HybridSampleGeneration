@@ -132,7 +132,7 @@ class HybridDataGenerator:
                     random_offset=self._config.random_offset,
                     rng=rng,
                     normalization=self._config.normalization,
-                    normalization_eps=self._config.normalization_eps
+                    normalization_eps=self._config.normalization_eps,
                 )
             else:
                 raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
