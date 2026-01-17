@@ -86,26 +86,66 @@ def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, ma
     # ------------------------------------------------------------
     if matching_routine == "local":
         i = 0
+        skipped_rois = {}   # want no duplicates here
         for control, _, control_filename, *ignored in tqdm(control_sample_dataloader):
             highest_sim_position_factor = None
 
-            # Stop if ROI dataset is exhausted
+            # always check previously skipped rois first for new control
+            for roi_filename, roi in skipped_rois.items():
+                sim, opt_center = template_matching(roi, control)
+                if sim >= -1:
+                    highest_sim_position_factor = (
+                            (np.array((1,) + opt_center) / np.array(control.shape)).astype(float).tolist()
+                        )
+                    matching_data.append([control_filename, roi_filename, highest_sim_position_factor])
+                    skipped_rois.pop(roi_filename)
+                    break
+            
+            # go to next control sample if match was found in skipped_rois
+            if highest_sim_position_factor is not None:
+                continue
+
+            # if no match was found load new roi
             if i >= roi_dataloader.__len__():
                 if anomaly_duplicates:
                     i = 0
                     roi, roi_filename = roi_dataloader[i]
-                    i += 1
+
                 else:
-                    break
+                    if skipped_rois:
+                        continue    # check if skipped rois fit in another control
+                    else: 
+                        break   # done, no roi left to match
             else:
                 roi, roi_filename = roi_dataloader[i]
-                i += 1
+            
+            i_start = i
+            i += 1
 
             if roi_filename is not None:
                 # Only compute match if ROI not excluded (list is empty in this routine by default)
                 if roi_filename not in excluded_roi_sample_names:
                     sim, opt_center = template_matching(roi, control)
+                    # while roi doesn't fit in control try next roi
+                    while sim < -1:
+                        if i >= roi_dataloader.__len__():
+                            if anomaly_duplicates:
+                                i = 0
+                            else:
+                                break   # no more rois to check (break for anomaly_duplicates=False)
+                        if i == i_start:
+                            break   # break after checking every roi once (break for anomaly_duplicates=True)
+                        skipped_rois[roi_filename] = roi
+                        roi, roi_filename = roi_dataloader[i]
+                        i += 1
+                        
+                        sim, opt_center = template_matching(roi, control)
 
+                    # no match possible for current control
+                    if sim < -1:
+                        continue
+
+                    # found match
                     # Convert center (slice,row,col) to normalized position factor.
                     # NOTE: The original code prepends (1,) then divides by control.shape.
                     # This implies control.shape likely includes a leading channel dimension.
@@ -119,6 +159,7 @@ def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, ma
     # Routine: global (search best ROI for each control; avoid reusing ROI)
     # ------------------------------------------------------------
     if matching_routine == "global":
+        skipped_controls = []
         for control, _, control_filename, *ignored in control_sample_dataloader:
             highest_sim = -np.inf
             highest_sim_roi_name = None
@@ -127,6 +168,8 @@ def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, ma
             for roi, roi_filename in tqdm(roi_dataloader):
                 if roi_filename in excluded_roi_sample_names:
                     continue
+                if anomaly_duplicates and len(excluded_roi_sample_names) == roi_dataloader.__len__():
+                    excluded_roi_sample_names = []
 
                 sim, opt_center = template_matching(roi, control)
 
@@ -139,9 +182,32 @@ def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, ma
             
             if highest_sim_roi_name is None:
                 raise RuntimeError(f"No match found for {control_filename}")
+            
+            # no matching template in remaining rois
+            if highest_sim < -1:
+                skipped_controls.append((control, control_filename))
+                continue
 
             matching_data.append([control_filename, highest_sim_roi_name, highest_sim_position_factor])
             excluded_roi_sample_names.append(highest_sim_roi_name)
+
+        if anomaly_duplicates and skipped_controls:
+            # try to find matches for skipped controls
+            for control, control_name in tqdm(skipped_controls):
+                # try all rois (no exclusion)
+                highest_sim = -np.inf
+                highest_sim_roi_name = None
+                highest_sim_position_factor = None
+
+                for roi, roi_filename in roi_dataloader:
+                    sim, opt_center = template_matching(roi, control)
+                    if sim > highest_sim:
+                        highest_sim = sim
+                        highest_sim_roi_name = roi_filename
+                        highest_sim_position_factor = (np.array((1,) + opt_center) / np.array(control.shape)).astype(float).tolist()
+                    
+                if highest_sim_roi_name is not None and highest_sim >= -1:
+                    matching_data.append([control_name, highest_sim_roi_name, highest_sim_position_factor])
 
     return matching_data
 
@@ -179,6 +245,10 @@ def template_matching(template, control):
     template = np.squeeze(template)
     control = np.squeeze(control)
 
+    # Check if template fits in control sample
+    if any(t_dim > c_dim for t_dim, c_dim in zip(template.shape, control.shape)):
+        return -2, None
+    
     # Compute correlation map (same dimensionality as control minus template extents)
     result = match_template(control, template)
 
