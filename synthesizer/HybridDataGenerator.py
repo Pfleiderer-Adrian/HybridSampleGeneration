@@ -459,7 +459,7 @@ class HybridDataGenerator:
                 synth_anomaly_image,
                 anomaly_meta,
                 fusion_position,
-                self._config.fusion_mask_params,
+                self._config,
             )
         elif control_samples_array.ndim == 4:
             img, seg = fusion3d(
@@ -467,7 +467,7 @@ class HybridDataGenerator:
                 synth_anomaly_image,
                 anomaly_meta,
                 fusion_position,
-                self._config.fusion_mask_params,
+                self._config,
             )
         else:
             raise ValueError(f"Unexpected shape: {control_samples_array.shape}, Supported: (C, H, W) or (C, D, H, W)")
