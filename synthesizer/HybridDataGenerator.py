@@ -8,6 +8,8 @@ import pandas as pd
 import torch
 
 from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
+from models.VAE_ConvNeXt_2D import ConvNeXtVAE2D
+from models.VAE_ConvNeXt_3D import ConvNeXtVAE3D
 from models.VAE_ResNet_2D import ResNetVAE2D
 from models.VAE_ResNet_3D import ResNetVAE3D, Config
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
@@ -252,6 +254,10 @@ class HybridDataGenerator:
             self._model = ResNetVAE3D(anomaly_size[0], Config(**params))
         elif model_name == "VAE_ResNet_2D":
             self._model = ResNetVAE2D(anomaly_size[0], Config(**params))
+        elif model_name == "VAE_ConvNeXt_3D":
+            self._model = ConvNeXtVAE3D(anomaly_size[0], Config(**params))
+        elif model_name == "VAE_ConvNeXt_2D":
+            self._model = ConvNeXtVAE2D(anomaly_size[0], Config(**params))
         else:
             raise ValueError(f"Unknown model: {model_name}")
         self._model.warmup(self._config.anomaly_size)
@@ -398,7 +404,7 @@ class HybridDataGenerator:
         None
             Side effects: updates self._config.matching_dict.
         """
-        self._log_step("Step 8/9 :Loading matching dictionary.")
+        self._log_step("Step 8/9: Loading matching dictionary.")
         if csv_file_path is None:
             csv_file_path = os.path.join(self._config.study_folder, "matching_dict.csv")
         self._config.load_matching_csv(csv_file_path)

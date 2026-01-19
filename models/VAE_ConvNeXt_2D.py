@@ -583,7 +583,7 @@ class ConvNeXtVAE2D(nn.Module):
         sample: Union[np.ndarray, torch.Tensor],
         *,
         n: int = 1,
-        s: float = 0.3,
+        s: float = 0.1,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
         return_torch: bool = False,
@@ -674,6 +674,7 @@ class ConvNeXtVAE2D(nn.Module):
 
             if single:
                 recon = recon.squeeze(0)  # (n,C,H,W)
+                recon = recon.squeeze(0)  # (C,H,W)
 
         if return_torch:
             return recon

@@ -337,7 +337,7 @@ def get_alpha_mask_sobel_final(anomaly_arr, config, background_threshold):
     # ------------------------------------------------------------
     # Build structuring elements for morphology operations
     # ------------------------------------------------------------
-    dilation_size = config["dilation_size"]
+    dilation_size = config.fusion_mask_params["dilation_size"]
 
     # Circular 2D structuring element ("round brush") used to close gaps
     y, x = np.ogrid[-dilation_size: dilation_size + 1, -dilation_size: dilation_size + 1]
@@ -366,7 +366,7 @@ def get_alpha_mask_sobel_final(anomaly_arr, config, background_threshold):
             grad_mag /= grad_mag.max()
 
         # Edge mask = pixels with gradient magnitude above threshold
-        edge_mask = grad_mag > config["sobel_threshold"]
+        edge_mask = grad_mag > config.fusion_mask_params["sobel_threshold"]
 
         # ------------------------------------------------------------
         # 2) Close gaps and fill the interior
@@ -380,7 +380,7 @@ def get_alpha_mask_sobel_final(anomaly_arr, config, background_threshold):
         # ------------------------------------------------------------
         # 3) Optional "shaving" to remove boundary pixels (reduce blending artifacts)
         # ------------------------------------------------------------
-        shave_pixels = config["shave_pixels"]
+        shave_pixels = config.fusion_mask_params["shave_pixels"]
         if shave_pixels > 0:
             shaved_mask = scipy.ndimage.binary_erosion(
                 restored_mask, structure=struct_shave, iterations=shave_pixels
@@ -402,7 +402,7 @@ def get_alpha_mask_sobel_final(anomaly_arr, config, background_threshold):
         # ------------------------------------------------------------
         # 4) Distance transform to create smooth interior weights
         # ------------------------------------------------------------
-        upsampling_factor = config["upsampling_factor"]
+        upsampling_factor = config.fusion_mask_params["upsampling_factor"]
 
         if upsampling_factor > 1:
             # Upsample mask for smoother distance transform, then downsample
