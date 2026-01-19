@@ -64,6 +64,8 @@ class Configuration:
 
         # synthesizer parameter
         self.min_anomaly_percentage = 0.05
+        self.min_pad = (2, 2, 2)    # just use first two values for 2d
+        self.pad_ratio = (0.2, 0.2, 0.2)
         self.clamp01_output = False
         self.normalization = "z-score"
         self.normalization_eps = 1e-6
