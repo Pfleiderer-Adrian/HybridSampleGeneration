@@ -24,7 +24,7 @@ dataloader_samples_without_anomalies = NiftiDataloader(path_to_control_img, path
 if __name__ == "__main__":
 
     # define a basic configuration
-    config = Configuration("brain_T1", "VAE_ResNet_3D", (1, 32, 96, 96))
+    config = Configuration("brain_T1", "VAE_ConvNeXt_3D", (1, 32, 96, 96))
 
     HDG = HybridDataGenerator(config)
     # 1) Extract anomaly cutouts + ROI cutouts from anomaly-labeled samples

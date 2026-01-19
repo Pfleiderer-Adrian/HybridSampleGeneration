@@ -7,6 +7,8 @@ from tqdm import tqdm
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from early_stopping_pytorch import EarlyStopping
 
+from models.VAE_ConvNeXt_2D import ConvNeXtVAE2D
+from models.VAE_ConvNeXt_3D import ConvNeXtVAE3D
 from models.VAE_ResNet_2D import ResNetVAE2D
 from models.VAE_ResNet_3D import ResNetVAE3D, Config
 from synthesizer.Configuration import Configuration
@@ -110,6 +112,10 @@ def objective(trial: Trial, config: Configuration, dataset):
         model = ResNetVAE3D(config.anomaly_size[0], Config(**params))
     elif config.model_name == "VAE_ResNet_2D":
         model = ResNetVAE2D(config.anomaly_size[0], Config(**params))
+    elif config.model_name == "VAE_ConvNeXt_3D":
+        model = ConvNeXtVAE3D(config.anomaly_size[0], Config(**params))
+    elif config.model_name == "VAE_ConvNeXt_2D":
+        model = ConvNeXtVAE2D(config.anomaly_size[0], Config(**params))
     else:
         raise ValueError(f"Unknown model: {config.model_name}")
 
