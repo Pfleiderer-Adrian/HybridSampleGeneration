@@ -116,8 +116,8 @@ class HybridDataGenerator:
                 anomalies, anomalies_roi = crop_and_center_anomaly_2d(
                     img,
                     seg,
+                    self._config,
                     self._config.anomaly_size,
-                    min_anomaly_percentage=self._config.min_anomaly_percentage,
                     random_offset=self._config.random_offset,
                     rng=rng,
                     normalization=self._config.normalization,
@@ -127,8 +127,8 @@ class HybridDataGenerator:
                 anomalies, anomalies_roi = crop_and_center_anomaly_3d(
                     img,
                     seg,
+                    self._config,
                     self._config.anomaly_size,
-                    min_anomaly_percentage=self._config.min_anomaly_percentage,
                     random_offset=self._config.random_offset,
                     rng=rng,
                     normalization=self._config.normalization,
