@@ -32,7 +32,7 @@ def fusion3d(
     synth_anomaly_image,
     anomaly_meta,
     position_factor,
-    fusion_mask_params,
+    config,
     background_threshold=None,
 ):
     """
@@ -228,7 +228,7 @@ def fusion3d(
     # 10) Create alpha mask from per-slice Sobel+distance transform mask (edge-aware)
     # ------------------------------------------------------------
     alpha_mask = get_alpha_mask_sobel_final(
-        anom_proj, fusion_mask_params, background_threshold
+        anom_proj, config, background_threshold
     )  # (d,h,w)
 
     # Broadcast alpha from (d,h,w) to (1,d,h,w); it will broadcast across channels during blending
@@ -308,6 +308,29 @@ def get_alpha_mask_sobel_final(anomaly_arr, config, background_threshold):
         np.ndarray, shape (D, H, W), dtype float32
         Values are in [0, max_alpha] inside anomaly area, 0 outside.
     """
+
+    max_alpha = config.fusion_mask_params["max_alpha"]
+    sq = config.fusion_mask_params["sq"]
+    steepness_factor = config.fusion_mask_params["steepness_factor"]
+
+    # add seed if you want it reproducible
+    if config.fusion_variation:
+        # max alpha
+        std_alpha = config.fusion_variation_params["alpha_variation"] / config.confidence_z_score
+        sampled_alpha = np.random.normal(max_alpha, std_alpha)
+        max_alpha = float(np.clip(sampled_alpha, 0.0, 1.0))
+
+        # sq
+        std_sq = config.fusion_variation_params["sq_variation"] / config.confidence_z_score
+        sampled_sq = np.random.normal(sq, std_sq)
+        sq = float(np.maximum(0.1, sampled_sq))
+
+        # steepness
+        std_steepness = config.fusion_variation_params["steepness_variation"] / config.confidence_z_score
+        sampled_steepness = np.random.normal(steepness_factor, std_steepness)
+        steepness_factor = float(np.maximum(0.1, sampled_steepness))
+    
+
     # Initialize alpha mask volume
     alpha_mask = np.zeros_like(anomaly_arr, dtype=np.float32)
 
@@ -397,9 +420,9 @@ def get_alpha_mask_sobel_final(anomaly_arr, config, background_threshold):
         # ------------------------------------------------------------
         # 5) Apply shaping parameters to control falloff and maximum alpha
         # ------------------------------------------------------------
-        dist_map *= config["steepness_factor"]
+        dist_map *= steepness_factor
         dist_map = np.clip(dist_map, 0, 1.0)
-        dist_map = (dist_map ** config["sq"]) * config["max_alpha"]
+        dist_map = (dist_map ** sq) * max_alpha
 
         # Enforce zero outside the clean mask
         dist_map[~final_clean_mask] = 0.0

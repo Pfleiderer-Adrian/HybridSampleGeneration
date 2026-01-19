@@ -79,6 +79,22 @@ class Configuration:
             "dilation_size": 2,
             "shave_pixels": 1
         }
+        self.fusion_variation = True    # use gaussian sampling for max_alpha, sq and steepness_factor
+        self.fusion_variation_params = {
+            "alpha_variation": 0.05, 
+            "sq_variation": 0.1,
+            "steepness_variation": 0.1 
+        }
+        self.confidence_levels = {
+            "68%": 1.0,
+            "80%": 1.28,
+            "90%": 1.645,   # with 1.645: deviation in one direction <= fusion_variation_params in 90% of cases; default
+            "95%": 1.960,
+            "99%": 2.576
+        }
+        self.selected_confidence = "90%" 
+        self.confidence_z_score = self.confidence_levels[self.selected_confidence]
+
 
         # global training parameter, fixed during training
         self.val_ratio = 0.2
