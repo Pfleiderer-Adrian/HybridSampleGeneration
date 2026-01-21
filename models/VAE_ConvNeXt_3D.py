@@ -232,11 +232,15 @@ class ConvNeXtUNetDecoder3D(nn.Module):
         use_multires_skips: bool = True,  # kept for API compatibility (not used)
         leak: float = 0.2,  # kept for API compatibility
         use_transpose_conv: bool = True,
+        skip_dropout_p: float = 0.0,
+        skip_alpha: float = 1.0,
         gn_groups: int = 8,
     ):
         super().__init__()
         self.n_levels = n_levels
         self.use_transpose_conv = use_transpose_conv
+        self.skip_dropout_p = float(skip_dropout_p)
+        self.skip_alpha = float(skip_alpha)
         self._skips: Optional[List[torch.Tensor]] = None
 
         # Project latent channels up to bottom channels
@@ -301,6 +305,10 @@ class ConvNeXtUNetDecoder3D(nn.Module):
 
             # Align spatial sizes (in case of off-by-1 due to odd sizes)
             skip = skips[-1 - i]
+
+            # Skip dropout (training only): forces decoder to use latent z instead of bypassing via skips
+            if self.training and self.skip_dropout_p > 0.0:
+                skip = F.dropout3d(skip, p=self.skip_dropout_p, training=True)
             if x.shape[-3:] != skip.shape[-3:]:
                 # Center-crop the larger one to the smaller
                 target = (
@@ -310,6 +318,9 @@ class ConvNeXtUNetDecoder3D(nn.Module):
                 )
                 x = _crop_like_3d(x, target)
                 skip = _crop_like_3d(skip, target)
+
+            # Skip gating: downscale skip strength to reduce bypass and force latent usage
+            skip = skip * self.skip_alpha
 
             x = torch.cat([x, skip], dim=1)
             x = self.fuse[i](x)
@@ -356,7 +367,7 @@ class Config:
       - `use_multires_skips` is kept but ignored by the U-Net implementation.
       - `use_transpose_conv` is still honored.
     """
-
+    in_channels: int = None
     n_res_blocks: int = 8
     n_levels: int = 4
     z_channels: int = 250
@@ -369,6 +380,14 @@ class Config:
     use_transpose_conv: bool = True
     fg_weight: float = 1.0
     fg_threshold: float = 0.0
+
+    # Probability for dropping encoder skip features during training (prevents latent bypass in U-Net VAEs)
+    # 0.0 disables skip dropout. Typical values: 0.1 - 0.4
+    skip_dropout_p: float = 0.0
+
+    # Skip gating factor: scales skip features before concatenation in the decoder.
+    # 1.0 disables gating (default). Typical values for encouraging latent usage: 0.2 - 0.6
+    skip_alpha: float = 1.0
 
 
 class ConvNeXtVAE3D(nn.Module):
@@ -384,14 +403,13 @@ class ConvNeXtVAE3D(nn.Module):
       - x_ref: reference input used for reconstruction loss (cropped/padded version)
     """
 
-    def __init__(self, in_channels: int, cfg: Config):
+    def __init__(self, cfg: Config):
         super().__init__()
         self.cfg = cfg
-        self.in_channels = in_channels
 
         # Encoder returns (h, skips)
         self.encoder = ConvNeXtUNetEncoder3D(
-            in_channels=in_channels,
+            in_channels=cfg.in_channels,
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
@@ -400,12 +418,14 @@ class ConvNeXtVAE3D(nn.Module):
 
         # Decoder reconstructs from latent feature map; skips are set each forward
         self.decoder = ConvNeXtUNetDecoder3D(
-            out_channels=in_channels,
+            out_channels=cfg.in_channels,
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
             use_multires_skips=cfg.use_multires_skips,
             use_transpose_conv=cfg.use_transpose_conv,
+            skip_dropout_p=getattr(cfg, 'skip_dropout_p', 0.0),
+            skip_alpha=getattr(cfg, 'skip_alpha', 1.0),
         )
 
         # Lazy FC layers (depend on latent spatial size)
@@ -611,7 +631,7 @@ class ConvNeXtVAE3D(nn.Module):
         sample: Union[np.ndarray, torch.Tensor],
         *,
         n: int = 1,
-        s: float = 0.1,
+        s: float = 0.8,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
         return_torch: bool = False,

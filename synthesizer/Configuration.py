@@ -60,7 +60,7 @@ class Configuration:
 
         # anomaly extraction parameter
         self.anomaly_size = anomaly_size
-        self.random_offset = True
+        self.random_offset = False
 
         # synthesizer parameter
         self.min_anomaly_percentage = 0.05
@@ -121,6 +121,7 @@ class Configuration:
         # VAE3D parameter
         if model_name == "VAE_ResNet_3D":
             _VAE3D_min_params = asdict(VAE_ResNet_3D.Config(
+                in_channels=self.anomaly_size[0],
                 n_res_blocks=4,
                 n_levels=4,
                 z_channels=64,
@@ -133,6 +134,7 @@ class Configuration:
                 recon_loss="mse",
                 use_transpose_conv = False))
             _VAE3D_max_params = asdict(VAE_ResNet_3D.Config(
+                in_channels=self.anomaly_size[0],
                 n_res_blocks=5,
                 n_levels=5,
                 z_channels=128,
@@ -148,27 +150,33 @@ class Configuration:
 
         if model_name == "VAE_ConvNeXt_3D":
             _VAE3D_min_params = asdict(VAE_ConvNeXt_3D.Config(
+                in_channels=self.anomaly_size[0],
                 n_res_blocks=5,
                 n_levels=5,
-                z_channels=64,
-                bottleneck_dim=128,
+                z_channels=128,
+                bottleneck_dim=256,
                 use_multires_skips = True,
-                recon_weight = 100.0,
-                beta_kl = 0.05,
+                recon_weight = 1.0,
+                beta_kl = 4.0,
                 fg_weight=1.0,
                 fg_threshold=0.0,
                 recon_loss="mse",
+                skip_dropout_p=0.6,
+                skip_alpha=0.2,
                 use_transpose_conv = False))
             _VAE3D_max_params = asdict(VAE_ConvNeXt_3D.Config(
+                in_channels=self.anomaly_size[0],
                 n_res_blocks=6,
                 n_levels=6,
                 z_channels=128,
                 bottleneck_dim=256,
                 use_multires_skips = True,
-                recon_weight = 300.0,
-                beta_kl = 0.1,
+                recon_weight = 1.0,
+                beta_kl = 4.0,
                 fg_weight=2.0,
                 fg_threshold=0.0,
+                skip_dropout_p=0.6,
+                skip_alpha=0.2,
                 recon_loss="mse",
                 use_transpose_conv=False))
             self.model_params = {"min": _VAE3D_min_params, "max": _VAE3D_max_params}
@@ -176,6 +184,7 @@ class Configuration:
         # VAE2D parameter
         if model_name == "VAE_ResNet_2D":
             _VAE2D_min_params = asdict(VAE_ResNet_2D.Config(
+                in_channels=self.anomaly_size[0],
                 n_res_blocks=4,
                 n_levels=4,
                 z_channels=32,
@@ -185,6 +194,7 @@ class Configuration:
                 beta_kl = 0.1,
                 use_transpose_conv=False))
             _VAE2D_max_params = asdict(VAE_ResNet_2D.Config(
+                in_channels=self.anomaly_size[0],
                 n_res_blocks=5,
                 n_levels=5,
                 z_channels=64,
@@ -197,6 +207,7 @@ class Configuration:
         
         if model_name == "VAE_ConvNeXt_2D":
             _VAE2D_min_params = asdict(VAE_ConvNeXt_2D.Config(
+                in_channels=self.anomaly_size[0],  
                 n_res_blocks=4,
                 n_levels=4,
                 z_channels=32,
@@ -205,7 +216,8 @@ class Configuration:
                 recon_weight = 5.0,
                 beta_kl = 0.1,
                 use_transpose_conv=False))
-            _VAE2D_max_params = asdict(VAE_ConvNeXt_2D.Config(
+            _VAE2D_max_params = asdict(VAE_ConvNeXt_2D.Config(                
+                in_channels=self.anomaly_size[0],
                 n_res_blocks=5,
                 n_levels=5,
                 z_channels=64,

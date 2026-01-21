@@ -8,10 +8,8 @@ import pandas as pd
 import torch
 
 from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
-from models.VAE_ConvNeXt_2D import ConvNeXtVAE2D
-from models.VAE_ConvNeXt_3D import ConvNeXtVAE3D
-from models.VAE_ResNet_2D import ResNetVAE2D
-from models.VAE_ResNet_3D import ResNetVAE3D, Config
+
+from models import model_loader
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
 from synthesizer.functions_2D.Fusion2D import fusion2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
@@ -248,18 +246,8 @@ class HybridDataGenerator:
 
         # load model from study
         params = t.user_attrs['params']
-        anomaly_size = t.user_attrs['anomaly_size']
         model_name = t.user_attrs['model_name']
-        if model_name == "VAE_ResNet_3D":
-            self._model = ResNetVAE3D(anomaly_size[0], Config(**params))
-        elif model_name == "VAE_ResNet_2D":
-            self._model = ResNetVAE2D(anomaly_size[0], Config(**params))
-        elif model_name == "VAE_ConvNeXt_3D":
-            self._model = ConvNeXtVAE3D(anomaly_size[0], Config(**params))
-        elif model_name == "VAE_ConvNeXt_2D":
-            self._model = ConvNeXtVAE2D(anomaly_size[0], Config(**params))
-        else:
-            raise ValueError(f"Unknown model: {model_name}")
+        self._model = model_loader(model_name, params) 
         self._model.warmup(self._config.anomaly_size)
         self._model.load_state_dict(torch.load(t.user_attrs['model_path']))
 

@@ -373,6 +373,7 @@ class Config:
     fg_threshold:
         Foreground threshold on |x| used to build the weighting mask.
     """
+    in_channels: int = None
     n_res_blocks: int = 8
     n_levels: int = 4
     z_channels: int = 250
@@ -407,7 +408,7 @@ class ResNetVAE2D(nn.Module):
       - mu/logvar: (B,bottleneck_dim)
       - x_ref: (B,C,H,W) reference input for recon loss
     """
-    def __init__(self, in_channels: int, cfg: Config):
+    def __init__(self, cfg: Config):
         """
         Initialize the VAE.
 
@@ -425,11 +426,10 @@ class ResNetVAE2D(nn.Module):
         """
         super().__init__()
         self.cfg = cfg
-        self.in_channels = in_channels
 
         # 2D encoder outputs a latent feature map h
         self.encoder = ResNetEncoder2D(
-            in_channels=in_channels,
+            in_channels=cfg.in_channels,
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
@@ -438,7 +438,7 @@ class ResNetVAE2D(nn.Module):
 
         # 2D decoder reconstructs from latent feature map
         self.decoder = ResNetDecoder2D(
-            out_channels=in_channels,
+            out_channels=cfg.in_channels,
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,

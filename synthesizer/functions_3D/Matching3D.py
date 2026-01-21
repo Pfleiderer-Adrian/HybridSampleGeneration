@@ -3,6 +3,28 @@ from tqdm import tqdm
 from skimage.feature import match_template
 
 
+def _to_3d_spatial(arr: np.ndarray) -> np.ndarray:
+    """
+    Convert an array to a 3D spatial volume (D,H,W) for template matching.
+
+    Supported inputs:
+      - (C,D,H,W): channel-first volume -> returns max-projection over C (or arr[0] if C==1)
+      - (D,H,W): already spatial -> returned as-is
+    """
+    arr = np.asarray(arr)
+
+    if arr.ndim == 4:
+        # (C,D,H,W)
+        if arr.shape[0] == 1:
+            return arr[0]
+        return np.max(arr, axis=0)
+
+    if arr.ndim == 3:
+        return arr
+
+    raise ValueError(f"Expected (D,H,W) or (C,D,H,W), got {arr.shape}")
+
+
 def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, matching_routine="local", anomaly_duplicates=False):
     """
     Create a list of matchings between control samples and ROI anomaly samples.
@@ -89,14 +111,13 @@ def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, ma
         skipped_rois = {}   # want no duplicates here
         for control, _, control_filename, *ignored in tqdm(control_sample_dataloader):
             highest_sim_position_factor = None
+            spatial_shape = np.array(control.shape[-3:], dtype=float)  # (D,H,W)
 
             # always check previously skipped rois first for new control
             for roi_filename, roi in skipped_rois.items():
                 sim, opt_center = template_matching(roi, control)
                 if sim >= -1:
-                    highest_sim_position_factor = (
-                            (np.array((1,) + opt_center) / np.array(control.shape)).astype(float).tolist()
-                        )
+                    highest_sim_position_factor = (np.array(opt_center, dtype=float) / spatial_shape).tolist()
                     matching_data.append([control_filename, roi_filename, highest_sim_position_factor])
                     skipped_rois.pop(roi_filename)
                     break
@@ -146,12 +167,8 @@ def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, ma
                         continue
 
                     # found match
-                    # Convert center (slice,row,col) to normalized position factor.
-                    # NOTE: The original code prepends (1,) then divides by control.shape.
-                    # This implies control.shape likely includes a leading channel dimension.
-                    highest_sim_position_factor = (
-                        (np.array((1,) + opt_center) / np.array(control.shape)).astype(float).tolist()
-                    )
+                    # Convert center (slice,row,col) to normalized position factor (D,H,W).
+                    highest_sim_position_factor = (np.array(opt_center, dtype=float) / spatial_shape).tolist()
 
                 matching_data.append([control_filename, roi_filename, highest_sim_position_factor])
 
@@ -164,6 +181,7 @@ def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, ma
             highest_sim = -np.inf
             highest_sim_roi_name = None
             highest_sim_position_factor = None
+            spatial_shape = np.array(control.shape[-3:], dtype=float)  # (D,H,W)
 
             for roi, roi_filename in tqdm(roi_dataloader):
                 if roi_filename in excluded_roi_sample_names:
@@ -176,9 +194,7 @@ def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, ma
                 if sim > highest_sim:
                     highest_sim = sim
                     highest_sim_roi_name = roi_filename
-                    highest_sim_position_factor = (
-                        (np.array((1,) + opt_center) / np.array(control.shape)).astype(float).tolist()
-                    )
+                    highest_sim_position_factor = (np.array(opt_center, dtype=float) / spatial_shape).tolist()
             
             if highest_sim_roi_name is None:
                 raise RuntimeError(f"No match found for {control_filename}")
@@ -198,13 +214,14 @@ def create_matching_dict3d(control_sample_dataloader, roi_dataloader, config, ma
                 highest_sim = -np.inf
                 highest_sim_roi_name = None
                 highest_sim_position_factor = None
+                spatial_shape = np.array(control.shape[-3:], dtype=float)  # (D,H,W)
 
                 for roi, roi_filename in roi_dataloader:
                     sim, opt_center = template_matching(roi, control)
                     if sim > highest_sim:
                         highest_sim = sim
                         highest_sim_roi_name = roi_filename
-                        highest_sim_position_factor = (np.array((1,) + opt_center) / np.array(control.shape)).astype(float).tolist()
+                        highest_sim_position_factor = (np.array(opt_center, dtype=float) / spatial_shape).tolist()
                     
                 if highest_sim_roi_name is not None and highest_sim >= -1:
                     matching_data.append([control_name, highest_sim_roi_name, highest_sim_position_factor])
@@ -241,9 +258,8 @@ def template_matching(template, control):
     - If arrays still contain a channel dimension, `np.squeeze` removes it (assuming C==1).
       For multi-channel inputs, this needs adaptation.
     """
-    # Remove singleton dimensions (commonly removes channel dimension when C==1)
-    template = np.squeeze(template)
-    control = np.squeeze(control)
+    template = _to_3d_spatial(template)
+    control = _to_3d_spatial(control)
 
     # Check if template fits in control sample
     if any(t_dim > c_dim for t_dim, c_dim in zip(template.shape, control.shape)):

@@ -153,6 +153,13 @@ def fusion3d(
     # ------------------------------------------------------------
     # 5) Compute insertion offset from normalized position_factor
     # ------------------------------------------------------------
+    if position_factor is None:
+        raise ValueError("position_factor must be provided (expected len 3: (D,H,W)).")
+    pf = list(position_factor)
+    if len(pf) != 3:
+        raise ValueError(f"position_factor must have len 3 (D,H,W). Got {pf!r}")
+    position_factor = (float(pf[0]), float(pf[1]), float(pf[2]))
+
     ctrl_spatial = np.array([D, H, W], dtype=int)           # control spatial dims
     anom_spatial = np.array(anom.shape[1:], dtype=int)      # anomaly spatial dims after zoom
 

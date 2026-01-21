@@ -403,6 +403,7 @@ class Config:
     fg_threshold:
         Foreground threshold on |x| used to build the weighting mask.
     """
+    in_channels: int = None
     n_res_blocks: int = 8
     n_levels: int = 4
     z_channels: int = 250
@@ -455,11 +456,10 @@ class ResNetVAE3D(nn.Module):
         """
         super().__init__()
         self.cfg = cfg
-        self.in_channels = in_channels
 
         # 3D encoder outputs a latent feature map h
         self.encoder = ResNetEncoder3D(
-            in_channels=in_channels,
+            in_channels=cfg.in_channels,
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
@@ -468,7 +468,7 @@ class ResNetVAE3D(nn.Module):
 
         # 3D decoder reconstructs from latent feature map
         self.decoder = ResNetDecoder3D(
-            out_channels=in_channels,
+            out_channels=cfg.in_channels,
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,

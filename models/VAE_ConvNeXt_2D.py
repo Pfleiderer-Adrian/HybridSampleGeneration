@@ -339,7 +339,7 @@ class Config:
       - use_multires_skips is kept but ignored by the U-Net implementation.
       - use_transpose_conv is honored.
     """
-
+    in_channels = None
     n_res_blocks: int = 8
     n_levels: int = 4
     z_channels: int = 250
@@ -367,13 +367,12 @@ class ConvNeXtVAE2D(nn.Module):
       - x_ref: reference input used for reconstruction loss (cropped/padded version)
     """
 
-    def __init__(self, in_channels: int, cfg: Config):
+    def __init__(self, cfg: Config):
         super().__init__()
         self.cfg = cfg
-        self.in_channels = in_channels
 
         self.encoder = ConvNeXtUNetEncoder2D(
-            in_channels=in_channels,
+            in_channels=cfg.in_channels,
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
@@ -381,7 +380,7 @@ class ConvNeXtVAE2D(nn.Module):
         )
 
         self.decoder = ConvNeXtUNetDecoder2D(
-            out_channels=in_channels,
+            out_channels=cfg.in_channels,
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
