@@ -106,7 +106,7 @@ def objective(trial: Trial, config: Configuration, dataset):
 
 
     # 2. Create the model with chosen hyperparameters
-    model = model_loader(params)
+    model = model_loader.model_loader(config.model_name, params)
 
     n_val = int(len(dataset) * config.val_ratio)
     n_train = len(dataset) - n_val
@@ -207,6 +207,11 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
     with tqdm(desc="epoch", total=config.epochs) as pbar_outer:
 
         # define optimizer
+        device = "cuda"
+        device = torch.device(device)
+
+        model.to(device)
+        model.warmup(config.anomaly_size)
         optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)  # weight_decay für L2-Regularisierung
 
         # define loss function

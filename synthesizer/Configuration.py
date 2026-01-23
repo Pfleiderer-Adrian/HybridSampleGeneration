@@ -60,12 +60,12 @@ class Configuration:
 
         # anomaly extraction parameter
         self.anomaly_size = anomaly_size
-        self.random_offset = False
+        self.random_offset = True
 
         # synthesizer parameter
         self.min_anomaly_percentage = 0.05
-        self.min_pad = (2, 2, 2)    # just use first two values for 2d
-        self.pad_ratio = (0.2, 0.2, 0.2)
+        self.min_pad = (20, 20, 20)    # just use first two values for 2d
+        self.pad_ratio = (0.5, 0.5, 0.5)
         self.clamp01_output = False
         self.normalization = "z-score"
         self.normalization_eps = 1e-6
@@ -210,22 +210,32 @@ class Configuration:
                 in_channels=self.anomaly_size[0],  
                 n_res_blocks=4,
                 n_levels=4,
-                z_channels=32,
-                bottleneck_dim=64,
+                z_channels=256,
+                bottleneck_dim=512,
                 use_multires_skips = False,
-                recon_weight = 5.0,
+                recon_weight = 10.0,
                 beta_kl = 0.1,
-                use_transpose_conv=False))
+                recon_loss="smoothl1",
+                use_transpose_conv=False,
+                drop_path_rate = 0.10,  # Stochastic depth max rate (0.0 disables)
+                dropout = 0.05,
+                skip_dropout_p = 0.0,  # Drop entire skip-tensors per sample during training (0.0 disables)
+                skip_alpha = 0.0   ))
             _VAE2D_max_params = asdict(VAE_ConvNeXt_2D.Config(                
                 in_channels=self.anomaly_size[0],
-                n_res_blocks=5,
-                n_levels=5,
-                z_channels=64,
-                bottleneck_dim=128,
+                n_res_blocks=4,
+                n_levels=4,
+                z_channels=256,
+                bottleneck_dim=512,
                 use_multires_skips = False,
-                recon_weight = 100.0,
-                beta_kl = 0.5,
-                use_transpose_conv=False))
+                recon_weight = 10.0,
+                beta_kl = 0.1,
+                recon_loss="smoothl1",
+                use_transpose_conv=False,
+                drop_path_rate = 0.10,  # Stochastic depth max rate (0.0 disables)
+                dropout = 0.05,
+                skip_dropout_p = 0.0,  # Drop entire skip-tensors per sample during training (0.0 disables)
+                skip_alpha = 0.0 ))
             self.model_params = {"min": _VAE2D_min_params, "max": _VAE2D_max_params}
 
     # set hyperparameter space. need min and max config of model.py
