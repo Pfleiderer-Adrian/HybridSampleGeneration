@@ -10,14 +10,8 @@ import torch
 from data_handler import InlineDataset
 from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
 
-from models.VAE_ConvNeXt_2D import ConvNeXtVAE2D, Config as ConvNeXtVAE2D_Config
-from models.VAE_ConvNeXt_3D import ConvNeXtVAE3D, Config as ConvNeXtVAE3D_Config
 from models.VAE_Diffusion_inpaint_2D import DefectPatchGenerator, ModelConfig
-from models.VAE_ResNet_2D import ResNetVAE2D, Config as ResNetVAE2D_Config
-from models.VAE_ResNet_3D import ResNetVAE3D, Config as ResNetVAE3D_Config
-from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
 from synthesizer.functions_2D.Fusion2D import fusion2d
-from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
 from synthesizer.InpaintConfiguration import InpaintConfiguration
 from synthesizer.functions_3D.Fusion3D import fusion3d
 from synthesizer.functions_2D.Matching2D import create_matching_dict2d
@@ -109,7 +103,7 @@ class InpaintDataGenerator:
         seg_folder = os.path.join(save_folder, "segmentations")
         ori_seg_folder = os.path.join(seg_folder, "original")
         binary_seg_folder = os.path.join(seg_folder, "binary")
-
+        global_labels = set()
 
 
         for img, seg, basename in sample_dataloader:
@@ -127,10 +121,12 @@ class InpaintDataGenerator:
             seg_bin = (seg > 0).astype(np.uint8)
             save_numpy_as_npy(seg_bin, os.path.join(binary_seg_folder, basename+".npy"), overwrite=True)
 
-            
             # one mask per *present* label (excluding 0)
             labels = np.unique(seg)
             labels = labels[labels != 0]
+            for label in labels:
+                global_labels.add(label)
+
             masks = {int(k): (seg == k).astype(np.uint8) for k in labels}
             
             for mask in masks:
@@ -142,6 +138,7 @@ class InpaintDataGenerator:
             self._config.add_sample_metadata(basename, labels)
 
         self._config.save_metadata()
+        self._config.save_config_file()
 
     def load_data(self, data_folder=None, segmentation="binary"):
         """
@@ -171,6 +168,7 @@ class InpaintDataGenerator:
             load_to_ram=True,
             dtype=torch.float32,
         )
+        self._config.load_anomaly_transformations()
         return _dataset
 
     def train_base_generator(self, no_of_trails):
@@ -197,17 +195,8 @@ class InpaintDataGenerator:
 
 
         self.load_generator()
-    
-    def finetune_classes(self, no_of_trails):
-        pass
-        #todo set model train mode to -> finetune
-        #refactor model save path
-        for class_number in range(1,self._config.num_classes+1):
-            _dataset = self.load_data(str(class_number))
-            optimize(no_of_trails, self._config, _dataset)
-        #todo set model train mode to -> finetune
-        
-   
+
+
     def load_generator(self, path_to_db_file=None, trial_id=-1):
         """
         Load a trained generator model from an Optuna study database.
@@ -253,7 +242,6 @@ class InpaintDataGenerator:
 
         # load model from study
         params = t.user_attrs['params']
-        anomaly_size = t.user_attrs['anomaly_size']
         model_name = t.user_attrs['model_name']
         if model_name == "VAE_Diffusion_inpaint_3D":
             # ToDo
@@ -264,6 +252,28 @@ class InpaintDataGenerator:
             raise ValueError(f"Unknown model: {model_name}")
         self._model.warmup(self._config.anomaly_size)
         self._model.load_state_dict(torch.load(t.user_attrs['model_path']))
+    
+
+    def finetune_classes(self, class_name):
+        if self._model is None:
+            raise ValueError(f"No model loaded. Train and load base model first. Exit!")
+        
+        for class in classes:
+            self.load_data(segmentation=class_name)
+        
+
+
+
+        pass
+        #todo set model train mode to -> finetune
+        #refactor model save path
+
+        for class_number in range(1,self._config.num_classes+1):
+            _dataset = self.load_data(str(class_number))
+            optimize(no_of_trails, self._config, _dataset)
+        #todo set model train mode to -> finetune
+        
+   
 
     def generate_synth_anomalies(self, save_folder=None):
         """

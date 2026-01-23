@@ -57,21 +57,20 @@ class InpaintConfiguration:
         # rng for persitence
         self.rng = np.random.default_rng(42)
 
-        self.num_classes = 1
-
         # anomaly extraction parameter
         self.anomaly_size = anomaly_size
         self.random_offset = False
 
         # synthesizer parameter
-        self.min_anomaly_percentage = 0.05
-        self.min_pad = (2, 2, 2)    # just use first two values for 2d
-        self.pad_ratio = (0.2, 0.2, 0.2)
         self.clamp01_output = False
         self.normalization = "z-score"
         self.normalization_eps = 1e-6
         self.matching_dict= {}
-        self.metadata = {}
+        self.metadata = {
+            "num_classes": 0,
+            "labels": [],
+            "classes_in_sample":{}
+        }
         self.background_threshold = None
 
         # global training parameter, fixed during training
@@ -194,9 +193,9 @@ class InpaintConfiguration:
         None
             Side effect: updates self.syn_anomaly_transformations[name] = params.
         """
-        self.metadata[name] = params
+        self.metadata["classes_in_sample"][name] = params
 
-    def load_anomaly_transformations(self, json_path=None):
+    def load_sample_metadata(self, json_path=None):
         """
         Load anomaly transformation metadata from JSON into `self.syn_anomaly_transformations`.
 
@@ -212,9 +211,9 @@ class InpaintConfiguration:
             Side effect: overwrites self.syn_anomaly_transformations with loaded content.
         """
         if json_path is None:
-            json_path = os.path.join(self.study_folder, "anomaly_transformations.json")
+            json_path = os.path.join(self.study_folder, "metadata.json")
         with open(json_path, "r", encoding="utf-8") as f:
-            self.syn_anomaly_transformations = json.load(f)
+            self.metadata = json.load(f)
 
     def save_metadata(self, json_path=None):
         """

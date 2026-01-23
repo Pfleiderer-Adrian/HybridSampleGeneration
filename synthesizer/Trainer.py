@@ -60,6 +60,8 @@ def optimize(no_of_trails, config:Configuration, dataset):
     for key, value in trial.params.items():
         print("    {}: {}".format(key, value))
 
+
+
 def objective(trial: Trial, config: Configuration, dataset):
     """
     Optuna objective function: samples hyperparameters, trains a model, saves it, and returns a score.
@@ -151,7 +153,6 @@ def objective(trial: Trial, config: Configuration, dataset):
     trial.set_user_attr("best_epoch", best_epoch)
     trial.set_user_attr("best_val_loss", float(best_val))
     trial.set_user_attr("params", params)
-    trial.set_user_attr("anomaly_size", config.anomaly_size)
     trial.set_user_attr("model_name", config.model_name)
 
     # lowest validation error over all epochs
