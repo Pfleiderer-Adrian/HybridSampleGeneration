@@ -15,8 +15,7 @@ from synthesizer.functions_2D.Fusion2D import fusion2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
 from synthesizer.Configuration import Configuration
 from synthesizer.functions_3D.Fusion3D import fusion3d
-from synthesizer.functions_2D.Matching2D import create_matching_dict2d
-from synthesizer.functions_3D.Matching3D import create_matching_dict3d
+from synthesizer.functions.Matching import create_matching_dictionary
 from synthesizer.Trainer import optimize
 
 
@@ -366,9 +365,9 @@ class HybridDataGenerator:
         )
         img = _roi_dataset.__getitem__(0)[0]
         if img.ndim == 3:
-            _data = create_matching_dict2d(control_samples_dataloader, _roi_dataset, self._config, matching_routine=matching_routine, anomaly_duplicates=True)
+            _data = create_matching_dictionary(control_samples_dataloader, _roi_dataset, self._config, matching_routine=matching_routine, anomaly_duplicates=True)
         elif img.ndim == 4:
-            _data = create_matching_dict3d(control_samples_dataloader, _roi_dataset, self._config, matching_routine=matching_routine, anomaly_duplicates=True)
+            _data = create_matching_dictionary(control_samples_dataloader, _roi_dataset, self._config, matching_routine=matching_routine, anomaly_duplicates=True)
         else:
             raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
 
