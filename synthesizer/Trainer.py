@@ -207,7 +207,7 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
     with tqdm(desc="epoch", total=config.epochs) as pbar_outer:
 
         # define optimizer
-        device = "cuda"
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         device = torch.device(device)
 
         model.to(device)
