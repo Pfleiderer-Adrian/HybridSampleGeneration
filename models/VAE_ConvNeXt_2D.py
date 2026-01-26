@@ -401,6 +401,12 @@ class Config:
     use_multires_skips: bool = True
     recon_weight: float = 100.0
     beta_kl: float = 1.0
+    # Beta-KL warmup (helps prevent posterior collapse)
+    # If beta_kl_warmup_epochs <= 0, beta_kl_max is used immediately.
+    beta_kl_max: float = 0.2           # target KL weight (defaults to beta_kl)
+    beta_kl_start: float = 0.0         # starting KL weight
+    beta_kl_warmup_epochs: int = 0     # warmup duration in epochs (e.g. 50)
+    beta_kl_schedule: str = "linear"   # "linear" or "cosine"
     recon_loss: str = "smoothl1"  # 'smoothl1' or 'mse'
     recon_smoothl1_beta: float = 1.0
     use_transpose_conv: bool = True
@@ -414,6 +420,7 @@ class Config:
     # Skip regularization (helps force latent usage)
     skip_dropout_p: float = 0.0  # Drop entire skip-tensors per sample during training (0.0 disables)
     skip_alpha: float = 1.0      # Scale skips (0.0 disables skips, 0.2 keeps small guidance)
+    free_bits: float = 0.02   # 0.01–0.1 typisch
 
 
 class ConvNeXtVAE2D(nn.Module):
@@ -432,6 +439,10 @@ class ConvNeXtVAE2D(nn.Module):
     def __init__(self, cfg: Config):
         super().__init__()
         self.cfg = cfg
+
+
+        # Internal epoch counter for beta-KL warmup
+        self._epoch_idx: int = 0
 
         self.encoder = ConvNeXtUNetEncoder2D(
             in_channels=cfg.in_channels,
@@ -483,6 +494,36 @@ class ConvNeXtVAE2D(nn.Module):
         eps = torch.randn_like(std)
         return mu + eps * std
 
+
+    def get_beta_kl(self, epoch_idx: Optional[int] = None) -> float:
+        """Return the current beta_kl value, optionally with warmup.
+
+        Warmup ramps beta from cfg.beta_kl_start -> cfg.beta_kl_max over
+        cfg.beta_kl_warmup_epochs epochs.
+
+        Schedules:
+          - "linear": linear ramp
+          - "cosine": cosine ramp (slow start, smooth)
+        """
+        cfg = self.cfg
+        beta_max = float(getattr(cfg, "beta_kl_max", getattr(cfg, "beta_kl", 1.0)))
+        beta_start = float(getattr(cfg, "beta_kl_start", 0.0))
+        warmup_epochs = int(getattr(cfg, "beta_kl_warmup_epochs", 0))
+        schedule = str(getattr(cfg, "beta_kl_schedule", "linear")).lower()
+
+        if epoch_idx is None:
+            epoch_idx = int(getattr(self, "_epoch_idx", 0))
+
+        if warmup_epochs <= 0:
+            return beta_max
+
+        t = max(0.0, min(1.0, epoch_idx / float(warmup_epochs)))
+
+        if schedule == "cosine":
+            t = 0.5 * (1.0 - math.cos(math.pi * t))
+
+        return beta_start + t * (beta_max - beta_start)
+
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Forward pass through encoder -> bottleneck -> decoder."""
         if x.ndim != 4:
@@ -506,7 +547,10 @@ class ConvNeXtVAE2D(nn.Module):
         mu = self.fc_mu(h_flat)
         logvar = self.fc_logvar(h_flat)
 
-        z = self.reparameterize(mu, logvar)
+        if self.training:
+            z = self.reparameterize(mu, logvar)
+        else:
+            z = mu
 
         h_dec = self.fc_decode(z).reshape(B, self.cfg.z_channels, *latent_hw)
         self.decoder.set_skips(skips)
@@ -542,18 +586,37 @@ class ConvNeXtVAE2D(nn.Module):
         else:
             recon_loss = recon_per_pixel.mean()
 
-        kl = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
+        # old pre free bits
+        #kl = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
+
+        # KL pro Dimension: (B, D)
+        kl_per_dim = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp())
+
+        # Free Bits: Minimum KL pro Dimension erzwingen
+        free_bits = float(getattr(self.cfg, "free_bits", 0.0))
+        if free_bits > 0.0:
+            kl_per_dim = torch.clamp(kl_per_dim, min=free_bits)
+
+        # Summe über Latent-Dimension, Mittel über Batch
+        kl = kl_per_dim.sum(dim=1).mean()
+
+        kl_raw = (-0.5 * (1 + logvar - mu.pow(2) - logvar.exp())).sum(dim=1).mean()
+
+
 
         recon_weighted = self.cfg.recon_weight * recon_loss
-        kl_weighted = self.cfg.beta_kl * kl
+        beta_kl = self.get_beta_kl()
+        kl_weighted = beta_kl * kl
         total = recon_weighted + kl_weighted
 
         return {
             "total": total,
             "recon": recon_loss,
             "kl": kl,
+            "kl_raw": kl_raw,
             "recon_weighted": recon_weighted,
             "kl_weighted": kl_weighted,
+            "beta_kl": torch.tensor(float(beta_kl), device=recon.device),
         }
 
     def _extract_x(self, batch) -> torch.Tensor:
@@ -587,6 +650,7 @@ class ConvNeXtVAE2D(nn.Module):
         val_dataloader,
         optimizer,
         *,
+        epoch_idx: Optional[int] = None,
         log_every=1,
         grad_clip_norm: Optional[float] = None,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
@@ -595,9 +659,14 @@ class ConvNeXtVAE2D(nn.Module):
         device = torch.device(device)
         model = self.to(device)
 
+
+
+        if epoch_idx is not None:
+            self._epoch_idx = int(epoch_idx)
+
         def run_epoch(loader: Iterable, training: bool) -> Dict[str, float]:
             model.train(training)
-            run = {"total": 0.0, "recon": 0.0, "kl": 0.0, "recon_weighted": 0.0, "kl_weighted": 0.0}
+            run = {"total": 0.0, "recon": 0.0, "kl": 0.0, "recon_weighted": 0.0, "kl_weighted": 0.0, "beta_kl": 0.0}
             n = 0
 
             pbar = tqdm(loader, desc=("train" if training else "val"), leave=False, dynamic_ncols=True)
@@ -647,114 +716,72 @@ class ConvNeXtVAE2D(nn.Module):
 
         return tr, va
 
+        # If caller did not provide epoch_idx, advance internal counter
+        if epoch_idx is None:
+            self._epoch_idx += 1
+
+        return tr, va
+
     def generate_synth_sample(
-    self,
-    sample: Union[np.ndarray, torch.Tensor, None] = None,
-    *,
-    s: float = 1.0,
-    device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
-    clamp_01: bool = True,
-    return_torch: bool = False,
-    mode: str = "prior",              # "prior" oder "posterior"
-    out_hw: tuple[int, int] | None = None,  # (H,W) für prior falls sample=None
-    alpha_skips: float | None = None,       # optional: überschreibt cfg.skip_alpha bei posterior
-) -> Union[np.ndarray, torch.Tensor]:
-        """
-        Erzeugt GENAU 1 Sample pro Aufruf und gibt IMMER (C,H,W) zurück.
+        self,
+        sample: Union[np.ndarray, torch.Tensor],
+        *,
+        n: int = 1,
+        s: float = 2.0,
+        device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
+        clamp_01: bool = True,
+        return_torch: bool = False,
+    ) -> Union[np.ndarray, torch.Tensor]:
+        """Generate *n* slightly varied variants around a given sample.
 
-        mode="prior":
-            - erzeugt ein komplett neues Sample aus z ~ N(0,I)
-            - out_hw=(H,W) muss gegeben werden, falls sample=None
-        mode="posterior":
-            - erzeugt eine Variante um ein gegebenes Input-Bild herum (encode -> sample -> decode)
-            - sample muss gegeben werden
-        """
+        This performs posterior sampling:
+            z = mu + s * sigma * eps,  eps ~ N(0, I)
 
+        Parameters:
+          - n: number of variants per input sample.
+          - s: strength / temperature of the variation.
+               s=0.0 -> deterministic reconstruction (uses mu only)
+               s~0.2-0.5 -> small variations (recommended)
+               s>=1.0 -> large variations (can drift away)
+
+        Input:
+          - sample: (C,H,W) or (B,C,H,W)
+
+        Output:
+          - if input is (C,H,W): (n,C,H,W)
+          - if input is (B,C,H,W): (B,n,C,H,W)
+        """
+        if n <= 0:
+            raise ValueError(f"n must be > 0, got {n}")
         if s < 0:
             raise ValueError(f"s must be >= 0, got {s}")
-        if mode not in ("prior", "posterior"):
-            raise ValueError(f"mode must be 'prior' or 'posterior', got {mode}")
 
         device = torch.device(device)
         model = self.to(device)
         model.eval()
 
-        def _latent_hw_from_out_hw(H: int, W: int) -> tuple[int, int]:
-            multiple = 2 ** self.cfg.n_levels
-            H_pad = ((H + multiple - 1) // multiple) * multiple
-            W_pad = ((W + multiple - 1) // multiple) * multiple
-            return (H_pad // multiple, W_pad // multiple)
+        if not isinstance(sample, torch.Tensor):
+            x = torch.as_tensor(sample)
+        else:
+            x = sample
+
+        x = x.float()
+        single = False
+        if x.ndim == 3:
+            x = x.unsqueeze(0)  # (1,C,H,W)
+            single = True
+        elif x.ndim == 4:
+            pass
+        else:
+            raise ValueError(f"Expected (C,H,W) or (B,C,H,W), got {tuple(x.shape)}")
+
+        if clamp_01:
+            x = x.clamp(0.0, 1.0)
+
+        x = x.to(device)
+        #model.train()      # wichtig!
 
         with torch.no_grad():
-
-            # ============================================================
-            # PRIOR: komplett neues Sample
-            # ============================================================
-            if mode == "prior":
-                # Zielauflösung bestimmen
-                if out_hw is not None:
-                    ref_hw = (int(out_hw[0]), int(out_hw[1]))
-                elif sample is not None:
-                    x_tmp = torch.as_tensor(sample) if not isinstance(sample, torch.Tensor) else sample
-                    if x_tmp.ndim == 3:
-                        ref_hw = (int(x_tmp.shape[-2]), int(x_tmp.shape[-1]))
-                    elif x_tmp.ndim == 4:
-                        ref_hw = (int(x_tmp.shape[-2]), int(x_tmp.shape[-1]))
-                    else:
-                        raise ValueError(f"For prior+sample, expected (C,H,W) or (B,C,H,W), got {tuple(x_tmp.shape)}")
-                else:
-                    raise ValueError("For mode='prior' you must pass out_hw=(H,W) OR a sample to infer the size.")
-
-                H, W = ref_hw
-                latent_hw = _latent_hw_from_out_hw(H, W)
-
-                # ensure fc layers match this latent shape
-                model._ensure_fcs(latent_hw, device)
-
-                # z ~ N(0, I) * s
-                z = torch.randn((1, self.cfg.bottleneck_dim), device=device) * float(s)
-
-                # decode
-                h_dec = model.fc_decode(z).reshape(1, self.cfg.z_channels, *latent_hw)
-
-                # prior hat keine skips
-                model.decoder.set_skips(None)
-
-                recon = model.decoder(h_dec)
-                recon = _crop_like_2d(recon, ref_hw)     # -> (1,C,H,W)
-
-                if clamp_01:
-                    recon = recon.clamp(0.0, 1.0)
-
-                recon = recon.squeeze(0)  # -> (C,H,W)
-
-                if return_torch:
-                    return recon
-                return recon.detach().cpu().numpy().astype(np.float32, copy=False)
-
-            # ============================================================
-            # POSTERIOR: Variante um Input
-            # ============================================================
-            # mode == "posterior"
-            if sample is None:
-                raise ValueError("mode='posterior' requires a sample input.")
-
-            x = torch.as_tensor(sample) if not isinstance(sample, torch.Tensor) else sample
-            x = x.float()
-
-            # akzeptiere (C,H,W) oder (B,C,H,W) aber gib IMMER 1 sample zurück
-            if x.ndim == 3:
-                x = x.unsqueeze(0)  # (1,C,H,W)
-            elif x.ndim == 4:
-                x = x[:1]  # nur erstes Element verwenden
-            else:
-                raise ValueError(f"Expected (C,H,W) or (B,C,H,W), got {tuple(x.shape)}")
-
-            if clamp_01:
-                x = x.clamp(0.0, 1.0)
-
-            x = x.to(device)
-
             ref_hw = tuple(x.shape[-2:])
             multiple = 2 ** self.cfg.n_levels
             x_pad, pad = _pad_to_multiple_2d(x, multiple)
@@ -763,45 +790,48 @@ class ConvNeXtVAE2D(nn.Module):
             latent_hw = tuple(h.shape[-2:])
             model._ensure_fcs(latent_hw, device)
 
-            h_flat = h.reshape(1, -1)
+            B = x.shape[0]
+            h_flat = h.reshape(B, -1)
             mu = model.fc_mu(h_flat)
             logvar = model.fc_logvar(h_flat)
             std = torch.exp(0.5 * logvar)
 
-            print("mu std:", mu.std().item())
-            print("std mean/min/max:", std.mean().item(), std.min().item(), std.max().item())
-            print("logvar mean/min/max:", logvar.mean().item(), logvar.min().item(), logvar.max().item())
 
-            # 1 Sample aus Posterior ziehen
             if s == 0.0:
-                z = mu  # deterministisch
+                z = mu.unsqueeze(1).expand(B, n, -1).reshape(B * n, -1)
             else:
-                eps = torch.randn_like(mu)
-                z = mu + (float(s) * std) * eps
+                eps = torch.randn((B, n, mu.shape[-1]), device=device, dtype=mu.dtype)
+                z = (mu.unsqueeze(1) + (s * std).unsqueeze(1) * eps).reshape(B * n, -1)
 
-            h_dec = model.fc_decode(z).reshape(1, self.cfg.z_channels, *latent_hw)
+            h_dec = model.fc_decode(z).reshape(B * n, self.cfg.z_channels, *latent_hw)
 
-            # skip control
-            if alpha_skips is None:
-                alpha_skips = float(getattr(self.cfg, "skip_alpha", 0.2))
 
-            if alpha_skips <= 0.0:
+            alpha_skips = float(getattr(self.cfg, 'skip_alpha', 0.5))  # 0.0=starke Variation, 0.2=leicht, 1.0=Rekonstruktion
+
+            if alpha_skips <= 0:
                 model.decoder.set_skips(None)
             else:
-                # Skips nicht replizieren (wir decoden nur 1 Sample)
-                model.decoder.set_skips([alpha_skips * sk for sk in skips])
+                rep_skips = [(alpha_skips * sk).repeat_interleave(n, dim=0) for sk in skips]
+                model.decoder.set_skips(rep_skips)
 
+            
             recon = model.decoder(h_dec)
-            recon = _crop_like_2d(recon, ref_hw)  # -> (1,C,H,W)
+            recon = _crop_like_2d(recon, ref_hw)
 
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)
 
-            recon = recon.squeeze(0)  # -> (C,H,W)
+            recon = recon.view(B, n, self.cfg.in_channels, *ref_hw)
 
-            if return_torch:
-                return recon
-            return recon.detach().cpu().numpy().astype(np.float32, copy=False)
+            if single:
+                recon = recon.squeeze(0) 
+                recon = recon.squeeze(0)  # (n,C,H,W)
+ # (n,C,H,W)
+
+        if return_torch:
+            return recon
+        return recon.detach().cpu().numpy().astype(np.float32, copy=False)
+
 
     def warmup(self, shape, device=None, dtype=None):
         """Warm up the model to initialize lazy FC layers.
@@ -843,14 +873,37 @@ class ConvNeXtVAE2D(nn.Module):
 
         return self
 
+
 if __name__ == "__main__":
     # Quick sanity check
-    cfg = Config(n_res_blocks=2, n_levels=4, z_channels=64, bottleneck_dim=64)
-    model = ConvNeXtVAE2D(in_channels=1, cfg=cfg)
-    x = torch.randn(2, 1, 128, 128)
+    cfg = Config(
+        in_channels=1,
+        n_res_blocks=2,
+        n_levels=4,
+        z_channels=64,
+        bottleneck_dim=64,
+        recon_weight=10.0,
+        beta_kl=1.0,
+        beta_kl_max=1.0,
+        beta_kl_start=0.0,
+        beta_kl_warmup_epochs=0,
+        beta_kl_schedule="linear",
+        skip_alpha=0.1,
+        skip_dropout_p=0.0,
+    )
+    model = ConvNeXtVAE2D(cfg=cfg)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    x = torch.randn(2, 1, 96, 96, device=device)
     out = model(x)
     print({k: tuple(v.shape) for k, v in out.items()})
 
-    # Posterior sampling: generate 5 variants per item
-    variants = model.generate_synth_sample(x[0], n=5, s=0.3, return_torch=True)
-    print("variants:", tuple(variants.shape))
+    # One posterior variant (single output (C,H,W))
+    variant = model.generate_synth_sample(x[0], s=1.0, mode="posterior", return_torch=True, device=device)
+    print("variant:", tuple(variant.shape))
+
+    # One prior sample (single output (C,H,W))
+    prior = model.generate_synth_sample(sample=None, out_hw=(96, 96), s=1.0, mode="prior", return_torch=True, device=device)
+    print("prior:", tuple(prior.shape))

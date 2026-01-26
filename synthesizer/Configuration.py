@@ -60,7 +60,7 @@ class Configuration:
 
         # anomaly extraction parameter
         self.anomaly_size = anomaly_size
-        self.random_offset = True
+        self.random_offset = False
 
         # synthesizer parameter
         self.min_anomaly_percentage = 0.05
@@ -100,18 +100,18 @@ class Configuration:
 
         # global training parameter, fixed during training
         self.val_ratio = 0.2
-        self.batch_size = 32
-        self.epochs = 40
-        self.lr = 1e-3
+        self.batch_size = 64
+        self.epochs = 3000
+        self.lr = 1e-4
         self.log_every = 50
-        self.early_stopping = True
+        self.early_stopping = False
         self.early_stopping_params = {
-            "patience": 25,
+            "patience": 100,
             "delta": 0.0001
         }
         self.lr_scheduler = True
         self.lr_scheduler_params = {
-            "patience": 15,
+            "patience": 500,
             "factor": 0.1,
             "threshold": 1e-5,
         }
@@ -208,34 +208,42 @@ class Configuration:
         if model_name == "VAE_ConvNeXt_2D":
             _VAE2D_min_params = asdict(VAE_ConvNeXt_2D.Config(
                 in_channels=self.anomaly_size[0],  
-                n_res_blocks=4,
+                n_res_blocks=3,
                 n_levels=4,
-                z_channels=256,
-                bottleneck_dim=512,
+                z_channels=64,
+                bottleneck_dim=96,
                 use_multires_skips = False,
-                recon_weight = 10.0,
-                beta_kl = 0.1,
+                recon_weight = 5.0,
+                beta_kl = 2.0,
                 recon_loss="smoothl1",
                 use_transpose_conv=False,
-                drop_path_rate = 0.10,  # Stochastic depth max rate (0.0 disables)
+                drop_path_rate = 0.1,  # Stochastic depth max rate (0.0 disables)
                 dropout = 0.05,
-                skip_dropout_p = 0.0,  # Drop entire skip-tensors per sample during training (0.0 disables)
-                skip_alpha = 0.0   ))
+                skip_dropout_p = 0.6,  # Drop entire skip-tensors per sample during training (0.0 disables)
+                skip_alpha = 0.05,
+                beta_kl_max = 0.5 ,          # target KL weight (defaults to beta_kl)
+                beta_kl_start = 0.0,         # starting KL weight
+                beta_kl_warmup_epochs = 50,
+                free_bits=0.01   ))
             _VAE2D_max_params = asdict(VAE_ConvNeXt_2D.Config(                
                 in_channels=self.anomaly_size[0],
-                n_res_blocks=4,
+                n_res_blocks=3,
                 n_levels=4,
-                z_channels=256,
-                bottleneck_dim=512,
+                z_channels=64,
+                bottleneck_dim=96,
                 use_multires_skips = False,
-                recon_weight = 10.0,
-                beta_kl = 0.1,
+                recon_weight = 5.0,
+                beta_kl = 2.0,
                 recon_loss="smoothl1",
                 use_transpose_conv=False,
-                drop_path_rate = 0.10,  # Stochastic depth max rate (0.0 disables)
+                drop_path_rate = 0.1,  # Stochastic depth max rate (0.0 disables)
                 dropout = 0.05,
-                skip_dropout_p = 0.0,  # Drop entire skip-tensors per sample during training (0.0 disables)
-                skip_alpha = 0.0 ))
+                skip_dropout_p = 0.6,  # Drop entire skip-tensors per sample during training (0.0 disables)
+                skip_alpha = 0.05,
+                beta_kl_max = 0.5 ,          # target KL weight (defaults to beta_kl)
+                beta_kl_start = 0.0,         # starting KL weight
+                beta_kl_warmup_epochs = 50,
+                free_bits=0.01  ))
             self.model_params = {"min": _VAE2D_min_params, "max": _VAE2D_max_params}
 
     # set hyperparameter space. need min and max config of model.py

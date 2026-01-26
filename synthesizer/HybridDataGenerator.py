@@ -205,7 +205,7 @@ class HybridDataGenerator:
         else:
             optimize(no_of_trails, self._config, self._anomaly_dataset)
 
-        self.load_generator()
+        #self.load_generator()
 
     def load_generator(self, path_to_db_file=None, trial_id=-1):
         """
@@ -296,7 +296,7 @@ class HybridDataGenerator:
 
         for img, basename in self._anomaly_dataset:
             #syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
-            syn_anomaly_sample = self._model.generate_synth_sample(img, mode="posterior", out_hw=self._config.anomaly_size[1:], clamp_01=self._config.clamp01_output)
+            syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
 
 
             save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(save_folder, basename)), overwrite=True)
