@@ -209,6 +209,24 @@ def _spatial_target_size(target_size):
         return tuple(target_size[-3:])
     raise ValueError(f"target_size must be (D,H,W) or (C,D,H,W), got {target_size}")
 
+def add_bg_noise_floor(img, sigma_rel=0.003, eps=1e-8):
+    """
+    sigma_rel: relative Stärke zum Dynamikbereich (0.1% - 1% ist typisch)
+    """
+    img = img.copy()
+    bg = img.min()
+
+    # Maske: überall wo wirklich Background ist (oder fast Background)
+    mask = np.isclose(img, bg, atol=eps)
+
+    # Dynamikbereich schätzen
+    dyn = img.max() - img.min()
+    sigma = sigma_rel * (dyn + 1e-12)
+
+    noise = np.random.normal(loc=0.0, scale=sigma, size=img.shape).astype(img.dtype)
+
+    img[mask] = bg + noise[mask]
+    return img
 
 def crop_and_center_anomaly_3d(
     img,
@@ -329,6 +347,9 @@ def crop_and_center_anomaly_3d(
 
         result = img[:, dsl, hsl, wsl]  # (C,d,h,w)
         result = np.where(region_mask, result, np.min(img))
+
+        if config.add_bg_noise:
+            result = add_bg_noise_floor(result)
 
         cd, ch, cw = center_of_mass(binary3d, labeled, ridx)
         centroid_voxel = (int(round(cd)), int(round(ch)), int(round(cw)))
