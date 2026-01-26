@@ -205,7 +205,7 @@ class HybridDataGenerator:
         else:
             optimize(no_of_trails, self._config, self._anomaly_dataset)
 
-        #self.load_generator()
+        self.load_generator()
 
     def load_generator(self, path_to_db_file=None, trial_id=-1):
         """

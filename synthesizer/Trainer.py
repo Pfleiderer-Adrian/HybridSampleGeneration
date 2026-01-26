@@ -227,7 +227,7 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
         for epoch in range(config.epochs):
 
             # train step
-            train_loss, val_loss = model.fit_epoch(train_loader, val_loader, optimizer)
+            train_loss, val_loss = model.fit_epoch(train_loader, val_loader, optimizer, epoch_idx=epoch, device=device)
 
             # store results
             train_history.append(train_loss["total"])
@@ -236,6 +236,7 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
             # Track best epoch and optionally save best checkpoint
             if val_loss["total"] < best_val:
                 best_val = float(val_loss["total"])
+                print("New best epoch! val_loss: "+str(best_val))
                 best_epoch = epoch + 1
                 if best_model_path is not None:
                     torch.save(model.state_dict(), best_model_path)
