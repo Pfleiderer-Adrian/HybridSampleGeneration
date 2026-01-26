@@ -49,6 +49,9 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
     # Rows to be written later to a CSV by the caller
     matching_data = []
 
+    checked_roi_names = set()
+    checked_control_names = set()
+
     # Tracks ROI filenames already used (only relevant for "global")
     excluded_roi_sample_names = []
 
@@ -58,6 +61,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
     if matching_routine == "fixed_from_extraction":
         i = 0
         for control, _, control_filename, *ignored in tqdm(control_sample_dataloader):
+            checked_control_names.add(control_filename)
             if not shape_checked:
                 if control.ndim not in [3, 4]:
                     raise ValueError("Control sample has to be 3D [C,H,W] or 4D [C,D,H,W]")
@@ -75,6 +79,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                     break
             else:
                 roi, roi_filename = roi_dataloader[i]
+                checked_roi_names.add(roi_filename)
                 i += 1
 
             if roi_filename is None:
@@ -93,6 +98,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
         i = 0
         skipped_rois = {}   # want no duplicates here
         for control, _, control_filename, *ignored in tqdm(control_sample_dataloader):
+            checked_control_names.add(control_filename)
             if not shape_checked:
                 if control.ndim not in [3, 4]:
                     raise ValueError("Control sample has to be 3D [C,H,W] or 4D [C,D,H,W]")
@@ -128,6 +134,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                         break   # done, no roi left to match
             else:
                 roi, roi_filename = roi_dataloader[i]
+                checked_roi_names.add(roi_filename)
             
             i_start = i
             i += 1
@@ -147,6 +154,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                             break   # break after checking every roi once (break for anomaly_duplicates=True)
                         skipped_rois[roi_filename] = roi
                         roi, roi_filename = roi_dataloader[i]
+                        checked_roi_names.add(roi_filename)
                         i += 1
                         
                         sim, opt_center = template_matching(roi, control)
@@ -168,6 +176,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
     if matching_routine == "global":
         skipped_controls = []
         for control, _, control_filename, *ignored in control_sample_dataloader:
+            checked_control_names.add(control_filename)
             if not shape_checked:
                 if control.ndim not in [3, 4]:
                     raise ValueError("Control sample has to be 3D [C,H,W] or 4D [C,D,H,W]")
@@ -195,9 +204,6 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                     highest_sim_position_factor = (
                         (np.array(opt_center, dtype=float) / spatial_shape).tolist()
                     )
-
-            if highest_sim_roi_name is None:
-                raise RuntimeError(f"No match found for {control_filename}")
             
             # no matching template in remaining rois
             if highest_sim < -1:
@@ -216,6 +222,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 highest_sim_position_factor = None
 
                 for roi, roi_filename in roi_dataloader:
+                    checked_roi_names.add(roi_filename)
                     sim, opt_center = template_matching(roi, control)
                     if sim > highest_sim:
                         highest_sim = sim
@@ -226,5 +233,33 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                         )                    
                 if highest_sim_roi_name is not None and highest_sim >= -1:
                     matching_data.append([control_name, highest_sim_roi_name, highest_sim_position_factor])
+                
+                else:
+                    print(f"WARNING: No match found for control sample {control_name}")
+
+
+    used_roi_names = {roi_name for _, roi_name, _ in matching_data}
+    skipped_roi_names = checked_roi_names - used_roi_names
+
+    used_control_names = {ctrl_name for ctrl_name, _, _ in matching_data}
+    skipped_control_names = checked_control_names - used_control_names
+
+
+    print("\n---------- Matching Summary ----------")
+    print(f"\n{len(matching_data)} fused pairs.")
+
+    if skipped_roi_names:
+        print(f"{len(skipped_roi_names)} skipped rois:")
+        for name in sorted(skipped_roi_names):
+            print(f"\t{name}")
+    else:
+        print("No skipped rois.")
+
+    if skipped_control_names:
+        print(f"{len(skipped_control_names)} skipped controls:")
+        for name in sorted(skipped_control_names):
+            print(f"\t{name}")
+    else:
+        print("No skipped controls.")
 
     return matching_data
