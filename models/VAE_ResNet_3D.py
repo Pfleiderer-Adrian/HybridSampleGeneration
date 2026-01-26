@@ -438,7 +438,7 @@ class ResNetVAE3D(nn.Module):
       - logvar: log-variance vector (B, bottleneck_dim)
       - x_ref: reference input used for reconstruction loss (cropped/padded version)
     """
-    def __init__(self, in_channels: int, cfg: Config):
+    def __init__(self, cfg: Config):
         """
         Initialize the VAE.
 
@@ -456,6 +456,7 @@ class ResNetVAE3D(nn.Module):
         """
         super().__init__()
         self.cfg = cfg
+        self.in_channels = cfg.in_channels
 
         # 3D encoder outputs a latent feature map h
         self.encoder = ResNetEncoder3D(

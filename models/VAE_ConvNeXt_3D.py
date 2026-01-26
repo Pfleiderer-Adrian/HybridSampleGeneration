@@ -406,6 +406,7 @@ class ConvNeXtVAE3D(nn.Module):
     def __init__(self, cfg: Config):
         super().__init__()
         self.cfg = cfg
+        self.in_channels = cfg.in_channels
 
         # Encoder returns (h, skips)
         self.encoder = ConvNeXtUNetEncoder3D(

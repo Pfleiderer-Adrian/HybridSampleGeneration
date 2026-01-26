@@ -72,6 +72,12 @@ class Configuration:
         self.matching_dict= {}
         self.syn_anomaly_transformations = {}
         self.background_threshold = None
+
+        # matching parameter
+        self.matching_routine = "local"
+        self.anomaly_duplicates = True
+
+        # fusion parameter
         self.fusion_mask_params = {
             "max_alpha": 0.8,
             "sq": 2,
