@@ -16,7 +16,7 @@ from synthesizer.functions_2D.Fusion2D import fusion2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
 from synthesizer.Configuration import Configuration
 from synthesizer.functions_3D.Fusion3D import fusion3d
-from synthesizer.functions.Matching import create_matching_dictionary
+from synthesizer.Matching import create_matching_dictionary
 from synthesizer.Trainer import optimize
 
 
@@ -259,7 +259,7 @@ class HybridDataGenerator:
         # load model from study
         params = t.user_attrs['params']
         model_name = t.user_attrs['model_name']
-        self._model = model_loader.model_loader(model_name, params) 
+        self._model = model_loader(model_name, params) 
         self._model.warmup(self._config.anomaly_size)
         self._model.load_state_dict(torch.load(t.user_attrs['model_path']))
 

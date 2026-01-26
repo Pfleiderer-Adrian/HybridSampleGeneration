@@ -675,7 +675,6 @@ class DefectPatchGenerator(nn.Module):
         n_train = 0
 
         for batch in train_loader:
-            # Du musst hier ggf. die Keys an dein Dataset anpassen:
             # image: (B,C,H,W), mask: (B,1,H,W)
             image = batch["image"].to(device)
             mask  = batch["mask"].to(device)
@@ -712,9 +711,7 @@ class DefectPatchGenerator(nn.Module):
 
         val_total = val_total / max(n_val, 1)
 
-        # -------------------------------------------------------
-        # Return dicts in deinem VAE-Format (damit Logging passt)
-        # -------------------------------------------------------
+
         train_loss = {
             "total": train_total,
             "recon": train_total,
