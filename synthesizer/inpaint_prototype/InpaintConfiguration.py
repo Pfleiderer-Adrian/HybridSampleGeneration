@@ -3,15 +3,15 @@ from dataclasses import asdict
 
 import pandas as pd
 import numpy as np
-from models import VAE_ConvNeXt_2D, VAE_ResNet_3D, VAE_ResNet_2D, VAE_ConvNeXt_3D
+from models import VAE_ConvNeXt_2D, VAE_Diffusion_inpaint_2D, VAE_ResNet_3D, VAE_ResNet_2D, VAE_ConvNeXt_3D
 import os
 import jsonpickle
 
 # Allowed model choices (fixed set)
-ALLOWED_MODELS = ["VAE_ResNet_3D", "VAE_ResNet_2D", "VAE_ConvNeXt_3D", "VAE_ConvNeXt_2D"]
+ALLOWED_MODELS = ["VAE_Diffusion_inpaint_2D"]
 
 # creates a new interactive config object/file for the data generator
-class Configuration:
+class InpaintConfiguration:
     """
     Central configuration object for the hybrid data generation pipeline.
 
@@ -57,67 +57,36 @@ class Configuration:
         # rng for persitence
         self.rng = np.random.default_rng(42)
 
-
         # anomaly extraction parameter
         self.anomaly_size = anomaly_size
         self.random_offset = False
 
         # synthesizer parameter
-        self.min_anomaly_percentage = 0.05
-        self.min_pad = (20, 20, 20)    # just use first two values for 2d
-        self.pad_ratio = (0.5, 0.5, 0.5)
         self.clamp01_output = False
         self.normalization = "z-score"
         self.normalization_eps = 1e-6
         self.matching_dict= {}
-        self.syn_anomaly_transformations = {}
+        self.metadata = {
+            "num_classes": 0,
+            "labels": [],
+            "classes_in_sample":{}
+        }
         self.background_threshold = None
-
-        # matching parameter
-        self.matching_routine = "local"
-        self.anomaly_duplicates = True
-
-        # fusion parameter
-        self.fusion_mask_params = {
-            "max_alpha": 0.8,
-            "sq": 2,
-            "steepness_factor": 3,
-            "upsampling_factor": 2,
-            "sobel_threshold": 0.05,
-            "dilation_size": 2,
-            "shave_pixels": 1
-        }
-        self.fusion_variation = True    # use gaussian sampling for max_alpha, sq and steepness_factor
-        self.fusion_variation_params = {
-            "alpha_variation": 0.05, 
-            "sq_variation": 0.1,
-            "steepness_variation": 0.1 
-        }
-        self.confidence_levels = {
-            "68%": 1.0,
-            "80%": 1.28,
-            "90%": 1.645,   # with 1.645: deviation in one direction <= fusion_variation_params in 90% of cases; default
-            "95%": 1.960,
-            "99%": 2.576
-        }
-        self.selected_confidence = "90%" 
-        self.confidence_z_score = self.confidence_levels[self.selected_confidence]
-
 
         # global training parameter, fixed during training
         self.val_ratio = 0.2
-        self.batch_size = 64
-        self.epochs = 3000
-        self.lr = 1e-4
+        self.batch_size = 32
+        self.epochs = 40
+        self.lr = 1e-3
         self.log_every = 50
-        self.early_stopping = False
+        self.early_stopping = True
         self.early_stopping_params = {
-            "patience": 100,
+            "patience": 25,
             "delta": 0.0001
         }
         self.lr_scheduler = True
         self.lr_scheduler_params = {
-            "patience": 500,
+            "patience": 15,
             "factor": 0.1,
             "threshold": 1e-5,
         }
@@ -125,72 +94,13 @@ class Configuration:
         # model specific hyperparameter for dynamic tuning via optuna
         self.model_params = None
         # VAE3D parameter
-        if model_name == "VAE_ResNet_3D":
-            _VAE3D_min_params = asdict(VAE_ResNet_3D.Config(
-                in_channels=self.anomaly_size[0],
-                n_res_blocks=4,
-                n_levels=4,
-                z_channels=64,
-                bottleneck_dim=128,
-                use_multires_skips = True,
-                recon_weight = 100.0,
-                beta_kl = 0.05,
-                fg_weight=1.0,
-                fg_threshold=0.0,
-                recon_loss="mse",
-                use_transpose_conv = False))
-            _VAE3D_max_params = asdict(VAE_ResNet_3D.Config(
-                in_channels=self.anomaly_size[0],
-                n_res_blocks=5,
-                n_levels=5,
-                z_channels=128,
-                bottleneck_dim=256,
-                use_multires_skips = True,
-                recon_weight = 300.0,
-                beta_kl = 0.1,
-                fg_weight=2.0,
-                fg_threshold=0.0,
-                recon_loss="mse",
-                use_transpose_conv=False))
-            self.model_params = {"min": _VAE3D_min_params, "max": _VAE3D_max_params}
-
-        if model_name == "VAE_ConvNeXt_3D":
-            _VAE3D_min_params = asdict(VAE_ConvNeXt_3D.Config(
-                in_channels=self.anomaly_size[0],
-                n_res_blocks=5,
-                n_levels=5,
-                z_channels=128,
-                bottleneck_dim=256,
-                use_multires_skips = True,
-                recon_weight = 1.0,
-                beta_kl = 4.0,
-                fg_weight=1.0,
-                fg_threshold=0.0,
-                recon_loss="mse",
-                skip_dropout_p=0.6,
-                skip_alpha=0.2,
-                use_transpose_conv = False))
-            _VAE3D_max_params = asdict(VAE_ConvNeXt_3D.Config(
-                in_channels=self.anomaly_size[0],
-                n_res_blocks=6,
-                n_levels=6,
-                z_channels=128,
-                bottleneck_dim=256,
-                use_multires_skips = True,
-                recon_weight = 1.0,
-                beta_kl = 4.0,
-                fg_weight=2.0,
-                fg_threshold=0.0,
-                skip_dropout_p=0.6,
-                skip_alpha=0.2,
-                recon_loss="mse",
-                use_transpose_conv=False))
-            self.model_params = {"min": _VAE3D_min_params, "max": _VAE3D_max_params}
+        if model_name == "VAE_Diffusion_inpaint_3D":
+            #todo
+            pass
 
         # VAE2D parameter
-        if model_name == "VAE_ResNet_2D":
-            _VAE2D_min_params = asdict(VAE_ResNet_2D.Config(
-                in_channels=self.anomaly_size[0],
+        if model_name == "VAE_Diffusion_inpaint_2D":
+            _VAE2D_min_params = asdict(VAE_Diffusion_inpaint_2D.ModelConfig(
                 n_res_blocks=4,
                 n_levels=4,
                 z_channels=32,
@@ -199,8 +109,7 @@ class Configuration:
                 recon_weight = 5.0,
                 beta_kl = 0.1,
                 use_transpose_conv=False))
-            _VAE2D_max_params = asdict(VAE_ResNet_2D.Config(
-                in_channels=self.anomaly_size[0],
+            _VAE2D_max_params = asdict(VAE_Diffusion_inpaint_2D.ModelConfig(
                 n_res_blocks=5,
                 n_levels=5,
                 z_channels=64,
@@ -210,47 +119,7 @@ class Configuration:
                 beta_kl = 0.5,
                 use_transpose_conv=False))
             self.model_params = {"min": _VAE2D_min_params, "max": _VAE2D_max_params}
-        
-        if model_name == "VAE_ConvNeXt_2D":
-            _VAE2D_min_params = asdict(VAE_ConvNeXt_2D.Config(
-                in_channels=self.anomaly_size[0],  
-                n_res_blocks=3,
-                n_levels=4,
-                z_channels=64,
-                bottleneck_dim=96,
-                use_multires_skips = False,
-                recon_weight = 5.0,
-                beta_kl = 2.0,
-                recon_loss="smoothl1",
-                use_transpose_conv=False,
-                drop_path_rate = 0.1,  # Stochastic depth max rate (0.0 disables)
-                dropout = 0.05,
-                skip_dropout_p = 0.6,  # Drop entire skip-tensors per sample during training (0.0 disables)
-                skip_alpha = 0.05,
-                beta_kl_max = 0.5 ,          # target KL weight (defaults to beta_kl)
-                beta_kl_start = 0.0,         # starting KL weight
-                beta_kl_warmup_epochs = 50,
-                free_bits=0.01   ))
-            _VAE2D_max_params = asdict(VAE_ConvNeXt_2D.Config(                
-                in_channels=self.anomaly_size[0],
-                n_res_blocks=3,
-                n_levels=4,
-                z_channels=64,
-                bottleneck_dim=96,
-                use_multires_skips = False,
-                recon_weight = 5.0,
-                beta_kl = 2.0,
-                recon_loss="smoothl1",
-                use_transpose_conv=False,
-                drop_path_rate = 0.1,  # Stochastic depth max rate (0.0 disables)
-                dropout = 0.05,
-                skip_dropout_p = 0.6,  # Drop entire skip-tensors per sample during training (0.0 disables)
-                skip_alpha = 0.05,
-                beta_kl_max = 0.5 ,          # target KL weight (defaults to beta_kl)
-                beta_kl_start = 0.0,         # starting KL weight
-                beta_kl_warmup_epochs = 50,
-                free_bits=0.01  ))
-            self.model_params = {"min": _VAE2D_min_params, "max": _VAE2D_max_params}
+
 
     # set hyperparameter space. need min and max config of model.py
     def set_hyperparameter_space(self, min_config, max_config):
@@ -306,7 +175,7 @@ class Configuration:
                 fi.write(json_string)
 
     # add anomaly transformation entry to config
-    def add_anomaly_transformation(self, name, params):
+    def add_sample_metadata(self, name, params):
         """
         Register anomaly transformation metadata in memory.
 
@@ -324,9 +193,9 @@ class Configuration:
         None
             Side effect: updates self.syn_anomaly_transformations[name] = params.
         """
-        self.syn_anomaly_transformations[name] = params
+        self.metadata["classes_in_sample"][name] = params
 
-    def load_anomaly_transformations(self, json_path=None):
+    def load_sample_metadata(self, json_path=None):
         """
         Load anomaly transformation metadata from JSON into `self.syn_anomaly_transformations`.
 
@@ -342,11 +211,11 @@ class Configuration:
             Side effect: overwrites self.syn_anomaly_transformations with loaded content.
         """
         if json_path is None:
-            json_path = os.path.join(self.study_folder, "anomaly_transformations.json")
+            json_path = os.path.join(self.study_folder, "metadata.json")
         with open(json_path, "r", encoding="utf-8") as f:
-            self.syn_anomaly_transformations = json.load(f)
+            self.metadata = json.load(f)
 
-    def save_anomaly_transformations(self, json_path=None):
+    def save_metadata(self, json_path=None):
         """
         Save `self.syn_anomaly_transformations` to JSON.
 
@@ -362,9 +231,9 @@ class Configuration:
             Side effect: writes JSON to disk.
         """
         if json_path is None:
-            json_path = os.path.join(self.study_folder, "anomaly_transformations.json")
+            json_path = os.path.join(self.study_folder, "metadata.json")
         with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(self.syn_anomaly_transformations, f, ensure_ascii=False, indent=2)
+            json.dump(self.metadata, f, ensure_ascii=False, indent=2)
 
     def load_matching_csv(self, csv_path=None):
         """

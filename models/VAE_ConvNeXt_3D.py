@@ -566,6 +566,7 @@ class ConvNeXtVAE3D(nn.Module):
         val_dataloader,
         optimizer,
         *,
+        epoch_idx: Optional[int] = None,
         log_every=1,
         grad_clip_norm: Optional[float] = None,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",

@@ -121,6 +121,9 @@ class ConvNeXtBlock2D(nn.Module):
         mlp_ratio: float = 4.0,
         gn_groups: int = 8,
         drop_path: float = 0.0,
+        dropout: float = 0.0,
+        skip_dropout_p: float = 0.0,
+        skip_alpha: float = 1.0,
     ):
         super().__init__()
 
@@ -139,6 +142,7 @@ class ConvNeXtBlock2D(nn.Module):
         hidden = int(channels * mlp_ratio)
         self.pwconv1 = nn.Conv2d(channels, hidden, kernel_size=1, bias=True)
         self.act = nn.GELU()
+        self.drop = nn.Dropout(p=float(dropout)) if dropout and dropout > 0 else nn.Identity()
         self.pwconv2 = nn.Conv2d(hidden, channels, kernel_size=1, bias=True)
 
         self.drop_path = DropPath(drop_path) if drop_path and drop_path > 0 else nn.Identity()
@@ -149,6 +153,7 @@ class ConvNeXtBlock2D(nn.Module):
         x = self.norm(x)
         x = self.pwconv1(x)
         x = self.act(x)
+        x = self.drop(x)
         x = self.pwconv2(x)
         x = self.drop_path(x)
         return residual + x
@@ -190,6 +195,10 @@ class ConvNeXtUNetEncoder2D(nn.Module):
         use_multires_skips: bool = True,  # kept for API compatibility (not used)
         leak: float = 0.2,               # kept for API compatibility
         gn_groups: int = 8,
+        drop_path_rate: float = 0.0,
+        dropout: float = 0.0,
+        skip_dropout_p: float = 0.0,
+        skip_alpha: float = 1.0,
     ):
         super().__init__()
         self.n_levels = n_levels
@@ -203,13 +212,21 @@ class ConvNeXtUNetEncoder2D(nn.Module):
         self.blocks: nn.ModuleList = nn.ModuleList()
         self.downs: nn.ModuleList = nn.ModuleList()
 
+        total_blocks = n_levels * n_res_blocks
+        if drop_path_rate and drop_path_rate > 0 and total_blocks > 0:
+            dp_rates = torch.linspace(0.0, float(drop_path_rate), steps=total_blocks).tolist()
+        else:
+            dp_rates = [0.0] * total_blocks
+        dp_i = 0
+
         for i in range(n_levels):
             ch = 2 ** (i + 3)       # 8, 16, 32, 64...
             ch_next = 2 ** (i + 4)  # 16, 32, 64, 128...
 
             stage = []
             for _ in range(n_res_blocks):
-                stage.append(ConvNeXtBlock2D(ch, mlp_ratio=4.0, gn_groups=gn_groups))
+                stage.append(ConvNeXtBlock2D(ch, mlp_ratio=4.0, gn_groups=gn_groups, drop_path=dp_rates[dp_i], dropout=dropout))
+                dp_i += 1
             self.blocks.append(nn.Sequential(*stage))
 
             self.downs.append(
@@ -253,11 +270,17 @@ class ConvNeXtUNetDecoder2D(nn.Module):
         leak: float = 0.2,               # kept for API compatibility
         use_transpose_conv: bool = True,
         gn_groups: int = 8,
+        drop_path_rate: float = 0.0,
+        dropout: float = 0.0,
+        skip_dropout_p: float = 0.0,
+        skip_alpha: float = 1.0,
     ):
         super().__init__()
         self.n_levels = n_levels
         self.use_transpose_conv = use_transpose_conv
         self._skips: Optional[List[torch.Tensor]] = None
+        self.skip_dropout_p = float(skip_dropout_p)
+        self.skip_alpha = float(skip_alpha)
 
         self.bottom_ch = 2 ** (n_levels + 3)
         self.from_z = nn.Sequential(
@@ -269,6 +292,14 @@ class ConvNeXtUNetDecoder2D(nn.Module):
         self.ups: nn.ModuleList = nn.ModuleList()
         self.fuse: nn.ModuleList = nn.ModuleList()
         self.blocks: nn.ModuleList = nn.ModuleList()
+
+        total_blocks = n_levels * n_res_blocks
+        if drop_path_rate and drop_path_rate > 0 and total_blocks > 0:
+            dp_rates = torch.linspace(0.0, float(drop_path_rate), steps=total_blocks).tolist()
+        else:
+            dp_rates = [0.0] * total_blocks
+        dp_i = 0
+
 
         prev_ch = self.bottom_ch
         for i in range(n_levels):
@@ -289,36 +320,59 @@ class ConvNeXtUNetDecoder2D(nn.Module):
 
             stage = []
             for _ in range(n_res_blocks):
-                stage.append(ConvNeXtBlock2D(ch, mlp_ratio=4.0, gn_groups=gn_groups))
+                stage.append(ConvNeXtBlock2D(ch, mlp_ratio=4.0, gn_groups=gn_groups, drop_path=dp_rates[dp_i], dropout=dropout))
+                dp_i += 1
             self.blocks.append(nn.Sequential(*stage))
 
             prev_ch = ch
 
         self.out = nn.Conv2d(prev_ch, out_channels, kernel_size=3, stride=1, padding=1, bias=True)
 
-    def set_skips(self, skips: List[torch.Tensor]) -> None:
+    def set_skips(self, skips: Optional[List[torch.Tensor]]) -> None:
         self._skips = skips
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
-        if self._skips is None:
-            raise RuntimeError("Decoder skips are not set. Call decoder.set_skips(skips) before forward().")
+        """Decode latent feature map `z` into an image.
 
+        If skips are not provided (self._skips is None), skip tensors are treated as zeros.
+        During training, optional skip-dropout can be applied per sample to force latent usage.
+        """
         x = self.from_z(z)
 
         skips = self._skips
-        if len(skips) != self.n_levels:
+        if skips is not None and len(skips) != self.n_levels:
             raise ValueError(f"Expected {self.n_levels} skips, got {len(skips)}")
 
         for i in range(self.n_levels):
             x = self.ups[i](x)
 
-            skip = skips[-1 - i]
+            if skips is None:
+                # No skips provided -> treat as zeros (forces latent usage)
+                skip_ch = 2 ** (self.n_levels - i + 2)
+                skip = torch.zeros(
+                    (x.shape[0], skip_ch, x.shape[-2], x.shape[-1]),
+                    device=x.device,
+                    dtype=x.dtype,
+                )
+            else:
+                skip = skips[-1 - i]
 
             # Align spatial sizes (off-by-1 for odd inputs)
             if x.shape[-2:] != skip.shape[-2:]:
                 target = (min(x.shape[-2], skip.shape[-2]), min(x.shape[-1], skip.shape[-1]))
                 x = _crop_like_2d(x, target)
                 skip = _crop_like_2d(skip, target)
+
+            # Apply skip scaling (can be used to weaken or disable skips)
+            if self.skip_alpha != 1.0:
+                skip = skip * self.skip_alpha
+
+            # Skip-Dropout (drop entire skip tensor per sample during training)
+            p = self.skip_dropout_p
+            if p > 0.0 and self.training:
+                keep_prob = 1.0 - p
+                mask = (torch.rand((skip.shape[0], 1, 1, 1), device=skip.device, dtype=skip.dtype) < keep_prob).to(skip.dtype)
+                skip = skip * mask / max(keep_prob, 1e-6)
 
             x = torch.cat([x, skip], dim=1)
             x = self.fuse[i](x)
@@ -339,7 +393,7 @@ class Config:
       - use_multires_skips is kept but ignored by the U-Net implementation.
       - use_transpose_conv is honored.
     """
-    in_channels = None
+    in_channels:int = None
     n_res_blocks: int = 8
     n_levels: int = 4
     z_channels: int = 250
@@ -347,11 +401,26 @@ class Config:
     use_multires_skips: bool = True
     recon_weight: float = 100.0
     beta_kl: float = 1.0
+    # Beta-KL warmup (helps prevent posterior collapse)
+    # If beta_kl_warmup_epochs <= 0, beta_kl_max is used immediately.
+    beta_kl_max: float = 0.2           # target KL weight (defaults to beta_kl)
+    beta_kl_start: float = 0.0         # starting KL weight
+    beta_kl_warmup_epochs: int = 0     # warmup duration in epochs (e.g. 50)
+    beta_kl_schedule: str = "linear"   # "linear" or "cosine"
     recon_loss: str = "smoothl1"  # 'smoothl1' or 'mse'
     recon_smoothl1_beta: float = 1.0
     use_transpose_conv: bool = True
     fg_weight: float = 1.0
     fg_threshold: float = 0.0
+
+    # Regularization
+    drop_path_rate: float = 0.10  # Stochastic depth max rate (0.0 disables)
+    dropout: float = 0.05         # Dropout inside MLP (0.0 disables)
+
+    # Skip regularization (helps force latent usage)
+    skip_dropout_p: float = 0.0  # Drop entire skip-tensors per sample during training (0.0 disables)
+    skip_alpha: float = 1.0      # Scale skips (0.0 disables skips, 0.2 keeps small guidance)
+    free_bits: float = 0.02   # 0.01–0.1 typisch
 
 
 class ConvNeXtVAE2D(nn.Module):
@@ -371,12 +440,20 @@ class ConvNeXtVAE2D(nn.Module):
         super().__init__()
         self.cfg = cfg
 
+
+        # Internal epoch counter for beta-KL warmup
+        self._epoch_idx: int = 0
+
         self.encoder = ConvNeXtUNetEncoder2D(
             in_channels=cfg.in_channels,
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
             use_multires_skips=cfg.use_multires_skips,
+            drop_path_rate=cfg.drop_path_rate,
+            dropout=cfg.dropout,
+            skip_dropout_p=getattr(cfg, 'skip_dropout_p', 0.0),
+            skip_alpha=getattr(cfg, 'skip_alpha', 1.0),
         )
 
         self.decoder = ConvNeXtUNetDecoder2D(
@@ -386,6 +463,10 @@ class ConvNeXtVAE2D(nn.Module):
             z_channels=cfg.z_channels,
             use_multires_skips=cfg.use_multires_skips,
             use_transpose_conv=cfg.use_transpose_conv,
+            drop_path_rate=cfg.drop_path_rate,
+            dropout=cfg.dropout,
+            skip_dropout_p=getattr(cfg, 'skip_dropout_p', 0.0),
+            skip_alpha=getattr(cfg, 'skip_alpha', 1.0),
         )
 
         # Lazy FC layers (depend on latent spatial size)
@@ -413,12 +494,42 @@ class ConvNeXtVAE2D(nn.Module):
         eps = torch.randn_like(std)
         return mu + eps * std
 
+
+    def get_beta_kl(self, epoch_idx: Optional[int] = None) -> float:
+        """Return the current beta_kl value, optionally with warmup.
+
+        Warmup ramps beta from cfg.beta_kl_start -> cfg.beta_kl_max over
+        cfg.beta_kl_warmup_epochs epochs.
+
+        Schedules:
+          - "linear": linear ramp
+          - "cosine": cosine ramp (slow start, smooth)
+        """
+        cfg = self.cfg
+        beta_max = float(getattr(cfg, "beta_kl_max", getattr(cfg, "beta_kl", 1.0)))
+        beta_start = float(getattr(cfg, "beta_kl_start", 0.0))
+        warmup_epochs = int(getattr(cfg, "beta_kl_warmup_epochs", 0))
+        schedule = str(getattr(cfg, "beta_kl_schedule", "linear")).lower()
+
+        if epoch_idx is None:
+            epoch_idx = int(getattr(self, "_epoch_idx", 0))
+
+        if warmup_epochs <= 0:
+            return beta_max
+
+        t = max(0.0, min(1.0, epoch_idx / float(warmup_epochs)))
+
+        if schedule == "cosine":
+            t = 0.5 * (1.0 - math.cos(math.pi * t))
+
+        return beta_start + t * (beta_max - beta_start)
+
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Forward pass through encoder -> bottleneck -> decoder."""
         if x.ndim != 4:
             raise ValueError(f"Expected (B,C,H,W), got {tuple(x.shape)}")
-        if x.shape[1] != self.in_channels:
-            raise ValueError(f"Expected C={self.in_channels}, got C={x.shape[1]}")
+        if x.shape[1] != self.cfg.in_channels:
+            raise ValueError(f"Expected C={self.cfg.in_channels}, got C={x.shape[1]}")
 
         x = x.float()
         device = x.device
@@ -436,7 +547,10 @@ class ConvNeXtVAE2D(nn.Module):
         mu = self.fc_mu(h_flat)
         logvar = self.fc_logvar(h_flat)
 
-        z = self.reparameterize(mu, logvar)
+        if self.training:
+            z = self.reparameterize(mu, logvar)
+        else:
+            z = mu
 
         h_dec = self.fc_decode(z).reshape(B, self.cfg.z_channels, *latent_hw)
         self.decoder.set_skips(skips)
@@ -472,18 +586,37 @@ class ConvNeXtVAE2D(nn.Module):
         else:
             recon_loss = recon_per_pixel.mean()
 
-        kl = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
+        # old pre free bits
+        #kl = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
+
+        # KL pro Dimension: (B, D)
+        kl_per_dim = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp())
+
+        # Free Bits: Minimum KL pro Dimension erzwingen
+        free_bits = float(getattr(self.cfg, "free_bits", 0.0))
+        if free_bits > 0.0:
+            kl_per_dim = torch.clamp(kl_per_dim, min=free_bits)
+
+        # Summe über Latent-Dimension, Mittel über Batch
+        kl = kl_per_dim.sum(dim=1).mean()
+
+        kl_raw = (-0.5 * (1 + logvar - mu.pow(2) - logvar.exp())).sum(dim=1).mean()
+
+
 
         recon_weighted = self.cfg.recon_weight * recon_loss
-        kl_weighted = self.cfg.beta_kl * kl
+        beta_kl = self.get_beta_kl()
+        kl_weighted = beta_kl * kl
         total = recon_weighted + kl_weighted
 
         return {
             "total": total,
             "recon": recon_loss,
             "kl": kl,
+            "kl_raw": kl_raw,
             "recon_weighted": recon_weighted,
             "kl_weighted": kl_weighted,
+            "beta_kl": torch.tensor(float(beta_kl), device=recon.device),
         }
 
     def _extract_x(self, batch) -> torch.Tensor:
@@ -517,6 +650,7 @@ class ConvNeXtVAE2D(nn.Module):
         val_dataloader,
         optimizer,
         *,
+        epoch_idx: Optional[int] = None,
         log_every=1,
         grad_clip_norm: Optional[float] = None,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
@@ -525,9 +659,14 @@ class ConvNeXtVAE2D(nn.Module):
         device = torch.device(device)
         model = self.to(device)
 
+
+
+        if epoch_idx is not None:
+            self._epoch_idx = int(epoch_idx)
+
         def run_epoch(loader: Iterable, training: bool) -> Dict[str, float]:
             model.train(training)
-            run = {"total": 0.0, "recon": 0.0, "kl": 0.0, "recon_weighted": 0.0, "kl_weighted": 0.0}
+            run = {"total": 0.0, "recon": 0.0, "kl": 0.0, "recon_weighted": 0.0, "kl_weighted": 0.0, "beta_kl": 0.0}
             n = 0
 
             pbar = tqdm(loader, desc=("train" if training else "val"), leave=False, dynamic_ncols=True)
@@ -577,12 +716,18 @@ class ConvNeXtVAE2D(nn.Module):
 
         return tr, va
 
+        # If caller did not provide epoch_idx, advance internal counter
+        if epoch_idx is None:
+            self._epoch_idx += 1
+
+        return tr, va
+
     def generate_synth_sample(
         self,
         sample: Union[np.ndarray, torch.Tensor],
         *,
         n: int = 1,
-        s: float = 0.1,
+        s: float = 2.0,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
         return_torch: bool = False,
@@ -634,6 +779,7 @@ class ConvNeXtVAE2D(nn.Module):
             x = x.clamp(0.0, 1.0)
 
         x = x.to(device)
+        #model.train()      # wichtig!
 
         with torch.no_grad():
             ref_hw = tuple(x.shape[-2:])
@@ -650,6 +796,7 @@ class ConvNeXtVAE2D(nn.Module):
             logvar = model.fc_logvar(h_flat)
             std = torch.exp(0.5 * logvar)
 
+
             if s == 0.0:
                 z = mu.unsqueeze(1).expand(B, n, -1).reshape(B * n, -1)
             else:
@@ -658,22 +805,28 @@ class ConvNeXtVAE2D(nn.Module):
 
             h_dec = model.fc_decode(z).reshape(B * n, self.cfg.z_channels, *latent_hw)
 
-            rep_skips: List[torch.Tensor] = []
-            for sk in skips:
-                rep_skips.append(sk.repeat_interleave(n, dim=0))
-            model.decoder.set_skips(rep_skips)
 
+            alpha_skips = float(getattr(self.cfg, 'skip_alpha', 0.5))  # 0.0=starke Variation, 0.2=leicht, 1.0=Rekonstruktion
+
+            if alpha_skips <= 0:
+                model.decoder.set_skips(None)
+            else:
+                rep_skips = [(alpha_skips * sk).repeat_interleave(n, dim=0) for sk in skips]
+                model.decoder.set_skips(rep_skips)
+
+            
             recon = model.decoder(h_dec)
             recon = _crop_like_2d(recon, ref_hw)
 
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)
 
-            recon = recon.view(B, n, self.in_channels, *ref_hw)
+            recon = recon.view(B, n, self.cfg.in_channels, *ref_hw)
 
             if single:
+                recon = recon.squeeze(0) 
                 recon = recon.squeeze(0)  # (n,C,H,W)
-                recon = recon.squeeze(0)  # (C,H,W)
+ # (n,C,H,W)
 
         if return_torch:
             return recon
@@ -723,12 +876,34 @@ class ConvNeXtVAE2D(nn.Module):
 
 if __name__ == "__main__":
     # Quick sanity check
-    cfg = Config(n_res_blocks=2, n_levels=4, z_channels=64, bottleneck_dim=64)
-    model = ConvNeXtVAE2D(in_channels=1, cfg=cfg)
-    x = torch.randn(2, 1, 128, 128)
+    cfg = Config(
+        in_channels=1,
+        n_res_blocks=2,
+        n_levels=4,
+        z_channels=64,
+        bottleneck_dim=64,
+        recon_weight=10.0,
+        beta_kl=1.0,
+        beta_kl_max=1.0,
+        beta_kl_start=0.0,
+        beta_kl_warmup_epochs=0,
+        beta_kl_schedule="linear",
+        skip_alpha=0.1,
+        skip_dropout_p=0.0,
+    )
+    model = ConvNeXtVAE2D(cfg=cfg)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    x = torch.randn(2, 1, 96, 96, device=device)
     out = model(x)
     print({k: tuple(v.shape) for k, v in out.items()})
 
-    # Posterior sampling: generate 5 variants per item
-    variants = model.generate_synth_sample(x[0], n=5, s=0.3, return_torch=True)
-    print("variants:", tuple(variants.shape))
+    # One posterior variant (single output (C,H,W))
+    variant = model.generate_synth_sample(x[0], s=1.0, mode="posterior", return_torch=True, device=device)
+    print("variant:", tuple(variant.shape))
+
+    # One prior sample (single output (C,H,W))
+    prior = model.generate_synth_sample(sample=None, out_hw=(96, 96), s=1.0, mode="prior", return_torch=True, device=device)
+    print("prior:", tuple(prior.shape))

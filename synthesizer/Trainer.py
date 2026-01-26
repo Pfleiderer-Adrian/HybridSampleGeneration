@@ -60,6 +60,8 @@ def optimize(no_of_trails, config:Configuration, dataset):
     for key, value in trial.params.items():
         print("    {}: {}".format(key, value))
 
+
+
 def objective(trial: Trial, config: Configuration, dataset):
     """
     Optuna objective function: samples hyperparameters, trains a model, saves it, and returns a score.
@@ -151,7 +153,6 @@ def objective(trial: Trial, config: Configuration, dataset):
     trial.set_user_attr("best_epoch", best_epoch)
     trial.set_user_attr("best_val_loss", float(best_val))
     trial.set_user_attr("params", params)
-    trial.set_user_attr("anomaly_size", config.anomaly_size)
     trial.set_user_attr("model_name", config.model_name)
 
     # lowest validation error over all epochs
@@ -206,6 +207,11 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
     with tqdm(desc="epoch", total=config.epochs) as pbar_outer:
 
         # define optimizer
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = torch.device(device)
+
+        model.to(device)
+        model.warmup(config.anomaly_size)
         optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)  # weight_decay für L2-Regularisierung
 
         # define loss function
@@ -221,7 +227,7 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
         for epoch in range(config.epochs):
 
             # train step
-            train_loss, val_loss = model.fit_epoch(train_loader, val_loader, optimizer)
+            train_loss, val_loss = model.fit_epoch(train_loader, val_loader, optimizer, epoch_idx=epoch, device=device)
 
             # store results
             train_history.append(train_loss["total"])
@@ -230,6 +236,7 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
             # Track best epoch and optionally save best checkpoint
             if val_loss["total"] < best_val:
                 best_val = float(val_loss["total"])
+                print("New best epoch! val_loss: "+str(best_val))
                 best_epoch = epoch + 1
                 if best_model_path is not None:
                     torch.save(model.state_dict(), best_model_path)

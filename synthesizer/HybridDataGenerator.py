@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os.path
+import shutil
 from typing import Iterator
 import numpy as np
 from typing import Tuple
@@ -15,7 +16,7 @@ from synthesizer.functions_2D.Fusion2D import fusion2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
 from synthesizer.Configuration import Configuration
 from synthesizer.functions_3D.Fusion3D import fusion3d
-from synthesizer.functions.Matching import create_matching_dictionary
+from synthesizer.Matching import create_matching_dictionary
 from synthesizer.Trainer import optimize
 
 
@@ -104,6 +105,11 @@ class HybridDataGenerator:
             save_folder = os.path.join(self._config.study_folder, "anomaly_data")
         if save_folder_roi is None:
             save_folder_roi = os.path.join(self._config.study_folder, "anomaly_roi_data")
+        if os.path.exists(save_folder):    
+            shutil.rmtree(save_folder)
+        if os.path.exists(save_folder_roi):
+            shutil.rmtree(save_folder_roi)
+        os.makedirs(save_folder_roi, exist_ok=True)
         os.makedirs(save_folder, exist_ok=True)
         for img, seg, basename in sample_dataloader:
             # check if sample has no anomaly
@@ -233,6 +239,13 @@ class HybridDataGenerator:
         t = None
         if trial_id == -1:
             t = study.best_trial
+        if trial_id == -2:
+            all_trials = study.get_trials()
+            i = 0
+            for ts in all_trials:
+                if ts.number > i:
+                    i=i+1
+                    t = ts
         else:
             all_trials = study.get_trials()
             for ts in all_trials:
@@ -276,10 +289,15 @@ class HybridDataGenerator:
             raise ValueError(f"No Model Loaded: Run train_generator or load_generator first")
         if save_folder is None:
             save_folder = os.path.join(self._config.study_folder, "synth_anomaly_data")
+        if os.path.exists(save_folder):
+            shutil.rmtree(save_folder)
         os.makedirs(save_folder, exist_ok=True)
 
         for img, basename in self._anomaly_dataset:
+            #syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
             syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
+
+
             save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(save_folder, basename)), overwrite=True)
 
         self.load_synth_anomalies(save_folder)
