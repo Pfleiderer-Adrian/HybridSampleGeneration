@@ -9,7 +9,7 @@ import torch
 
 from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
 
-from models import model_loader
+from models.model_loader import model_loader
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
 from synthesizer.functions_2D.Fusion2D import fusion2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
@@ -316,7 +316,7 @@ class HybridDataGenerator:
             dtype=torch.float32,
         )
 
-    def create_matching_dict(self, control_samples_dataloader:Iterator[Tuple[np.ndarray, np.ndarray, str]], matching_routine="local", roi_folder=None, csv_file_path=None):
+    def create_matching_dict(self, control_samples_dataloader:Iterator[Tuple[np.ndarray, np.ndarray, str]], roi_folder=None, csv_file_path=None):
         """
         Create a matching dictionary between control samples and anomaly ROI samples.
 
@@ -364,10 +364,8 @@ class HybridDataGenerator:
             numpy_mode=True
         )
         img = _roi_dataset.__getitem__(0)[0]
-        if img.ndim == 3:
-            _data = create_matching_dictionary(control_samples_dataloader, _roi_dataset, self._config, matching_routine=matching_routine, anomaly_duplicates=True)
-        elif img.ndim == 4:
-            _data = create_matching_dictionary(control_samples_dataloader, _roi_dataset, self._config, matching_routine=matching_routine, anomaly_duplicates=True)
+        if img.ndim in [3, 4]:
+            _data = create_matching_dictionary(control_samples_dataloader, _roi_dataset, self._config, matching_routine=self._config.matching_routine, anomaly_duplicates=self._config.anomaly_duplicates)
         else:
             raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
 

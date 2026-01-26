@@ -7,7 +7,7 @@ from tqdm import tqdm
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from early_stopping_pytorch import EarlyStopping
 
-from models import model_loader
+from models.model_loader import model_loader
 from synthesizer.Configuration import Configuration
 
 
@@ -104,7 +104,7 @@ def objective(trial: Trial, config: Configuration, dataset):
 
 
     # 2. Create the model with chosen hyperparameters
-    model = model_loader(params)
+    model = model_loader(config.model_name, params)
 
     n_val = int(len(dataset) * config.val_ratio)
     n_train = len(dataset) - n_val
@@ -237,7 +237,7 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
             # update progress bar
             tqdm.write(log_template.format(ep=epoch + 1, learning_rate=scheduler.get_last_lr()[0], t_loss=train_loss["total"],
                                            v_loss=val_loss["total"], v_recon=val_loss["recon"], v_kl=val_loss["kl"], v_recon_w=val_loss["recon_weighted"], v_kl_w=val_loss["kl_weighted"]))
-            pbar_outer.set_postfix(lr=f"{scheduler.get_last_lr()[0]:.5f}", t_loss=f"{val_loss["total"]:.4f}", v_loss=f"{val_loss["total"]:.4f}")
+            pbar_outer.set_postfix(lr=f"{scheduler.get_last_lr()[0]:.5f}", t_loss=f"{val_loss['total']:.4f}", v_loss=f"{val_loss['total']:.4f}")
             pbar_outer.update(1)
 
             # Learning Rate Scheduling
