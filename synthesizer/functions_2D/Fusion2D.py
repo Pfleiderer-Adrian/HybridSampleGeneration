@@ -156,8 +156,8 @@ def fusion2d(
     # Offset is chosen so anomaly center is placed at position_factor * control_size
     offset = np.array(
         [
-            round(ctrl_spatial[0] * position_factor[0] - anom_spatial[0] / 2),
-            round(ctrl_spatial[1] * position_factor[1] - anom_spatial[1] / 2),
+        int(round((H - 1) * position_factor[0] - anom_spatial[0] / 2)),
+        int(round((W - 1) * position_factor[1] - anom_spatial[1] / 2)),
         ],
         dtype=int,
     )
@@ -257,8 +257,10 @@ def fusion2d(
     # ------------------------------------------------------------
     segmentation = np.zeros((H, W), dtype=np.uint8)
 
+    seg_local = alpha_mask > 0.05   # Schwelle anpassen (0.01–0.2 typ.)
+    seg_local = binary_fill_holes(seg_local).astype(np.uint8)
     # valid_mask is anomaly-local (h,w) -> crop to actual inserted region size
-    vm_crop = valid_mask[:hh, :ww]
+    vm_crop = seg_local[:hh, :ww]
     segmentation[h0 : h0 + hh, w0 : w0 + ww] = vm_crop.astype(np.uint8)
 
     # Fill holes for a cleaner binary segmentation

@@ -337,9 +337,14 @@ def crop_and_center_anomaly_2d(
         if config.add_bg_noise:
             result = add_bg_noise_floor(result)
 
-        ch, cw = center_of_mass(binary2d, labeled, ridx)
-        centroid_voxel = (int(round(ch)), int(round(cw)))
-        centroid_norm = (centroid_voxel[0] / H, centroid_voxel[1] / W)
+        #ch, cw = center_of_mass(binary2d, labeled, ridx)
+        ch = (hsl.start + hsl.stop - 1) / 2
+        cw = (wsl.start + wsl.stop - 1) / 2
+        #ch, cw = hsl[0]+((hsl[1]-hsl[0])/2), wsl[0]+((wsl[1]-wsl[0])/2)
+        centroid_voxel = (ch / (H - 1), cw / (W - 1))
+        centroid_norm = centroid_voxel
+#        centroid_norm = (centroid_voxel[0] / H, centroid_voxel[1] / W)
+
 
         padded_arr, scale_factor = resize_and_pad_2d(
             result,

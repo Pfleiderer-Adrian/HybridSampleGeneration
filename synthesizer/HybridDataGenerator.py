@@ -446,40 +446,54 @@ class HybridDataGenerator:
         if len(self._config.matching_dict) < 1:
             raise ValueError(f"No Matching Dict Loaded: Run create_matching_dict or load_matching_dict first")
 
-        anomaly_basename = self._config.matching_dict[basename_of_control_sample]["anomaly"]
-        fusion_position = self._config.matching_dict[basename_of_control_sample]["position_factor"]
-        synth_anomaly_image = self._synth_anomaly_dataset.load_numpy_by_basename(anomaly_basename)
+        indices = [k for k, row in self._config.matching_dict.items() if row.get("control") == basename_of_control_sample]
+        if not indices:
+            return control_samples_array, np.zeros_like(control_samples_array)
+        anomaly_basename = indices[0]
 
-        anomaly_meta = self._config.syn_anomaly_transformations.get(anomaly_basename, {})
+        img = control_samples_array.copy()
+        seg_final = None
+        for anomaly_basename in indices:
 
-        # Warn if user enabled normalization but transformations do not include normalization metadata.
-        if self._config.normalization is not None:
-            norm_type = anomaly_meta.get("norm_type", None)
-            if norm_type is None:
-                self._log_step(
-                    f"WARNING: config.normalization={self._config.normalization!r} but "
-                    f"no normalization metadata found for {anomaly_basename!r}. "
-                    f"Re-extract anomalies to populate norm_* fields (and re-generate synth anomalies)."
+            #anomaly_basename = self._config.matching_dict[basename_of_control_sample]["anomaly"]
+            fusion_position = self._config.matching_dict[anomaly_basename]["position_factor"]
+            synth_anomaly_image = self._synth_anomaly_dataset.load_numpy_by_basename(anomaly_basename)
+
+            anomaly_meta = self._config.syn_anomaly_transformations.get(anomaly_basename, {})
+
+            # Warn if user enabled normalization but transformations do not include normalization metadata.
+            if self._config.normalization is not None:
+                norm_type = anomaly_meta.get("norm_type", None)
+                if norm_type is None:
+                    self._log_step(
+                        f"WARNING: config.normalization={self._config.normalization!r} but "
+                        f"no normalization metadata found for {anomaly_basename!r}. "
+                        f"Re-extract anomalies to populate norm_* fields (and re-generate synth anomalies)."
+                    )
+
+            if control_samples_array.ndim == 3:
+                img, seg = fusion2d(
+                    img,
+                    synth_anomaly_image,
+                    anomaly_meta,
+                    fusion_position,
+                    self._config,
                 )
-
-        if control_samples_array.ndim == 3:
-            img, seg = fusion2d(
-                control_samples_array,
-                synth_anomaly_image,
-                anomaly_meta,
-                fusion_position,
-                self._config,
-            )
-        elif control_samples_array.ndim == 4:
-            img, seg = fusion3d(
-                control_samples_array,
-                synth_anomaly_image,
-                anomaly_meta,
-                fusion_position,
-                self._config,
-            )
-        else:
-            raise ValueError(f"Unexpected shape: {control_samples_array.shape}, Supported: (C, H, W) or (C, D, H, W)")
+            elif control_samples_array.ndim == 4:
+                img, seg = fusion3d(
+                    img,
+                    synth_anomaly_image,
+                    anomaly_meta,
+                    fusion_position,
+                    self._config,
+                )
+            else:
+                raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
+            
+            if seg_final is None:
+                seg_final = seg
+            else:
+                seg_final = combine_binary_masks(seg_final, seg, mode = "or")
 
         if save_npy:
             if save_path is None:
@@ -492,6 +506,6 @@ class HybridDataGenerator:
             img_path = os.path.join(img_folder, anomaly_basename)
             seg_path = os.path.join(seg_folder, anomaly_basename)
             save_numpy_as_npy(img, img_path, overwrite=True)
-            save_numpy_as_npy(seg, seg_path, overwrite=True)
+            save_numpy_as_npy(seg_final, seg_path, overwrite=True)
 
-        return img, seg
+        return img, seg_final

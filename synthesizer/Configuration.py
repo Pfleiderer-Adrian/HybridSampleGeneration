@@ -278,7 +278,7 @@ class Configuration:
                 .str.split(",")
                 .apply(lambda xs: [float(x) for x in xs])
             )
-        self.matching_dict = df.set_index("control").to_dict(orient="index")
+        self.matching_dict = df.set_index("anomaly").to_dict(orient="index")
 
     def update_fusion_params(self, max_alpha=0.8, sq=2, steepness_factor=3, upsampling_factor=2,
                              sobel_threshold=0.05, dilation_size=2, shave_pixels=1):
