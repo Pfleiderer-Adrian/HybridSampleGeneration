@@ -78,7 +78,7 @@ class Configuration:
         self.background_threshold = None
 
         # matching parameter
-        self.matching_routine = "local"
+        self.matching_routine = "anomaly_fusion"
         self.anomaly_duplicates = True
 
         # fusion parameter
@@ -112,21 +112,22 @@ class Configuration:
         self.val_ratio = 0.2
         self.batch_size = 64
         self.epochs = 3000
-        self.lr = 1e-4
-        self.log_every = 50
-        self.early_stopping = False
+        self.lr = 1e-3
+        self.log_every = None
+        self.early_stopping = True
         self.early_stopping_params = {
-            "patience": 100,
+            "patience": 2000,
             "delta": 0.0001
         }
         self.lr_scheduler = True
         self.lr_scheduler_params = {
-            "patience": 500,
+            "patience": 1000,
             "factor": 0.1,
             "threshold": 1e-5,
         }
 
-        self.model_params = get_model_configuration(model_name, anomaly_size[0])
+        self.model_params = get_model_configuration(model_name, anomaly_size[0], debug=True)
+
 
     # set hyperparameter space. need min and max config of model.py
     def set_hyperparameter_space(self, min_config, max_config):

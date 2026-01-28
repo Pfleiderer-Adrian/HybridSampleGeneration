@@ -159,6 +159,15 @@ def objective(trial: Trial, config: Configuration, dataset):
     return min(val_losses)
 
 
+def beta_schedule(epoch, beta_start, beta_max, warmup_start, warmup_epochs):
+    if warmup_start >= epoch:
+        return 0.0
+    if warmup_epochs <= 0:
+        return beta_max
+    t = min(1.0, max(0.0, epoch / warmup_epochs))
+    return beta_start + t * (beta_max - beta_start)
+
+
 def train(model, train_loader, val_loader, config, *, best_model_path=None):
     """
     Train a model for up to `config.epochs` epochs using `model.fit_epoch(...)`.
@@ -202,7 +211,7 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
     val_history = []
     best_epoch = 0
     best_val = float("inf")
-    log_template = "\nEpoch {ep:03d}: lr: {learning_rate:0.5f}, train_loss: {t_loss:0.4f}, val_loss {v_loss:0.4f}, val_recon {v_recon:0.4f}, val_kl {v_kl:0.4f}, val_recon_weighted {v_recon_w:0.4f}, val_kl_weighted {v_kl_w:0.4f}"
+    log_template = "\nEpoch {ep:03d}: lr: {learning_rate:0.5f}, train_loss: {t_loss:0.4f}, val_loss {v_loss:0.4f}, val_recon {v_recon:0.4f}, val_recon_weighted {v_recon_w:0.4f}, val_kl {v_kl:0.4f}, val_kl_weighted {v_kl_w:0.4f}, kl_raw {v_kl_raw:0.4f}"
 
     with tqdm(desc="epoch", total=config.epochs) as pbar_outer:
 
@@ -225,9 +234,18 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
 
         # train model for specified number of epochs
         for epoch in range(config.epochs):
+            
+
+            model.cfg.beta_kl = beta_schedule(
+                epoch,
+                model.cfg.beta_kl_start,
+                model.cfg.beta_kl_max,
+                model.cfg.beta_kl_warmup_start,
+                model.cfg.beta_kl_warmup_epochs
+                )
 
             # train step
-            train_loss, val_loss = model.fit_epoch(train_loader, val_loader, optimizer, epoch_idx=epoch, device=device)
+            train_loss, val_loss = model.fit_epoch(train_loader, val_loader, optimizer, device=device)
 
             # store results
             train_history.append(train_loss["total"])
@@ -240,10 +258,12 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
                 best_epoch = epoch + 1
                 if best_model_path is not None:
                     torch.save(model.state_dict(), best_model_path)
+            torch.save(model.state_dict(), best_model_path)
+
 
             # update progress bar
             tqdm.write(log_template.format(ep=epoch + 1, learning_rate=scheduler.get_last_lr()[0], t_loss=train_loss["total"],
-                                           v_loss=val_loss["total"], v_recon=val_loss["recon"], v_kl=val_loss["kl"], v_recon_w=val_loss["recon_weighted"], v_kl_w=val_loss["kl_weighted"]))
+                                           v_loss=val_loss["total"], v_recon=val_loss["recon"], v_recon_w=val_loss["recon_weighted"], v_kl=val_loss["kl"], v_kl_w=val_loss["kl_weighted"], v_kl_raw=val_loss["kl_raw"]))
             pbar_outer.set_postfix(lr=f"{scheduler.get_last_lr()[0]:.5f}", t_loss=f"{val_loss['total']:.4f}", v_loss=f"{val_loss['total']:.4f}")
             pbar_outer.update(1)
 

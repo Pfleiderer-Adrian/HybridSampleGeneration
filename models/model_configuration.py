@@ -1,10 +1,11 @@
 # model specific hyperparameter for dynamic tuning via optuna
         
 from dataclasses import asdict
+from xml.parsers.expat import model
 from models import VAE_ConvNeXt_2D, VAE_ConvNeXt_3D, VAE_ResNet_2D, VAE_ResNet_3D
 
 
-def get_model_configuration(model_name, in_channels):
+def get_model_configuration(model_name, in_channels, debug=False):
         model_params = None
         # VAE3D parameter
         if model_name == "VAE_ResNet_3D":
@@ -35,6 +36,7 @@ def get_model_configuration(model_name, in_channels):
                 recon_loss="mse",
                 use_transpose_conv=False))
             model_params = {"min": _VAE3D_min_params, "max": _VAE3D_max_params}
+
 
         if model_name == "VAE_ConvNeXt_3D":
             _VAE3D_min_params = asdict(VAE_ConvNeXt_3D.Config(
@@ -69,6 +71,7 @@ def get_model_configuration(model_name, in_channels):
                 use_transpose_conv=False))
             model_params = {"min": _VAE3D_min_params, "max": _VAE3D_max_params}
 
+
         # VAE2D parameter
         if model_name == "VAE_ResNet_2D":
             _VAE2D_min_params = asdict(VAE_ResNet_2D.Config(
@@ -93,44 +96,64 @@ def get_model_configuration(model_name, in_channels):
                 use_transpose_conv=False))
             model_params = {"min": _VAE2D_min_params, "max": _VAE2D_max_params}
         
+
         if model_name == "VAE_ConvNeXt_2D":
             _VAE2D_min_params = asdict(VAE_ConvNeXt_2D.Config(
                 in_channels=in_channels,
                 n_res_blocks=3,
-                n_levels=4,
+                n_levels=3,
                 z_channels=64,
-                bottleneck_dim=96,
+                bottleneck_dim=64,
                 use_multires_skips = False,
-                recon_weight = 5.0,
-                beta_kl = 2.0,
+                recon_weight = 1.0,
+                beta_kl = 0.5,
                 recon_loss="smoothl1",
                 use_transpose_conv=False,
-                drop_path_rate = 0.1,  # Stochastic depth max rate (0.0 disables)
-                dropout = 0.05,
-                skip_dropout_p = 0.6,  # Drop entire skip-tensors per sample during training (0.0 disables)
-                skip_alpha = 0.05,
-                beta_kl_max = 0.5 ,          # target KL weight (defaults to beta_kl)
+                drop_path_rate = 0.05,  # Stochastic depth max rate (0.0 disables)
+                dropout = 0.01,
+                skip_dropout_p = 0.1,  # Drop entire skip-tensors per sample during training (0.0 disables)
+                skip_alpha = 0.01,
+                beta_kl_max = 0.5,          # target KL weight (defaults to beta_kl)
                 beta_kl_start = 0.0,         # starting KL weight
                 beta_kl_warmup_epochs = 50,
-                free_bits=0.01   ))
+                #free_bits=0.01,
+                fg_weight=1.0,
+                fg_threshold=0.0   ))
             _VAE2D_max_params = asdict(VAE_ConvNeXt_2D.Config(                
                 in_channels=in_channels,
-                n_res_blocks=3,
+                n_res_blocks=4,
                 n_levels=4,
-                z_channels=64,
-                bottleneck_dim=96,
-                use_multires_skips = False,
-                recon_weight = 5.0,
-                beta_kl = 2.0,
+                z_channels=32,
+                bottleneck_dim=64,
+                use_multires_skips=False,
+
                 recon_loss="smoothl1",
+                recon_weight=10.0,          # höher -> Recon stabil besser
+
+                drop_path_rate=0.001,       # runter
+                dropout=0.001,              # runter
+                skip_dropout_p=1.0,        # Skips AUS
+                skip_alpha=0.0,
                 use_transpose_conv=False,
-                drop_path_rate = 0.1,  # Stochastic depth max rate (0.0 disables)
-                dropout = 0.05,
-                skip_dropout_p = 0.6,  # Drop entire skip-tensors per sample during training (0.0 disables)
-                skip_alpha = 0.05,
-                beta_kl_max = 0.5 ,          # target KL weight (defaults to beta_kl)
-                beta_kl_start = 0.0,         # starting KL weight
-                beta_kl_warmup_epochs = 50,
-                free_bits=0.01  ))
+
+                # KL: 2-phasen-kompatibel (warmup sehr langsam)
+                beta_kl=0.05,              # erstmal niedriger als bei dir
+                beta_kl_start=0.0,
+                beta_kl_max=0.08,
+                beta_kl_warmup_start=0,
+                beta_kl_warmup_epochs=1000, # deutlich länger
+
+                # Free-bits: hilft gegen “einige dims sterben”, ohne KL künstlich auf 1.0 zu klatschen
+                free_bits=0.001,
+
+                fg_weight=1.0,
+                fg_threshold=0.0
+
+
+           # falls background≈0 (bei [-1,1] eher ~-0.95)
+                ))
             model_params = {"min": _VAE2D_min_params, "max": _VAE2D_max_params}
+        if debug:
+            model_params = {"min": model_params["max"], "max": _VAE2D_max_params}
+
         return model_params
