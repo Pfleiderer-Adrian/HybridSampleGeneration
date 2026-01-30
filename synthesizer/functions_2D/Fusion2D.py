@@ -270,6 +270,7 @@ def fusion2d(
     if C != 1:
         segmentation = np.repeat(segmentation, C, axis=0)  # (C, H, W)
 
+    segmentation = np.where(segmentation > 0, 1, 0).astype(np.uint8)
     return fused_image, segmentation
 
 

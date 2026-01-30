@@ -78,7 +78,7 @@ class Configuration:
         self.background_threshold = None
 
         # matching parameter
-        self.matching_routine = "anomaly_fusion"
+        self.matching_routine = "global"
         self.anomaly_duplicates = True
 
         # fusion parameter

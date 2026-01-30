@@ -145,6 +145,8 @@ class ImageDataloader:
         normalize: bool = False,
         return_paths: bool = False,
         keep_mask_channels: bool = False,
+        controls_only: bool = False,
+
     ):
         """
         Iterable over 2D image + segmentation pairs on disk.
@@ -163,6 +165,8 @@ class ImageDataloader:
         self.normalize = normalize
         self.return_paths = return_paths
         self.keep_mask_channels = keep_mask_channels
+        self.controls_only = controls_only
+
 
         img_paths = [p for p in glob.iglob(os.path.join(img_dir, "*")) if _is_image_file(p)]
         seg_paths = [p for p in glob.iglob(os.path.join(seg_dir, "*")) if _is_image_file(p)]
@@ -196,7 +200,33 @@ class ImageDataloader:
                 union.append((None, ip))
 
         self.union_paths = union
+        if self.controls_only:
+            self.union_paths = self._filter_controls(self.union_paths)
+            print("No. of control samples found: ", len(self.union_paths))
         self.sample_infos = self.discover_dataset()
+
+    def _mask_has_anomaly(self, seg_path: str) -> bool:
+        seg_raw = _load_image_array(seg_path)
+
+        # Falls RGB-Masken vorkommen: genauso behandeln wie in __iter__
+        seg_arr = ensure_chw(seg_raw)
+        if (not self.keep_mask_channels) and seg_arr.shape[0] > 1:
+            seg_arr = seg_arr[:1]
+
+        # "Anomalie" = irgendein Pixel > 0
+        return np.any(seg_arr > 0)
+
+    def _filter_controls(self, pairs):
+        out = []
+        for seg_path, img_path in pairs:
+            if not img_path or not seg_path:
+                continue
+            if not (os.path.exists(img_path) and os.path.exists(seg_path)):
+                continue
+
+            if not self._mask_has_anomaly(seg_path):
+                out.append((seg_path, img_path))
+        return out
 
     def __iter__(self) -> Iterator:
         for seg_path, img_path in self.union_paths:
