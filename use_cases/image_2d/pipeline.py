@@ -63,7 +63,9 @@ if __name__ == "__main__":
         # 5) Fuse synthetic anomaly into one control sample
         img, seg = HDG.fusion_synth_anomalies(control_image, basename)
 
-        filepath = os.path.join(img_folder, "synth-" + basename)
+        os.path.splitext('/home/user/somefile.txt')
+        filepath = os.path.join(img_folder, "synth-" +  os.path.splitext(basename)[0]+"_0000"+os.path.splitext(basename)[1])
+
         save_image(img, filepath)
 
         seg_final = combine_binary_masks(control_seg, seg, mode = "or")

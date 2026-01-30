@@ -35,6 +35,184 @@ def template_matching(template, control):
 
     return similarity_score, center_coords
 
+import numpy as np
+
+def ssim_01(x, y, data_range=None, k1=0.01, k2=0.03):
+    """
+    x,y: HxW oder HxWxC, dtype float oder uint8.
+    Gibt SSIM in [0,1] zurück (vereinfacht global, ohne Sliding Window).
+    """
+    x = np.asarray(x).astype(np.float64)
+    y = np.asarray(y).astype(np.float64)
+
+    if x.shape != y.shape:
+        raise ValueError(f"shape mismatch: {x.shape} vs {y.shape}")
+
+    # pro Kanal rechnen und mitteln
+    if x.ndim == 3:
+        return float(np.mean([ssim_01(x[..., c], y[..., c], data_range, k1, k2) for c in range(x.shape[2])]))
+
+    if data_range is None:
+        # robust: Range aus beiden Bildern
+        data_range = max(x.max(), y.max()) - min(x.min(), y.min())
+        if data_range == 0:
+            return 1.0 if np.allclose(x, y) else 0.0
+
+    c1 = (k1 * data_range) ** 2
+    c2 = (k2 * data_range) ** 2
+
+    mu_x = x.mean()
+    mu_y = y.mean()
+    var_x = x.var()
+    var_y = y.var()
+    cov_xy = ((x - mu_x) * (y - mu_y)).mean()
+
+    ssim = ((2 * mu_x * mu_y + c1) * (2 * cov_xy + c2)) / ((mu_x**2 + mu_y**2 + c1) * (var_x + var_y + c2))
+    # SSIM kann minimal außerhalb liegen durch Numerik
+    return float(np.clip(ssim, 0.0, 1.0))
+
+import numpy as np
+from scipy import ndimage
+
+import numpy as np
+from scipy import ndimage
+
+def center_foreground_com(
+    img,
+    threshold,
+    fg_is_brighter=True,
+    fill_value=0,
+    largest_only=False,
+    connectivity=2,
+    min_size=1,
+    order=0,
+):
+    """
+    Zentriert Foreground über Schwerpunkt (Center of Mass).
+
+    img: 2D (H,W) oder 3D (H,W,C)
+    threshold: Background-Threshold
+    fg_is_brighter: True => foreground = img > threshold, sonst img < threshold
+    fill_value: Wert für neu entstehende Ränder
+    largest_only: Wenn True und mehrere Objekte vorhanden, nutze nur das größte Objekt
+    connectivity: 1=4-Nachbarschaft, 2=8-Nachbarschaft (für 2D)
+    min_size: Mindestgröße (Pixel) einer Komponente, um berücksichtigt zu werden
+    order: Interpolationsordnung für ndimage.shift (0,1,3,...)
+    """
+    # Für Maskenbildung auf 2D gehen
+    if img.ndim == 3:
+        gray = img.mean(axis=2)
+    else:
+        gray = img
+
+    mask = gray > threshold if fg_is_brighter else gray < threshold
+    if mask.sum() == 0:
+        raise ValueError("Foreground-Maske ist leer. Threshold/fg_is_brighter prüfen.")
+
+    # Optional: nur größte Connected Component
+    if largest_only:
+        structure = ndimage.generate_binary_structure(rank=2, connectivity=connectivity)
+        labeled, n = ndimage.label(mask, structure=structure)
+
+        if n == 0:
+            raise ValueError("Keine Komponenten gefunden (Maske evtl. leer?).")
+
+        # Größen je Label (Label 0 ist Background)
+        sizes = np.bincount(labeled.ravel())
+        sizes[0] = 0
+
+        # kleine Komponenten rausfiltern
+        if min_size > 1:
+            keep = np.where(sizes >= min_size)[0]
+            if len(keep) == 0:
+                raise ValueError(f"Keine Komponente >= min_size={min_size} gefunden.")
+            # größte unter den verbleibenden
+            largest_label = keep[np.argmax(sizes[keep])]
+        else:
+            largest_label = np.argmax(sizes)
+
+        mask = (labeled == largest_label)
+
+    # Schwerpunkt (y, x)
+    cy, cx = ndimage.center_of_mass(mask.astype(np.float32))
+
+    H, W = gray.shape
+    target_y, target_x = (H - 1) / 2.0, (W - 1) / 2.0
+    shift_y, shift_x = target_y - cy, target_x - cx
+
+    # Shift anwenden (ohne Wrap-around; konstant auffüllen)
+    if img.ndim == 2:
+        shifted = ndimage.shift(
+            img, shift=(shift_y, shift_x),
+            order=order, mode="constant", cval=fill_value
+        )
+    else:
+        shifted = np.stack([
+            ndimage.shift(
+                img[..., c], shift=(shift_y, shift_x),
+                order=order, mode="constant", cval=fill_value
+            )
+            for c in range(img.shape[2])
+        ], axis=2)
+
+    return shifted, (shift_y, shift_x), (cy, cx), mask
+
+
+
+
+import numpy as np
+
+def crop_border(arr: np.ndarray, bg_thresh: float, margin: int = 0) -> np.ndarray:
+    """
+    Crop away black/background borders by extracting the tight bounding box
+    around foreground pixels/voxels (values > bg_thresh).
+
+    Parameters
+    ----------
+    arr : np.ndarray
+        Input image/volume with shape (C, H, W) or (C, D, H, W).
+    bg_thresh : float
+        Background threshold. Values <= bg_thresh are treated as background.
+    margin : int
+        Optional extra padding (in pixels/voxels) to keep around the detected box.
+
+    Returns
+    -------
+    np.ndarray
+        Cropped array in the same layout as the input.
+        If no foreground is found, the original array is returned unchanged.
+    """
+    if arr.ndim not in (3, 4):
+        raise ValueError(f"Expected (C,H,W) or (C,D,H,W), got shape={arr.shape}")
+
+    # Build a foreground mask by aggregating across channels:
+    # if any channel at a position is > bg_thresh => foreground
+    fg_mask = np.any(arr > bg_thresh, axis=0)  # (H,W) or (D,H,W)
+
+    # If nothing exceeds the threshold, there's nothing to crop
+    if not np.any(fg_mask):
+        return arr
+
+    # Find min/max indices of foreground coordinates (tight bounding box)
+    coords = np.argwhere(fg_mask)            # shape (N, 2) or (N, 3)
+    mins = coords.min(axis=0)
+    maxs = coords.max(axis=0) + 1            # +1 for exclusive slicing end
+
+    # Apply optional margin and clamp to valid bounds
+    mins = np.maximum(mins - margin, 0)
+    maxs = np.minimum(maxs + margin, fg_mask.shape)
+
+    if arr.ndim == 3:
+        # arr: (C,H,W), mask indices: (y,x)
+        y0, x0 = mins
+        y1, x1 = maxs
+        return arr[:, y0:y1, x0:x1]
+    else:
+        # arr: (C,D,H,W), mask indices: (z,y,x)
+        z0, y0, x0 = mins
+        z1, y1, x1 = maxs
+        return arr[:, z0:z1, y0:y1, x0:x1]
+
 
 def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config, matching_routine="local", anomaly_duplicates=False):
 
@@ -360,6 +538,9 @@ def combine_binary_masks(
             f"Unknown mode='{mode}'. Supported: or/and/xor/a_minus_b/b_minus_a."
         )
 
+
+    out = np.where(out > 0, 1, 0)
+    return out
     # Control output dtype
     if return_dtype is None:
         # Return as bool if original was bool, otherwise cast to mask_a dtype

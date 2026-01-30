@@ -7,6 +7,7 @@ from typing import Tuple
 import optuna
 import pandas as pd
 import torch
+from tqdm import tqdm
 
 from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
 
@@ -16,7 +17,7 @@ from synthesizer.functions_2D.Fusion2D import fusion2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
 from synthesizer.Configuration import Configuration
 from synthesizer.functions_3D.Fusion3D import fusion3d
-from synthesizer.Matching import combine_binary_masks, create_matching_dictionary
+from synthesizer.Matching import center_foreground_com, combine_binary_masks, create_matching_dictionary, crop_border, ssim_01, template_matching
 from synthesizer.Trainer import optimize
 
 
@@ -263,7 +264,7 @@ class HybridDataGenerator:
         self._model.warmup(self._config.anomaly_size)
         self._model.load_state_dict(torch.load(t.user_attrs['model_path']))
 
-    def generate_synth_anomalies(self, save_folder=None):
+    def generate_synth_anomalies(self, match_ori=0, save_folder=None):
         """
         Generate synthetic anomalies for each anomaly in the loaded anomaly dataset.
 
@@ -293,12 +294,52 @@ class HybridDataGenerator:
             shutil.rmtree(save_folder)
         os.makedirs(save_folder, exist_ok=True)
 
-        for img, basename in self._anomaly_dataset:
+        self._anomaly_dataset.numpy_mode = True
+        bad_anomalies = []
+
+        for img, basename in tqdm(self._anomaly_dataset):
             #syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
-            syn_anomaly_sample = self._model.generate_synth_sample_prior(clamp_01=self._config.clamp01_output, out_hw=self._config.anomaly_size[1:])
+
+            best = -1
+            best_image = None
+            threshold = 0.8
+            syn_anomaly_sample = None
+            i = 0
+            while best < threshold:
+                syn_anomaly_sample = self._model.generate_synth_sample_prior(clamp_01=self._config.clamp01_output, out_hw=self._config.anomaly_size[1:])
+
+                if best_image is None:
+                    best_image = syn_anomaly_sample
 
 
-            save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(save_folder, basename)), overwrite=True)
+                if syn_anomaly_sample.shape != img.shape:
+                    raise ValueError(str(syn_anomaly_sample.shape)+"vs"+str(img.shape))
+
+                if self._config.random_offset:
+                    _background_threshold = self._config.background_threshold
+                    if _background_threshold is None:
+                        _background_threshold = np.min(syn_anomaly_sample)+0.01
+                    syn_anomaly_sample, _, _, _ = center_foreground_com(syn_anomaly_sample, _background_threshold, largest_only=True)
+                    img, _, _, _ = center_foreground_com(img, _background_threshold)
+                similarity_score = ssim_01(img, syn_anomaly_sample)
+
+                if similarity_score > best:
+                    best = similarity_score
+                    best_image = syn_anomaly_sample
+                    print("New best Score: "+str(best))
+                
+                if i % 100 == 0:
+                    if threshold > 0.15:
+                        threshold = threshold * 0.9
+                i = i + 1
+            if(best < 0.25):
+                bad_anomalies.append(basename)
+            print("Generated "+str(i)+" anomalies and save at threshold: "+str(best))
+            save_numpy_as_npy(best_image, str(os.path.join(save_folder, basename)), overwrite=True)
+        print("Summary")
+        print("No-of bad Anomalies:"+ str(len(bad_anomalies)))
+        for name in bad_anomalies:
+            print(name)
 
         self.load_synth_anomalies(save_folder)
 
