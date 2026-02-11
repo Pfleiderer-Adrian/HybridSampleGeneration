@@ -235,14 +235,15 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
         # train model for specified number of epochs
         for epoch in range(config.epochs):
             
-
-            model.cfg.beta_kl = beta_schedule(
-                epoch,
-                model.cfg.beta_kl_start,
-                model.cfg.beta_kl_max,
-                model.cfg.beta_kl_warmup_start,
-                model.cfg.beta_kl_warmup_epochs
-                )
+            # update beta_kl for current epoch
+            if hasattr(model.cfg, 'beta_kl'):
+                model.cfg.beta_kl = beta_schedule(
+                    epoch,
+                    model.cfg.beta_kl_start,
+                    model.cfg.beta_kl_max,
+                    model.cfg.beta_kl_warmup_start,
+                    model.cfg.beta_kl_warmup_epochs
+                    )
 
             # train step
             train_loss, val_loss = model.fit_epoch(train_loader, val_loader, optimizer, device=device)

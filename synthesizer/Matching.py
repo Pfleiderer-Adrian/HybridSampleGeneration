@@ -77,6 +77,8 @@ from scipy import ndimage
 import numpy as np
 from scipy import ndimage
 
+
+
 def center_foreground_com(
     img,
     threshold,
@@ -88,65 +90,94 @@ def center_foreground_com(
     order=0,
 ):
     """
-    Zentriert Foreground über Schwerpunkt (Center of Mass).
+    Centers the foreground by its center of mass (CoM).
 
-    img: 2D (H,W) oder 3D (H,W,C)
-    threshold: Background-Threshold
-    fg_is_brighter: True => foreground = img > threshold, sonst img < threshold
-    fill_value: Wert für neu entstehende Ränder
-    largest_only: Wenn True und mehrere Objekte vorhanden, nutze nur das größte Objekt
-    connectivity: 1=4-Nachbarschaft, 2=8-Nachbarschaft (für 2D)
-    min_size: Mindestgröße (Pixel) einer Komponente, um berücksichtigt zu werden
-    order: Interpolationsordnung für ndimage.shift (0,1,3,...)
+    Parameters
+    ----------
+    img : ndarray
+        Input image, either 2D (H, W) or 3D (H, W, C).
+    threshold : float
+        Background threshold used to create the foreground mask.
+    fg_is_brighter : bool, default=True
+        If True, foreground is defined as gray > threshold.
+        If False, foreground is defined as gray < threshold.
+    fill_value : scalar, default=0
+        Constant value used to fill newly introduced borders after shifting.
+    largest_only : bool, default=False
+        If True and multiple connected components exist, keep only the largest one.
+    connectivity : int, default=2
+        Connectivity for connected-component labeling in 2D:
+        1 = 4-neighborhood, 2 = 8-neighborhood.
+    min_size : int, default=1
+        Minimum component size (in pixels) to be considered when filtering components.
+        Only used when largest_only=True.
+    order : int, default=0
+        Interpolation order for ndimage.shift (e.g., 0, 1, 3, ...).
+
+    Returns
+    -------
+    shifted : ndarray
+        Shifted image with the foreground centered.
+    shift : tuple(float, float)
+        Applied shift (shift_y, shift_x).
+    com : tuple(float, float)
+        Original center of mass (cy, cx) computed from the mask.
+    mask : ndarray (bool)
+        Foreground mask used for the center-of-mass computation.
     """
-    # Für Maskenbildung auf 2D gehen
+    # Convert to 2D intensity image for mask computation
     if img.ndim == 3:
         gray = img.mean(axis=2)
     else:
         gray = img
 
+    # Build foreground mask based on threshold and polarity
     mask = gray > threshold if fg_is_brighter else gray < threshold
     if mask.sum() == 0:
-        raise ValueError("Foreground-Maske ist leer. Threshold/fg_is_brighter prüfen.")
+        raise ValueError("Foreground mask is empty. Check threshold/fg_is_brighter.")
 
-    # Optional: nur größte Connected Component
+    # Optional: keep only the largest connected component
     if largest_only:
+        # Create a 2D connectivity structure (4- or 8-connected)
         structure = ndimage.generate_binary_structure(rank=2, connectivity=connectivity)
         labeled, n = ndimage.label(mask, structure=structure)
 
         if n == 0:
-            raise ValueError("Keine Komponenten gefunden (Maske evtl. leer?).")
+            raise ValueError("No components found (mask might be empty?).")
 
-        # Größen je Label (Label 0 ist Background)
+        # Compute component sizes per label (label 0 is background)
         sizes = np.bincount(labeled.ravel())
         sizes[0] = 0
 
-        # kleine Komponenten rausfiltern
+        # Filter out small components if requested
         if min_size > 1:
             keep = np.where(sizes >= min_size)[0]
             if len(keep) == 0:
-                raise ValueError(f"Keine Komponente >= min_size={min_size} gefunden.")
-            # größte unter den verbleibenden
+                raise ValueError(f"No component >= min_size={min_size} found.")
+            # Pick the largest among the remaining components
             largest_label = keep[np.argmax(sizes[keep])]
         else:
+            # Pick the overall largest component
             largest_label = np.argmax(sizes)
 
         mask = (labeled == largest_label)
 
-    # Schwerpunkt (y, x)
+    # Center of mass in (y, x) coordinates
     cy, cx = ndimage.center_of_mass(mask.astype(np.float32))
 
+    # Target is the image center (pixel-centered for odd/even sizes)
     H, W = gray.shape
     target_y, target_x = (H - 1) / 2.0, (W - 1) / 2.0
     shift_y, shift_x = target_y - cy, target_x - cx
 
-    # Shift anwenden (ohne Wrap-around; konstant auffüllen)
+    # Apply shift (no wrap-around; constant padding)
     if img.ndim == 2:
         shifted = ndimage.shift(
             img, shift=(shift_y, shift_x),
             order=order, mode="constant", cval=fill_value
         )
     else:
+        # Shift each channel independently and stack back to (H, W, C)
         shifted = np.stack([
             ndimage.shift(
                 img[..., c], shift=(shift_y, shift_x),
@@ -156,6 +187,7 @@ def center_foreground_com(
         ], axis=2)
 
     return shifted, (shift_y, shift_x), (cy, cx), mask
+
 
 
 
@@ -217,7 +249,7 @@ def crop_border(arr: np.ndarray, bg_thresh: float, margin: int = 0) -> np.ndarra
 def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config, matching_routine="local", anomaly_duplicates=False):
 
     # template_output_dir übergeben, wenn templates_path in config noch nicht überschrieben wurde (also die templates noch nicht generiert wurden)
-    allowed_matchings_routines = ["local", "global", "fixed_from_extraction", "anomaly_fusion"]
+    allowed_matchings_routines = ["local", "global", "fixed_from_extraction_anomaly_fusion", "fixed_from_extraction_control_fusion"]
     if matching_routine not in allowed_matchings_routines:
         raise ValueError("Not a allowed matching routine.")
     
@@ -235,9 +267,9 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
 
 
     # ------------------------------------------------------------
-    # Routine: fusion real anomaly and synthetic anomaly into anomaly sample
+    # Routine: fusion real anomaly and synthetic anomaly into one sample
     # ------------------------------------------------------------
-    if matching_routine == "anomaly_fusion":
+    if matching_routine == "fixed_from_extraction_anomaly_fusion":
         i = 0
         for control, _, control_filename, *ignored in tqdm(control_sample_dataloader):
             checked_control_names.add(control_filename)
@@ -248,26 +280,27 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                     print(f"Warning: First dimension of first control sample {control_filename} is larger than another one. Shape: {control.shape}. Channel dimension must be first.")
                 shape_checked = True
             j = 0
+            anomaly_list = []
             while True:
                 try:
-
                     roi = roi_dataloader.load_numpy_by_basename(control_filename+"_"+str(j)+".npy")
                     centroid = config.syn_anomaly_transformations[control_filename+"_"+str(j)+".npy"]["centroid_norm"]
 
-                    matching_data.append(
-                        [control_filename, control_filename+"_"+str(j)+".npy", centroid]
+                    anomaly_list.append(
+                        (control_filename+"_"+str(j)+".npy", centroid)
                     )
                     j += 1
                 except Exception as e:
                     print(e.with_traceback(None))
                     print(f"Finished loading {j-1} synthetic anomalies for control sample {control_filename}.")
                     break
+            matching_data.append([control_filename,anomaly_list])
 
 
     # ------------------------------------------------------------
     # Routine: fixed_from_extraction (sequential pairing, centroid from metadata)
     # ------------------------------------------------------------
-    if matching_routine == "fixed_from_extraction":
+    if matching_routine == "fixed_from_extraction_control_fusion":
         i = 0
         for control, _, control_filename, *ignored in tqdm(control_sample_dataloader):
             checked_control_names.add(control_filename)
@@ -297,7 +330,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 centroid = config.syn_anomaly_transformations[roi_filename]["centroid_norm"]
 
             matching_data.append(
-                [control_filename, roi_filename, centroid]
+                [control_filename, [(roi_filename, centroid)]]
             )
 
     # ------------------------------------------------------------
@@ -322,7 +355,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 sim, opt_center = template_matching(roi, control)
                 if sim >= -1:
                     highest_sim_position_factor = (np.array(opt_center, dtype=float) / spatial_shape).tolist()
-                    matching_data.append([control_filename, roi_filename, highest_sim_position_factor])
+                    matching_data.append([control_filename, [(roi_filename, highest_sim_position_factor)]])
                     skipped_rois.pop(roi_filename)
                     break
             
@@ -376,7 +409,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                     # Convert center (row,col)/(slice,row,col) to normalized position factor (H,W)/(D,H,W).
                     highest_sim_position_factor = (np.array(opt_center, dtype=float) / spatial_shape).tolist()
 
-                matching_data.append([control_filename, roi_filename, highest_sim_position_factor])
+                matching_data.append([control_filename, [(roi_filename, highest_sim_position_factor)]])
 
 
     # ------------------------------------------------------------
@@ -419,7 +452,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 skipped_controls.append((control, control_filename))
                 continue
 
-            matching_data.append([control_filename, highest_sim_roi_name, highest_sim_position_factor])
+            matching_data.append([control_filename, [(highest_sim_roi_name, highest_sim_position_factor)]])
             excluded_roi_sample_names.append(highest_sim_roi_name)
 
         if anomaly_duplicates and skipped_controls:
@@ -441,7 +474,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                             (np.array(opt_center, dtype=float) / spatial_shape).tolist()
                         )                    
                 if highest_sim_roi_name is not None and highest_sim >= -1:
-                    matching_data.append([control_name, highest_sim_roi_name, highest_sim_position_factor])
+                    matching_data.append([control_name, [(highest_sim_roi_name, highest_sim_position_factor)]])
                 
                 else:
                     print(f"WARNING: No match found for control sample {control_name}")

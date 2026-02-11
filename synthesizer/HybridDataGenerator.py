@@ -264,7 +264,7 @@ class HybridDataGenerator:
         self._model.warmup(self._config.anomaly_size)
         self._model.load_state_dict(torch.load(t.user_attrs['model_path']))
 
-    def generate_synth_anomalies(self, match_ori=0, save_folder=None):
+    def generate_synth_anomalies(self, save_folder=None):
         """
         Generate synthetic anomalies for each anomaly in the loaded anomaly dataset.
 
@@ -294,54 +294,67 @@ class HybridDataGenerator:
             shutil.rmtree(save_folder)
         os.makedirs(save_folder, exist_ok=True)
 
-        self._anomaly_dataset.numpy_mode = True
-        bad_anomalies = []
 
-        for img, basename in tqdm(self._anomaly_dataset):
-            #syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
+        # use feedback system to generate similar anomalies
+        if self._config.use_feedback:
+            self._anomaly_dataset.numpy_mode = True
+            bad_anomalies = []
 
-            best = -1
-            best_image = None
-            threshold = 0.8
-            syn_anomaly_sample = None
-            i = 0
-            while best < threshold:
-                syn_anomaly_sample = self._model.generate_synth_sample_prior(clamp_01=self._config.clamp01_output, out_hw=self._config.anomaly_size[1:])
+            for img, basename in tqdm(self._anomaly_dataset):
+                #syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
 
-                if best_image is None:
-                    best_image = syn_anomaly_sample
+                best = -1
+                best_image = None
+                syn_anomaly_sample = None
+                i = 0
+                while best < self._config.feedback_threshold:
+                    if self._config.prior_sampling:
+                        syn_anomaly_sample = self._model.generate_synth_sample_prior(clamp_01=self._config.clamp01_output, out_hw=self._config.anomaly_size[1:])
+                    else:
+                        syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
+
+                    if best_image is None:
+                        best_image = syn_anomaly_sample
 
 
-                if syn_anomaly_sample.shape != img.shape:
-                    raise ValueError(str(syn_anomaly_sample.shape)+"vs"+str(img.shape))
+                    if syn_anomaly_sample.shape != img.shape:
+                        raise ValueError(str(syn_anomaly_sample.shape)+"vs"+str(img.shape))
 
-                if self._config.random_offset:
-                    _background_threshold = self._config.background_threshold
-                    if _background_threshold is None:
-                        _background_threshold = np.min(syn_anomaly_sample)+0.01
-                    syn_anomaly_sample, _, _, _ = center_foreground_com(syn_anomaly_sample, _background_threshold, largest_only=True)
-                    img, _, _, _ = center_foreground_com(img, _background_threshold)
-                similarity_score = ssim_01(img, syn_anomaly_sample)
+                    if self._config.random_offset:
+                        _background_threshold = self._config.background_threshold
+                        if _background_threshold is None:
+                            _background_threshold = np.min(syn_anomaly_sample)+0.01
+                        syn_anomaly_sample, _, _, _ = center_foreground_com(syn_anomaly_sample, _background_threshold, largest_only=True)
+                        img, _, _, _ = center_foreground_com(img, _background_threshold)
+                    similarity_score = ssim_01(img, syn_anomaly_sample)
 
-                if similarity_score > best:
-                    best = similarity_score
-                    best_image = syn_anomaly_sample
-                    print("New best Score: "+str(best))
-                
-                if i % 100 == 0:
-                    if threshold > 0.15:
-                        threshold = threshold * 0.9
-                i = i + 1
-            if(best < 0.25):
-                bad_anomalies.append(basename)
-            print("Generated "+str(i)+" anomalies and save at threshold: "+str(best))
-            save_numpy_as_npy(best_image, str(os.path.join(save_folder, basename)), overwrite=True)
-        print("Summary")
-        print("No-of bad Anomalies:"+ str(len(bad_anomalies)))
-        for name in bad_anomalies:
-            print(name)
+                    if similarity_score > best:
+                        best = similarity_score
+                        best_image = syn_anomaly_sample
+                        print("New best Score: "+str(best))
+                    
+                    if i % 100 == 0:
+                        if self._config.feedback_threshold > 0.15:
+                            self._config.feedback_threshold = self._config.feedback_threshold * self._config.threshold_relaxation_factor
+                    i = i + 1
+                if(best < 0.25):
+                    bad_anomalies.append(basename)
+                print("Generated "+str(i)+" anomalies and save at threshold: "+str(best))
+                save_numpy_as_npy(best_image, str(os.path.join(save_folder, basename)), overwrite=True)
+            print("Summary")
+            print("No-of bad Anomalies:"+ str(len(bad_anomalies)))
+            for name in bad_anomalies:
+                print(name)
+
+        # standard generation without feedback
+        else:
+            for img, basename in tqdm(self._anomaly_dataset):
+                syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
+                save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(save_folder, basename)), overwrite=True)
 
         self.load_synth_anomalies(save_folder)
+
+
 
     def load_synth_anomalies(self, synth_anomaly_folder=None, transformation_file=None):
         """
@@ -454,7 +467,7 @@ class HybridDataGenerator:
         self._config.load_matching_csv(csv_file_path)
 
 
-    def fusion_synth_anomalies(self, control_samples_array, basename_of_control_sample, save_npy=True, save_path=None) -> Tuple[np.ndarray, np.ndarray]:
+    def fusion_synth_anomalies(self, control_samples_array, basename_of_control_sample, base_mask=None, save_npy=True, save_path=None) -> Tuple[np.ndarray, np.ndarray]:
         """
         Fuse a synthetic anomaly into a control sample according to the loaded matching dict.
 
@@ -493,11 +506,18 @@ class HybridDataGenerator:
         anomaly_basename = indices[0]
 
         img = control_samples_array.copy()
-        seg_final = None
-        for anomaly_basename in indices:
+        if base_mask is not None:
+            if base_mask.shape != img.shape:
+                raise ValueError(f"base_mask shape {base_mask.shape} does not match control_samples_array shape {img.shape}")
+            else:
+                seg_final = base_mask.copy()
+        else:
+            seg_final = None
 
-            #anomaly_basename = self._config.matching_dict[basename_of_control_sample]["anomaly"]
-            fusion_position = self._config.matching_dict[anomaly_basename]["position_factor"]
+        anomalies = self._config.matching_dict[basename_of_control_sample]
+
+        for anomaly_basename, fusion_position in anomalies:
+
             synth_anomaly_image = self._synth_anomaly_dataset.load_numpy_by_basename(anomaly_basename)
 
             anomaly_meta = self._config.syn_anomaly_transformations.get(anomaly_basename, {})

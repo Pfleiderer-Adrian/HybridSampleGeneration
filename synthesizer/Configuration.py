@@ -67,6 +67,7 @@ class Configuration:
 
 
         # synthesizer parameter
+        self.prior_sampling = False
         self.min_anomaly_percentage = 0.05
         self.min_pad = (20, 20, 20)    # just use first two values for 2d
         self.pad_ratio = (0.5, 0.5, 0.5)
@@ -77,8 +78,13 @@ class Configuration:
         self.syn_anomaly_transformations = {}
         self.background_threshold = None
 
+        # feedback system
+        self.use_feedback = False
+        self.feedback_threshold = 0.8
+        self.threshold_relaxation_factor = 0.9
+
         # matching parameter
-        self.matching_routine = "anomaly_fusion"
+        self.matching_routine = "fixed_from_extraction_anomaly_fusion"
         self.anomaly_duplicates = False
 
         # fusion parameter
@@ -279,7 +285,7 @@ class Configuration:
                 .str.split(",")
                 .apply(lambda xs: [float(x) for x in xs])
             )
-        self.matching_dict = df.set_index("anomaly").to_dict(orient="index")
+        self.matching_dict = df.set_index("control").to_dict(orient="index")
 
     def update_fusion_params(self, max_alpha=0.8, sq=2, steepness_factor=3, upsampling_factor=2,
                              sobel_threshold=0.05, dilation_size=2, shave_pixels=1):
