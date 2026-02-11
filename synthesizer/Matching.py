@@ -480,10 +480,10 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                     print(f"WARNING: No match found for control sample {control_name}")
 
 
-    used_roi_names = {roi_name for _, roi_name, _ in matching_data}
+    used_roi_names = {roi_name for _, list in matching_data for roi_name, _ in list}
     skipped_roi_names = checked_roi_names - used_roi_names
 
-    used_control_names = {ctrl_name for ctrl_name, _, _ in matching_data}
+    used_control_names = {ctrl_name for ctrl_name, _ in matching_data}
     skipped_control_names = checked_control_names - used_control_names
 
 

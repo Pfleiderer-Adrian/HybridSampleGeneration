@@ -23,27 +23,32 @@ dataloader_samples_without_anomalies = ImageDataloader(path_to_control_img, path
 if __name__ == "__main__":
 
     # define a basic configuration
-    config = Configuration("berlin_5", "VAE_ConvNeXt_2D", (1, 96, 96), "/mnt/results/")
+    config = Configuration("berlin_7", "VAE_ConvNeXt_2D", (1, 96, 96), "/mnt/results/")
+
+    config.epochs = 10
+    config.prior_sampling = True
+    config.use_feedback = True
+    config.feedback_threshold = 0.01
 
     HDG = HybridDataGenerator(config)
     # 1) Extract anomaly cutouts + ROI cutouts from anomaly-labeled samples
-    #HDG.extract_anomalies(dataloader_samples_with_anomalies, None)
+    HDG.extract_anomalies(dataloader_samples_with_anomalies, None)
     # 1) Or load already extracted anomalies
     HDG.load_anomalies()
 
     # 2) Train generator via Optuna
-    #HDG.train_generator(no_of_trails=1)
+    HDG.train_generator(no_of_trails=1)
     # 2) Or only load a trained model
     HDG.load_generator(trial_id=-1)
 
     # 3) Generate and load synthetic anomalies
-    #HDG.generate_synth_anomalies()
+    HDG.generate_synth_anomalies()
     # 3) Or load already generated synthetic anomalies
     HDG.load_synth_anomalies()
 
 
     # 4) Create matching between control samples and anomaly ROIs
-    #HDG.create_matching_dict(dataloader_samples_without_anomalies)
+    HDG.create_matching_dict(dataloader_samples_without_anomalies)
     # 4) Or load already created matching dict
     HDG.load_matching_dict()
     # set result folder
@@ -61,16 +66,14 @@ if __name__ == "__main__":
         #    continue
 
         # 5) Fuse synthetic anomaly into one control sample
-        img, seg = HDG.fusion_synth_anomalies(control_image, basename)
+        img, seg = HDG.fusion_synth_anomalies(control_image, basename, base_mask=control_seg)
 
         filepath = os.path.join(img_folder, "synth-" +  os.path.splitext(basename)[0]+"_0000"+os.path.splitext(basename)[1])
 
         save_image(img, filepath)
 
-        seg_final = combine_binary_masks(control_seg, seg, mode = "or")
-
         filepath = os.path.join(seg_folder, "synth-" + basename)
-        save_image(seg_final, filepath)
+        save_image(seg, filepath)
     """
 
     # save the actual configuration

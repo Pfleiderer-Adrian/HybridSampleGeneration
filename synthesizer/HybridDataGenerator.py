@@ -441,7 +441,7 @@ class HybridDataGenerator:
         else:
             raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
 
-        df_detection = pd.DataFrame(_data, columns=["control", "anomaly", "position_factor"])
+        df_detection = pd.DataFrame(_data, columns=["control", "anomaly_list"])
         df_detection.to_csv(csv_file_path, sep=',', encoding='utf-8', index=False)
 
         self.load_matching_dict(csv_file_path)
@@ -500,21 +500,19 @@ class HybridDataGenerator:
         if len(self._config.matching_dict) < 1:
             raise ValueError(f"No Matching Dict Loaded: Run create_matching_dict or load_matching_dict first")
 
-        indices = [k for k, row in self._config.matching_dict.items() if row.get("control") == basename_of_control_sample]
-        if not indices:
-            return control_samples_array, np.zeros_like(control_samples_array)
-        anomaly_basename = indices[0]
-
-        img = control_samples_array.copy()
         if base_mask is not None:
-            if base_mask.shape != img.shape:
-                raise ValueError(f"base_mask shape {base_mask.shape} does not match control_samples_array shape {img.shape}")
+            if base_mask.shape != control_samples_array.shape:
+                raise ValueError(f"base_mask shape {base_mask.shape} does not match control_samples_array shape {control_samples_array.shape}")
             else:
                 seg_final = base_mask.copy()
         else:
-            seg_final = None
+            seg_final = np.zeros_like(control_samples_array)
 
         anomalies = self._config.matching_dict[basename_of_control_sample]
+        img = control_samples_array.copy()
+
+        if anomalies is None or len(anomalies) == 0:
+            print(f"No matched anomaly found for control sample {basename_of_control_sample} in matching dict.")
 
         for anomaly_basename, fusion_position in anomalies:
 
@@ -564,8 +562,8 @@ class HybridDataGenerator:
             os.makedirs(img_folder, exist_ok=True)
             os.makedirs(seg_folder, exist_ok=True)
 
-            img_path = os.path.join(img_folder, anomaly_basename)
-            seg_path = os.path.join(seg_folder, anomaly_basename)
+            img_path = os.path.join(img_folder, basename_of_control_sample)
+            seg_path = os.path.join(seg_folder, basename_of_control_sample)
             save_numpy_as_npy(img, img_path, overwrite=True)
             save_numpy_as_npy(seg_final, seg_path, overwrite=True)
 

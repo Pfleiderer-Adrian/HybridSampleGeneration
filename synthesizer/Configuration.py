@@ -1,8 +1,11 @@
+import ast
+import csv
 import json
 from dataclasses import asdict
 
 import pandas as pd
 import numpy as np
+from pyparsing import Dict
 from models import VAE_ConvNeXt_2D, VAE_ResNet_3D, VAE_ResNet_2D, VAE_ConvNeXt_3D
 import os
 import jsonpickle
@@ -275,17 +278,32 @@ class Configuration:
         None
             Side effect: updates self.matching_dict.
         """
-        if csv_path is None:
-            csv_path = os.path.join(self.study_folder, "matching_dict.csv")
-        df = pd.read_csv(csv_path)
-        if df["position_factor"] is not None:
-            df["position_factor"] = (
-                df["position_factor"]
-                .str.strip("[]")
-                .str.split(",")
-                .apply(lambda xs: [float(x) for x in xs])
-            )
-        self.matching_dict = df.set_index("control").to_dict(orient="index")
+        result = {}
+        with open(csv_path, "r", newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                control = row["control"].strip()
+                raw = (row.get("anomaly_list") or "").strip()
+
+                if not raw:
+                    result[control] = []
+                    continue
+
+                parsed = ast.literal_eval(raw)  # -> list of tuples
+                anomalies = []
+
+                for item in parsed:
+                    if not (isinstance(item, tuple) and len(item) == 2):
+                        raise ValueError(f"Unexpected element in anomaly_list for {control}: {item!r}")
+
+                    name, coords = item
+                    if not (isinstance(name, str) and isinstance(coords, (list, tuple)) and len(coords) == 2):
+                        raise ValueError(f"Unexpected tuple format for {control}: {item!r}")
+
+                    anomalies.append((name, [float(coords[0]), float(coords[1])]))
+
+                result[control] = anomalies
+        self.matching_dict = result
 
     def update_fusion_params(self, max_alpha=0.8, sq=2, steepness_factor=3, upsampling_factor=2,
                              sobel_threshold=0.05, dilation_size=2, shave_pixels=1):
