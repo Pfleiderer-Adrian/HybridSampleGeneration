@@ -100,25 +100,32 @@ def get_model_configuration(model_name, in_channels, debug=False):
         if model_name == "VAE_ConvNeXt_2D":
             _VAE2D_min_params = asdict(VAE_ConvNeXt_2D.Config(
                 in_channels=in_channels,
-                n_res_blocks=3,
-                n_levels=3,
-                z_channels=64,
+                n_res_blocks=4,
+                n_levels=4,
+                z_channels=32,
                 bottleneck_dim=64,
-                use_multires_skips = False,
-                recon_weight = 1.0,
-                beta_kl = 0.5,
+                use_multires_skips=False,
+
                 recon_loss="smoothl1",
+                recon_weight=10.0,          
+
+                drop_path_rate=0.001,       
+                dropout=0.001,              
+                skip_dropout_p=1.0,        
+                skip_alpha=0.0,
                 use_transpose_conv=False,
-                drop_path_rate = 0.05,  # Stochastic depth max rate (0.0 disables)
-                dropout = 0.01,
-                skip_dropout_p = 0.1,  # Drop entire skip-tensors per sample during training (0.0 disables)
-                skip_alpha = 0.01,
-                beta_kl_max = 0.5,          # target KL weight (defaults to beta_kl)
-                beta_kl_start = 0.0,         # starting KL weight
-                beta_kl_warmup_epochs = 50,
-                #free_bits=0.01,
+
+                beta_kl=0.05,             
+                beta_kl_start=0.0,
+                beta_kl_max=0.08,
+                beta_kl_warmup_start=0,
+                beta_kl_warmup_epochs=1000, 
+
+                free_bits=0.001,
+
                 fg_weight=1.0,
-                fg_threshold=0.0   ))
+                fg_threshold=0.0  ))
+            
             _VAE2D_max_params = asdict(VAE_ConvNeXt_2D.Config(                
                 in_channels=in_channels,
                 n_res_blocks=4,
@@ -128,29 +135,24 @@ def get_model_configuration(model_name, in_channels, debug=False):
                 use_multires_skips=False,
 
                 recon_loss="smoothl1",
-                recon_weight=10.0,          # höher -> Recon stabil besser
+                recon_weight=10.0,          
 
-                drop_path_rate=0.001,       # runter
-                dropout=0.001,              # runter
-                skip_dropout_p=1.0,        # Skips AUS
+                drop_path_rate=0.001,       
+                dropout=0.001,              
+                skip_dropout_p=1.0,        
                 skip_alpha=0.0,
                 use_transpose_conv=False,
 
-                # KL: 2-phasen-kompatibel (warmup sehr langsam)
-                beta_kl=0.05,              # erstmal niedriger als bei dir
+                beta_kl=0.05,             
                 beta_kl_start=0.0,
                 beta_kl_max=0.08,
                 beta_kl_warmup_start=0,
-                beta_kl_warmup_epochs=1000, # deutlich länger
+                beta_kl_warmup_epochs=1000, 
 
-                # Free-bits: hilft gegen “einige dims sterben”, ohne KL künstlich auf 1.0 zu klatschen
                 free_bits=0.001,
 
                 fg_weight=1.0,
                 fg_threshold=0.0
-
-
-           # falls background≈0 (bei [-1,1] eher ~-0.95)
                 ))
             model_params = {"min": _VAE2D_min_params, "max": _VAE2D_max_params}
         if debug:

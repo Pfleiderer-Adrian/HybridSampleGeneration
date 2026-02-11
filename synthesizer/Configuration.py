@@ -135,7 +135,7 @@ class Configuration:
             "threshold": 1e-5,
         }
 
-        self.model_params = get_model_configuration(model_name, anomaly_size[0], debug=True)
+        self.model_params = get_model_configuration(model_name, anomaly_size[0], debug=False)
 
 
     # set hyperparameter space. need min and max config of model.py
