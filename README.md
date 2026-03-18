@@ -88,31 +88,72 @@ Each iteration must yield:
     # 4) Or load already created matching dict
     HDG.load_matching_dict()
 
-    # 5) Generate new Hybrid Training Samples
+    # 5) Generate new Hybrid Training Samples and synthetic ROIs
     img, seg = HDG.fusion_synth_anomalies(control_image, basename_of_image)
+
+    # 6) Compute (textural and morphological) metric differences for real-synthetic pairs
+    HDG.run_evaluation_pipeline(dataloader_samples_with_anomalies)
+
+    # 7) Start Outlier Viewer for manual inspection of generated samples
+    HDG.visualize_evaluation_results()
+
 ```
 
 ---
 
+### Evaluation details
+  Pairwise comparison of real vs synthetic samples (pairing VAE Input with corresponding generated Output):
+
+  - Textural Comparison: GLCM-based features (Contrast, Homogeneity, Energy, Correlation).
+    Computing differences between real and synthetic anomaly cutouts and between real and synthetic ROIs.
+        Contrast:     Measures local intensity variations; high values indicate sharp edges or coarse textures.
+        Homogeneity:  Measures the similarity of neighboring pixels; high values indicate smooth transitions.
+        Energy:       Measures textural uniformity and order; high values indicate constant or repetitive patterns.
+        Correlation:  Measures the linear dependency of neighboring gray levels; high levels indicate a strong linear relationship.
+
+  - Morphological Comparison: Volume and Center of Mass (CoM). Computing differences between real and synthetic anomaly cutouts.
+        Volume:       Sum of voxels within the segmentation mask to ensure size-preservation during synthesis.
+        CoM:          The spatial centroid of the anomaly, used to detect positional shifts or shape-asymmetry. Calculated separately for each dimension.
+
+  - Outlier Detection: (Optional) automated removal of low-quality synthetic anomalies and synthetic ROIs (statistical outliers or based on optional fixed thresholds in config).
+      Manual removal of synthetic samples, synthetic ROIs, real anomalies + ROIs and whole generated hybrid samples + segmentations also possible within the Outlier Viewer.
+
+  - Execution Summary: Outputs key statistics to the console like metric averages for real and synthetic datasets, per-metric outlier counts,
+      and the intersection of outliers across different metrics (outlier overlaps).
+
+  - Saves results to the evaluation_results directory within study_folder:
+      metric_diffs.csv containing all computed metric difference values
+      Histograms (distributions of the metric differences) for every metric, grouped into three .png files: GLCM on cutouts, Volume (morphological metrics) on cutouts, and GLCM on ROIs
+
+---
+
 ### Visualize and Debug anomalies
+  To fine-tune the configuration, debug the generation pipeline or delete samples, you can use the Outlier Viewer.
 
-To fine-tune the configuration or debug the generation pipeline, you can visualize:
+  **Key Capabilities:**
+  - Hierarchical Navigation: parent-child relationship between generated hybrid samples and fused anomalies within them (treeview).
+      Navigate between samples (and Slices (Depth) in case of 3D) with on-screen buttons or keyboard arrow keys.
+      Shows generated hybrid sample + segmentation if control name is selected in treeview.
+      Shows synthetic and real anomalies and ROIs if anomaly name (within a control) is selected in treeview.
 
-- **Extracted input anomaly**: `./anomaly_data/<filename>.npy` (train input)
-- **Extracted ROI of anomaly**: `./anomaly_roi_data/<filename>.npy` (only for Matching)
-- **Generated synthetic anomaly**: `./synt_anomaly_data/<filename>.npy` (model output)
+  - Metric-based filtering and sorting: dynamically filter and sort dataset by selecting different metrics via checkboxes and adjusting the outlier threshold t via a mouse-draggable slider.
+      Filtering: For each selected metric, only anomalies that fall within the top t% of highest differences of the metric are included in the tree view.
+      Sorting: Ranks samples in descending order (average of their min-max normalized differences across all checked metrics). -> highest differences first
 
-Use the lightweight project viewer located at `./data_handler/Visualizer.py`:
+  - Deletion:
+      Delete button; always asks for confirmation before deletion
+      Delete whole generated hybrid sample + segmentation and all its ROIs if control name is selected in treeview
+      If anomaly name is selected in treeview the delete button opens a window with checkboxes where you can check what you want to delete:
+          Real Anomaly (VAE input) + real ROI
+          Synthetic ROI (just this fusion)
+          Synthetic Anomaly + all its ROIs (may affect other fusions)
+          Hybrid Sample + all ROIs inside
 
-```bash
-python ./data_handler/Visualizer.py /filepath/to/your/project/results/study_name
-```
+  - Extra Features: 
+      Contrast control via a mouse-draggable slider
+      Slices (Depth) navigation via mouse wheel scrolling
 
-**Features:**
-- Depth (D) navigation via a mouse-draggable slider (and mouse wheel scrolling over the image)
-- Contrast control via a mouse-draggable slider
-
->The viewer expects .npy arrays with shape (C, D, H, W) or (C, H, W).
+  >The viewer expects .npy arrays with shape (C, D, H, W) or (C, H, W). It loads data directly from the study_folder where it was saved during the generation process.
 
 ---
 

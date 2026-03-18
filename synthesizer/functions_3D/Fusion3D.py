@@ -5,6 +5,8 @@ from tqdm import tqdm
 from skimage.feature import match_template
 from scipy.ndimage import binary_fill_holes
 
+from synthesizer.functions_3D.Anomaly_Extraction3D import crop_cube_clip
+
 
 def _denormalize_anomaly(anom, normalization_meta):
     if not normalization_meta:
@@ -281,7 +283,30 @@ def fusion3d(
 
     segmentation = np.where(segmentation > 0, 1, 0).astype(np.uint8)
 
-    return fused_image, segmentation
+    if np.sum(segmentation) == 0:        
+        return ctrl, segmentation, None
+
+    # ------------------------------------------------------------
+    # 14) Extract ROI around the inserted anomaly (3D)
+    # ------------------------------------------------------------
+    cd = d0 + (dd / 2.0)
+    ch = h0 + (hh / 2.0)
+    cw = w0 + (ww / 2.0)
+    centroid_voxel = (cd, ch, cw)
+
+    if config.fixed_roi_size is None:
+        size_spatial = [int(s + max(mp, s * pr)) for s, mp, pr in zip((dd, hh, ww), config.min_pad, config.pad_ratio)]
+    else:
+        size_spatial = config.fixed_roi_size
+        
+    fused_roi = crop_cube_clip(
+        fused_image, 
+        centroid_voxel, 
+        size_spatial, 
+        centroid_is_normalized=False
+    )
+
+    return fused_image, segmentation, fused_roi
 
 
 def get_alpha_mask_sobel_final(anomaly_arr, config, background_threshold):

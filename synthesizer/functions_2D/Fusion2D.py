@@ -3,6 +3,8 @@ import scipy.ndimage
 from scipy.ndimage import zoom
 from scipy.ndimage import binary_fill_holes
 
+from synthesizer.functions_2D.Anomaly_Extraction2D import crop_square_clip
+
 
 def _denormalize_anomaly(anom, normalization_meta):
     if not normalization_meta:
@@ -271,7 +273,35 @@ def fusion2d(
         segmentation = np.repeat(segmentation, C, axis=0)  # (C, H, W)
 
     segmentation = np.where(segmentation > 0, 1, 0).astype(np.uint8)
-    return fused_image, segmentation
+
+    # Ensuring no anomalies are fused in and an empty mask is provided -> could this confuse the model? Better to simply return ctrl
+    # This is why synth ROI is missing for some samples! (roi becomes None here)
+    if np.sum(segmentation) == 0:
+        return ctrl, segmentation, None
+    
+    # ------------------------------------------------------------
+    # 14) Extract ROI around the inserted anomaly
+    # ------------------------------------------------------------
+    
+    # centroid
+    ch = h0 + (hh / 2.0)
+    cw = w0 + (ww / 2.0)
+    centroid_voxel = (ch, cw)
+    
+    if config.fixed_roi_size is None:
+        size_spatial = [int(s + max(mp, s * pr)) for s, mp, pr in zip((hh, ww), config.min_pad, config.pad_ratio)]    
+    else:
+        size_spatial = config.fixed_roi_size
+
+    # crop roi from fused image
+    fused_roi = crop_square_clip(
+        fused_image, 
+        centroid_voxel, 
+        size_spatial, 
+        centroid_is_normalized=False
+    )
+
+    return fused_image, segmentation, fused_roi
 
 
 def get_alpha_mask_sobel_final_2d(anomaly_arr, config, background_threshold):

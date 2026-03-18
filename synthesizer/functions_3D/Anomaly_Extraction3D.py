@@ -175,6 +175,30 @@ def crop_cube_clip(arr, centroid, size, centroid_is_normalized=None):
     h1 = h0 + sh
     w1 = w0 + sw
 
+    # shift depth
+    if d0 < 0:
+        d1 = d1 - d0
+        d0 = 0
+    elif d1 > D:
+        d0 = d0 - (d1 - D)
+        d1 = D
+
+    # shift height
+    if h0 < 0:
+        h1 = h1 - h0
+        h0 = 0
+    elif h1 > H:
+        h0 = h0 - (h1 - H)
+        h1 = H
+
+    # shift width
+    if w0 < 0:
+        w1 = w1 - w0
+        w0 = 0
+    elif w1 > W:
+        w0 = w0 - (w1 - W)
+        w1 = W
+
     d0c, h0c, w0c = max(d0, 0), max(h0, 0), max(w0, 0)
     d1c, h1c, w1c = min(d1, D), min(h1, H), min(w1, W)
 
@@ -312,7 +336,7 @@ def crop_and_center_anomaly_3d(
     """
     target_size = _spatial_target_size(target_size)
     if seg is None or np.all(seg == 0):
-        return None
+        return None, None
 
     if img.ndim != 4:
         raise ValueError(f"img must be (C,D,H,W). Got {img.shape}")
@@ -378,7 +402,10 @@ def crop_and_center_anomaly_3d(
         }
         meta_data.update(norm_meta)
         
-        size_spatial = [int(s + max(mp, s * pr)) for s, mp, pr in zip(result.shape[-3:], config.min_pad, config.pad_ratio)]
+        if config.fixed_roi_size is None:
+            size_spatial = [int(s + max(mp, s * pr)) for s, mp, pr in zip(result.shape[-3:], config.min_pad, config.pad_ratio)]
+        else:
+            size_spatial = config.fixed_roi_size
 
         anomalies_roi.append(crop_cube_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False))
         
