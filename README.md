@@ -105,6 +105,12 @@ Each iteration must yield:
   Pairwise comparison of real vs synthetic samples (pairing VAE Input with corresponding generated Output):
 
   - Textural Comparison: GLCM-based features (Contrast, Homogeneity, Energy, Correlation).
+
+    GLCM (Gray-Level Co-occurrence Matrix):
+        - encodes spatial relationships between intensity values by counting how often pairs of gray levels occur at given directional offsets (2D: 4 directions, 3D: 13 directions)
+        - in this case, a distance of 1 is used, so only immediate neighbors are considered
+        - a GLCM is computed separately for each channel by aggregating over all directional offsets after quantizing intensity values into discrete gray levels
+    
     Computing differences between real and synthetic anomaly cutouts and between real and synthetic ROIs.
         Contrast:     Measures local intensity variations; high values indicate sharp edges or coarse textures.
         Homogeneity:  Measures the similarity of neighboring pixels; high values indicate smooth transitions.
