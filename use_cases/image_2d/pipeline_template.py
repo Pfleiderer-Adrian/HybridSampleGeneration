@@ -70,3 +70,12 @@ if __name__ == "__main__":
 
     # save the actual configuration
     config.save_config_file()
+
+    dataloader_samples_with_anomalies = ImageDataloader(path_to_img, path_to_seg)
+
+    # 6) Compute (textural and morphological) metric differences for real-synthetic pairs
+    HDG.run_evaluation_pipeline(dataloader_samples_with_anomalies)
+
+    # 7) Start Outlier Viewer for manual inspection of generated samples
+    HDG.visualize_evaluation_results()
+    
