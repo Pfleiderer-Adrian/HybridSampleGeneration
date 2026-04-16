@@ -101,6 +101,52 @@ Each iteration must yield:
 
 ---
 
+### Matching logic
+  Pair control samples and synthetic anomalies for fusion and save the results in matching_dict.csv: control, [(anomaly, fusion_position), ...]
+
+  Choose one of four possible matching_routines:
+  - fixed_from_extraction_anomaly_fusion: 
+      Iterates through every control sample and attempts to find a specific set of synthetic ROIs pre-assigned to it.
+      Uses a naming convention (control_filename + index) to identify and load matching ROI files.
+      Retrieves the exact fusion positions (centroids) from the metadata.
+      Continues to load and append ROIs for a single control sample until no further matching filenames are found.
+      Bypasses overlap checks and similarity scores, assuming the pre-extracted anomalies are already valid for the target control.
+
+  - fixed_from_extraction_control_fusion:
+      Iterates through every control sample and pairs it with exactly one ROI from the dataloader in a sequential 1:1 relationship.
+      Retrieves the exact fusion positions (centroids) from the metadata.
+      If the ROI dataloader is exhausted and anomaly_duplicates is enabled, the routine restarts from the beginning of the ROI list to continue pairing.
+      If the ROI dataloader is exhausted and anomaly_duplicates is disabled, the process stops entirely.
+      Bypasses similarity scores, assuming the pre-extracted anomalies are already valid for the target control.
+
+  - local: (pairing not optimal, but fast)
+      Iterates through every control sample and attempts to find a specified number of ROI matches (depending on fusions_per_control and max_fusions_per_control_deviation).
+      Always only checks the next ROI from the dataloader (until enough matches were found).
+      Uses template matching to find the position with the highest similarity score for a given ROI within the control sample.
+      ROIs matched with the same control sample can not spatially overlap.
+      If a ROI does not fit in the current control (ROI bigger than control or overlap), it is added to skipped_rois.
+      Before loading new ROIs, the routine always checks skipped_rois to see if they fit the current control sample.
+      If all new ROIs are exhausted and anomaly_duplicates is enabled, the routine restarts from the beginning of the ROI list.
+      If the target number of matches cannot be reached, it issues a warning and moves to the next control sample.
+
+  - global: (optimal pairing, but slow)
+      Iterates through every control sample and attempts to find a specified number of ROI matches (depending on fusions_per_control and max_fusions_per_control_deviation).
+      Performs template matching for all available ROIs against the current control sample to find the best possible positions for every ROI and save info in all_matches list.
+      ROIs matched with the same control sample can not spatially overlap.
+      Prioritizes matches based on the highest similarity score (sort all_matches by similarity descending and then always try to match the next index until no further matches are needed)
+      ROIs that have been successfully matched are added to excluded_roi_samples and are excluded from future controls to avoid reuse.
+      If no more matches are possible for the current control and anomaly_duplicates is enabled, also check excluded_roi_samples and select those with highest similarity.
+      If all available ROIs have been excluded and anomaly_duplicates is enabled, the exclusion list is cleared to allow a full restart of the ROI pool.
+      If the target number of matches cannot be reached, it issues a warning and moves to the next control sample.
+
+  Matching Summary:
+    After the matching process, the system provides a summary to evaluate the efficiency of the chosen routine and parameters:
+    Utilization Rate: Tracks how many of the available synthetic ROIs were actually fused into control samples.
+    Unused ROIs: If some ROIs were never matched, the system calculates a suggested fusions_per_control value.
+    Optimization Tip: To achieve a ~100% utilization rate, the summary suggests increasing the fusions_per_control based on the ratio of available ROIs to processed control samples.
+
+---
+
 ### Evaluation details
   Pairwise comparison of real vs synthetic samples (pairing VAE Input with corresponding generated Output):
 
