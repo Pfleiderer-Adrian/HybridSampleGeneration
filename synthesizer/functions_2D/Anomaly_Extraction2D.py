@@ -169,6 +169,22 @@ def crop_square_clip(arr, centroid, size, centroid_is_normalized=None):
     h1 = h0 + sh
     w1 = w0 + sw
 
+    # shift y axis
+    if h0 < 0:
+        h1 = h1 - h0
+        h0 = 0
+    elif h1 > H:
+        h0 = h0 - (h1 - H)
+        h1 = H
+
+    # shift x axis
+    if w0 < 0:
+        w1 = w1 - w0
+        w0 = 0
+    elif w1 > W:
+        w0 = w0 - (w1 - W)
+        w1 = W
+
     h0c, w0c = max(h0, 0), max(w0, 0)
     h1c, w1c = min(h1, H), min(w1, W)
 
@@ -297,7 +313,7 @@ def crop_and_center_anomaly_2d(
     target_size = _spatial_target_size(target_size)
 
     if seg is None or np.all(seg == 0):
-        return None
+        return None, None
 
     if img.ndim != 3:
         raise ValueError(f"img must be 3D (C,H,W). Got {img.shape}")
@@ -341,8 +357,8 @@ def crop_and_center_anomaly_2d(
         ch = (hsl.start + hsl.stop - 1) / 2
         cw = (wsl.start + wsl.stop - 1) / 2
         #ch, cw = hsl[0]+((hsl[1]-hsl[0])/2), wsl[0]+((wsl[1]-wsl[0])/2)
-        centroid_voxel = (ch / (H - 1), cw / (W - 1))
-        centroid_norm = centroid_voxel
+        centroid_voxel = (ch, cw)
+        centroid_norm = (ch / (H - 1), cw / (W - 1))
 #        centroid_norm = (centroid_voxel[0] / H, centroid_voxel[1] / W)
 
 
@@ -369,7 +385,10 @@ def crop_and_center_anomaly_2d(
         }
         meta_data.update(norm_meta)
 
-        size_spatial = [int(s + max(mp, s * pr)) for s, mp, pr in zip(result.shape[-2:], config.min_pad, config.pad_ratio)]
+        if config.fixed_roi_size is None:
+            size_spatial = [int(s + max(mp, s * pr)) for s, mp, pr in zip(result.shape[-2:], config.min_pad, config.pad_ratio)]
+        else:
+            size_spatial = config.fixed_roi_size
         
         anomalies_roi.append(crop_square_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False))
 

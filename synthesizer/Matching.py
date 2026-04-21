@@ -1,6 +1,9 @@
 import numpy as np
+import os
 from tqdm import tqdm
 from skimage.feature import match_template
+from scipy import ndimage
+
 
 def _to_spatial(arr: np.ndarray) -> np.ndarray:
 
@@ -35,8 +38,6 @@ def template_matching(template, control):
 
     return similarity_score, center_coords
 
-import numpy as np
-
 def ssim_01(x, y, data_range=None, k1=0.01, k2=0.03):
     """
     x,y: HxW oder HxWxC, dtype float oder uint8.
@@ -70,14 +71,6 @@ def ssim_01(x, y, data_range=None, k1=0.01, k2=0.03):
     ssim = ((2 * mu_x * mu_y + c1) * (2 * cov_xy + c2)) / ((mu_x**2 + mu_y**2 + c1) * (var_x + var_y + c2))
     # SSIM kann minimal außerhalb liegen durch Numerik
     return float(np.clip(ssim, 0.0, 1.0))
-
-import numpy as np
-from scipy import ndimage
-
-import numpy as np
-from scipy import ndimage
-
-
 
 def center_foreground_com(
     img,
@@ -188,12 +181,6 @@ def center_foreground_com(
 
     return shifted, (shift_y, shift_x), (cy, cx), mask
 
-
-
-
-
-import numpy as np
-
 def crop_border(arr: np.ndarray, bg_thresh: float, margin: int = 0) -> np.ndarray:
     """
     Crop away black/background borders by extracting the tight bounding box
@@ -245,6 +232,18 @@ def crop_border(arr: np.ndarray, bg_thresh: float, margin: int = 0) -> np.ndarra
         z1, y1, x1 = maxs
         return arr[:, z0:z1, y0:y1, x0:x1]
 
+def check_roi_overlap(opt_center, current_roi_shape, used_positions):
+    for pos, pos_shape in used_positions:
+        overlap = True
+        for dim in range(len(opt_center)):
+            min_distance = (pos_shape[dim] + current_roi_shape[dim]) / 2.0
+            if abs(pos[dim] - opt_center[dim]) >= min_distance:
+                overlap = False # one dimension with big enough distance is enough
+                break
+        if overlap: # no dimension with big enough distance
+            return True
+            
+    return False
 
 def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config, matching_routine="local", anomaly_duplicates=False):
 
@@ -262,9 +261,6 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
     checked_roi_names = set()
     checked_control_names = set()
 
-    # Tracks ROI filenames already used (only relevant for "global")
-    excluded_roi_sample_names = []
-
 
     # ------------------------------------------------------------
     # Routine: fusion real anomaly and synthetic anomaly into one sample
@@ -272,6 +268,8 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
     if matching_routine == "fixed_from_extraction_anomaly_fusion":
         i = 0
         for control, _, control_filename, *ignored in tqdm(control_sample_dataloader):
+            if control_filename in checked_control_names:
+                continue    # against dataloader padding
             checked_control_names.add(control_filename)
             if not shape_checked:
                 if control.ndim not in [3, 4]:
@@ -303,6 +301,8 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
     if matching_routine == "fixed_from_extraction_control_fusion":
         i = 0
         for control, _, control_filename, *ignored in tqdm(control_sample_dataloader):
+            if control_filename in checked_control_names:
+                continue    # against dataloader padding
             checked_control_names.add(control_filename)
             if not shape_checked:
                 if control.ndim not in [3, 4]:
@@ -340,6 +340,8 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
         i = 0
         skipped_rois = {}   # want no duplicates here
         for control, _, control_filename, *ignored in tqdm(control_sample_dataloader):
+            if control_filename in checked_control_names:
+                continue    # against dataloader padding
             checked_control_names.add(control_filename)
             if not shape_checked:
                 if control.ndim not in [3, 4]:
@@ -347,44 +349,67 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 if control.shape[0] >= np.min(control.shape[1:]):
                     print(f"Warning: First dimension of control sample {control_filename} is larger than another one. Shape: {control.shape}. Channel dimension must be first.")
                 shape_checked = True
-            highest_sim_position_factor = None
-            spatial_shape = np.array(control.shape[1:], dtype=float)  # aus config oder aus shape?
 
-            # always check previously skipped rois first for new control
-            for roi_filename, roi in skipped_rois.items():
-                sim, opt_center = template_matching(roi, control)
-                if sim >= -1:
-                    highest_sim_position_factor = (np.array(opt_center, dtype=float) / spatial_shape).tolist()
-                    matching_data.append([control_filename, [(roi_filename, highest_sim_position_factor)]])
-                    skipped_rois.pop(roi_filename)
-                    break
-            
-            # go to next control sample if match was found in skipped_rois
-            if highest_sim_position_factor is not None:
-                continue
+            used_positions = []
+            anomaly_list = []
 
-            # if no match was found load new roi
-            if i >= roi_dataloader.__len__():
-                if anomaly_duplicates:
-                    i = 0
-                    roi, roi_filename = roi_dataloader[i]
+            # how many matches for this control?
+            fusions_per_control = config.fusions_per_control
+            max_dev = config.max_fusions_per_control_deviation
+            if max_dev > 0:
+                fusions_per_control += np.random.randint(-max_dev, max_dev + 1)
+                fusions_per_control = max(1, fusions_per_control)   # at least 1 match per control
 
-                else:
-                    if skipped_rois:
-                        continue    # check if skipped rois fit in another control
-                    else: 
-                        break   # done, no roi left to match
-            else:
-                roi, roi_filename = roi_dataloader[i]
-                checked_roi_names.add(roi_filename)
-            
-            i_start = i
-            i += 1
+            for matches_for_control in range(fusions_per_control):
+                highest_sim_position_factor = None
 
-            if roi_filename is not None:
-                # Only compute match if ROI not excluded (list is empty in this routine by default)
-                if roi_filename not in excluded_roi_sample_names:
+                spatial_shape = np.array(control.shape[1:], dtype=float)
+
+                # always check previously skipped rois first for new control
+                for roi_filename, roi in list(skipped_rois.items()):
+                    current_roi_shape = roi.shape[1:]   # without channel
+                    sim = -np.inf
                     sim, opt_center = template_matching(roi, control)
+
+                    if check_roi_overlap(opt_center, current_roi_shape, used_positions):
+                        sim = -np.inf
+
+                    if sim >= -1:
+                        skipped_rois.pop(roi_filename)
+                        used_positions.append((opt_center, current_roi_shape))
+                        highest_sim_position_factor = (np.array(opt_center, dtype=float) / spatial_shape).tolist()
+                        anomaly_list.append((roi_filename, highest_sim_position_factor))
+                        break
+                
+                # continue if match was found in skipped_rois
+                if highest_sim_position_factor is not None:
+                    continue
+
+                # if no match was found load new roi
+                if i >= roi_dataloader.__len__():
+                    if anomaly_duplicates:
+                        i = 0
+                        roi, roi_filename = roi_dataloader[i]
+
+                    else:
+                        if skipped_rois:
+                            continue    # check if skipped rois fit in another control
+                        else: 
+                            break   # done, no roi left to match
+                else:
+                    roi, roi_filename = roi_dataloader[i]
+                    checked_roi_names.add(roi_filename)
+                
+                i_start = i
+                i += 1
+
+                if roi_filename is not None:
+                    current_roi_shape = roi.shape[1:]
+                    sim, opt_center = template_matching(roi, control)
+                    
+                    if check_roi_overlap(opt_center, current_roi_shape, used_positions):
+                        sim = -np.inf
+
                     # while roi doesn't fit in control try next roi
                     while sim < -1:
                         if i >= roi_dataloader.__len__():
@@ -401,23 +426,32 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                         
                         sim, opt_center = template_matching(roi, control)
 
+                        if check_roi_overlap(opt_center, current_roi_shape, used_positions):
+                            sim = -np.inf
+
                     # no match possible for current control
                     if sim < -1:
-                        continue
+                        print(f"Warning: No more matches possible for control {control_filename}. Matched with {matches_for_control} anomalies.")
+                        break
 
                     # found match
                     # Convert center (row,col)/(slice,row,col) to normalized position factor (H,W)/(D,H,W).
+                    used_positions.append((opt_center, current_roi_shape))
                     highest_sim_position_factor = (np.array(opt_center, dtype=float) / spatial_shape).tolist()
+                    anomaly_list.append((roi_filename, highest_sim_position_factor))
 
-                matching_data.append([control_filename, [(roi_filename, highest_sim_position_factor)]])
+            if anomaly_list:
+                matching_data.append([control_filename, anomaly_list])
 
 
     # ------------------------------------------------------------
-    # Routine: global (search best ROI for each control; avoid reusing ROI)
+    # Routine: global (search best ROIs for each control; avoid reusing ROIs)
     # ------------------------------------------------------------
     if matching_routine == "global":
-        skipped_controls = []
-        for control, _, control_filename, *ignored in control_sample_dataloader:
+        excluded_roi_samples = []
+        for control, _, control_filename, *ignored in tqdm(control_sample_dataloader):
+            if control_filename in checked_control_names:
+                continue    # against dataloader padding
             checked_control_names.add(control_filename)
             if not shape_checked:
                 if control.ndim not in [3, 4]:
@@ -425,84 +459,107 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 if control.shape[0] >= np.min(control.shape[1:]):
                     print(f"Warning: First dimension of control sample {control_filename} is larger than another one. Shape: {control.shape}. Channel dimension must be first.")
                 shape_checked = True
-            highest_sim = -np.inf
-            highest_sim_roi_name = None
-            highest_sim_position_factor = None
+
+            all_matches = []
+            used_positions = []
+            anomaly_list = []
+
             spatial_shape = np.array(control.shape[1:], dtype=float)
-            
-            for roi, roi_filename in tqdm(roi_dataloader):
-                if roi_filename in excluded_roi_sample_names:
+
+            # how many matches for this control?
+            fusions_per_control = config.fusions_per_control
+            max_dev = config.max_fusions_per_control_deviation
+            if max_dev > 0:
+                fusions_per_control += np.random.randint(-max_dev, max_dev + 1)
+                fusions_per_control = max(1, fusions_per_control)   # at least 1 match per control
+
+            # empty excluded rois if everything is excluded (and duplicates=True)
+            if anomaly_duplicates and len(excluded_roi_samples) == roi_dataloader.__len__():
+                excluded_roi_samples = []
+                        
+            # so soll all_matches aufgebaut werden: all_matches.append((sim, roi_filename, opt_center))
+            for roi, roi_filename in roi_dataloader:
+                current_roi_shape = roi.shape[1:]
+
+                if any(roi_filename == excluded_name for _, excluded_name in excluded_roi_samples):
                     continue
-                if anomaly_duplicates and len(excluded_roi_sample_names) == roi_dataloader.__len__():
-                    excluded_roi_sample_names = []
 
                 sim, opt_center = template_matching(roi, control)
 
-                if sim > highest_sim:
-                    highest_sim = sim
-                    highest_sim_roi_name = roi_filename
-
-                    # Normalize by spatial shape only (H,W)/(D,H,W).
-                    highest_sim_position_factor = (
-                        (np.array(opt_center, dtype=float) / spatial_shape).tolist()
-                    )
+                if sim >= -1:
+                    all_matches.append((sim, roi, roi_filename, opt_center, current_roi_shape))
             
-            # no matching template in remaining rois
-            if highest_sim < -1:
-                skipped_controls.append((control, control_filename))
-                continue
+            if all_matches: # found match(es)
+                all_matches.sort(key=lambda x: x[0], reverse=True)  # highest sim first
+                for match in all_matches:
+                    if len(used_positions) >= fusions_per_control:
+                        break
+                    _, current_roi, current_roi_filename, current_roi_center, current_roi_shape = match # (sim, roi, filename, center, shape)
+                    if check_roi_overlap(current_roi_center, current_roi_shape, used_positions):
+                        continue
+                    else:
+                        used_positions.append((current_roi_center, current_roi_shape))
+                        excluded_roi_samples.append((current_roi, current_roi_filename))
+                        current_position_factor = ((np.array(current_roi_center, dtype=float) / spatial_shape).tolist())
+                        anomaly_list.append((current_roi_filename, current_position_factor))
 
-            matching_data.append([control_filename, [(highest_sim_roi_name, highest_sim_position_factor)]])
-            excluded_roi_sample_names.append(highest_sim_roi_name)
-
-        if anomaly_duplicates and skipped_controls:
-            # try to find matches for skipped controls
-            for control, control_name in tqdm(skipped_controls):
-                # try all rois (no exclusion)
-                highest_sim = -np.inf
-                highest_sim_roi_name = None
-                highest_sim_position_factor = None
-
-                for roi, roi_filename in roi_dataloader:
-                    checked_roi_names.add(roi_filename)
+            # did not find enough matches in not excluded data (and anomaly_duplicates=True)
+            if anomaly_duplicates and (len(used_positions) < fusions_per_control):
+                duplicate_matches = []
+                for roi, roi_filename in excluded_roi_samples:
+                    current_roi_shape = roi.shape[1:]
                     sim, opt_center = template_matching(roi, control)
-                    if sim > highest_sim:
-                        highest_sim = sim
-                        highest_sim_roi_name = roi_filename
-                        spatial_shape = np.array(control.shape[1:], dtype=float)
-                        highest_sim_position_factor = (
-                            (np.array(opt_center, dtype=float) / spatial_shape).tolist()
-                        )                    
-                if highest_sim_roi_name is not None and highest_sim >= -1:
-                    matching_data.append([control_name, [(highest_sim_roi_name, highest_sim_position_factor)]])
-                
-                else:
-                    print(f"WARNING: No match found for control sample {control_name}")
+                    if sim >= -1:
+                        duplicate_matches.append((sim, roi, roi_filename, opt_center, current_roi_shape))
+
+                if duplicate_matches:
+                    duplicate_matches.sort(key=lambda x: x[0], reverse=True)
+                    for match in duplicate_matches:
+                        _, current_roi, current_roi_filename, current_roi_center, current_roi_shape = match
+                        if check_roi_overlap(current_roi_center, current_roi_shape, used_positions):
+                            continue
+                        else:
+                            used_positions.append((current_roi_center, current_roi_shape))
+                            current_position_factor = ((np.array(current_roi_center, dtype=float) / spatial_shape).tolist())
+                            anomaly_list.append((current_roi_filename, current_position_factor))
+
+            if anomaly_list:
+                matching_data.append([control_filename, anomaly_list])
+
+            if len(used_positions) < fusions_per_control:
+                print(f"Warning: Could not match {fusions_per_control} anomalies with control {control_filename}. Only matched {len(used_positions)}.")
 
 
-    used_roi_names = {roi_name for _, list in matching_data for roi_name, _ in list}
-    skipped_roi_names = checked_roi_names - used_roi_names
+    used_roi_names = {roi_name for _, anom_list in matching_data for roi_name, _ in anom_list}
 
-    used_control_names = {ctrl_name for ctrl_name, _ in matching_data}
-    skipped_control_names = checked_control_names - used_control_names
+    synth_anomaly_dir = os.path.join(config.study_folder, "synth_anomaly_data")
+    if os.path.exists(synth_anomaly_dir):
+        synth_anomaly_files = {f for f in os.listdir(synth_anomaly_dir) if f.endswith('.npy')}
+    else:
+        synth_anomaly_files = set(checked_roi_names)
 
+    used_roi_names = set()
+    for _, anomaly_list in matching_data:
+        for roi_filename, _ in anomaly_list:
+            used_roi_names.add(os.path.basename(roi_filename))
+
+    never_matched_rois = synth_anomaly_files - used_roi_names
 
     print("\n---------- Matching Summary ----------")
-    print(f"\n{len(matching_data)} fused pairs.")
-
-    if skipped_roi_names:
-        print(f"{len(skipped_roi_names)} skipped rois:")
-        for name in sorted(skipped_roi_names):
-            print(f"\t{name}")
+    print(f"Controls processed:\t{len(checked_control_names)}")
+    print(f"Total Synthetic Anomalies available:\t{len(synth_anomaly_files)}")
+    print(f"Total Synthetic Anomalies matched:\t{len(used_roi_names)}")
+    print(f"Total Fusions created:\t{sum(len(anoms) for _, anoms in matching_data)}")
+    
+    if never_matched_rois:
+        percent_used = (len(used_roi_names) / len(synth_anomaly_files)) * 100
+        print(f"Utilization Rate:        {percent_used:.2f}%")
+        print(f"\n{len(never_matched_rois)} Synthetic Anomalies were not used.\n")
+        if len(checked_control_names) > 0:
+            suggested_fusions = int(np.ceil(len(synth_anomaly_files) / len(checked_control_names)))
+            print(f"Tip: If you want ~100% utilization rate, set config.fusions_per_control >= {suggested_fusions}\n")
     else:
-        print("No skipped rois.")
-
-    if skipped_control_names:
-        print(f"{len(skipped_control_names)} skipped controls:")
-        for name in sorted(skipped_control_names):
-            print(f"\t{name}")
-    else:
-        print("No skipped controls.")
+        print("\nAll 100% of synthetic anomalies were successfully matched.\n")
 
     return matching_data
 

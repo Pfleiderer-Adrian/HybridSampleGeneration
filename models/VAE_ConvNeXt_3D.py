@@ -375,6 +375,10 @@ class Config:
     use_multires_skips: bool = True
     recon_weight: float = 100.0
     beta_kl: float = 1.0
+    beta_kl_start: float = 0.0,
+    beta_kl_max: float = 4.0,
+    beta_kl_warmup_start: float = 0,
+    beta_kl_warmup_epochs: int = 100,
     recon_loss: str = "smoothl1"  # 'smoothl1' or 'mse'
     recon_smoothl1_beta: float = 1.0
     use_transpose_conv: bool = True
@@ -522,6 +526,7 @@ class ConvNeXtVAE3D(nn.Module):
             recon_loss = recon_per_voxel.mean()
 
         kl = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
+        kl_raw = kl
 
         recon_weighted = self.cfg.recon_weight * recon_loss
         kl_weighted = self.cfg.beta_kl * kl
@@ -531,6 +536,7 @@ class ConvNeXtVAE3D(nn.Module):
             "total": total,
             "recon": recon_loss,
             "kl": kl,
+            "kl_raw": kl_raw,
             "recon_weighted": recon_weighted,
             "kl_weighted": kl_weighted,
         }
@@ -577,7 +583,7 @@ class ConvNeXtVAE3D(nn.Module):
 
         def run_epoch(loader: Iterable, training: bool) -> Dict[str, float]:
             model.train(training)
-            run = {"total": 0.0, "recon": 0.0, "kl": 0.0, "recon_weighted": 0.0, "kl_weighted": 0.0}
+            run = {"total": 0.0, "recon": 0.0, "kl": 0.0, "kl_raw": 0.0, "recon_weighted": 0.0, "kl_weighted": 0.0}
             n = 0
 
             pbar = tqdm(loader, desc=("train" if training else "val"), leave=False, dynamic_ncols=True)

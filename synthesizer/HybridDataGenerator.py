@@ -19,6 +19,8 @@ from synthesizer.Configuration import Configuration
 from synthesizer.functions_3D.Fusion3D import fusion3d
 from synthesizer.Matching import center_foreground_com, combine_binary_masks, create_matching_dictionary, crop_border, ssim_01, template_matching
 from synthesizer.Trainer import optimize
+from synthesizer.Evaluation import evaluation_pipeline
+from data_handler.Visualizer import run_outlier_gui
 
 
 class HybridDataGenerator:
@@ -531,7 +533,7 @@ class HybridDataGenerator:
                     )
 
             if control_samples_array.ndim == 3:
-                img, seg = fusion2d(
+                img, seg, roi = fusion2d(
                     img,
                     synth_anomaly_image,
                     anomaly_meta,
@@ -539,7 +541,7 @@ class HybridDataGenerator:
                     self._config,
                 )
             elif control_samples_array.ndim == 4:
-                img, seg = fusion3d(
+                img, seg, roi = fusion3d(
                     img,
                     synth_anomaly_image,
                     anomaly_meta,
@@ -554,6 +556,14 @@ class HybridDataGenerator:
             else:
                 seg_final = combine_binary_masks(seg_final, seg, mode = "or")
 
+            if roi is None:
+                print(f"Warning: roi is None for {anomaly_basename} in {basename_of_control_sample}. (Empty synthetic segmentation) => skip fusion")
+            else:
+                roi = np.array(roi, dtype=np.float32)
+                roi_path = os.path.join(self._config.study_folder, "synth_roi_data", basename_of_control_sample, anomaly_basename)
+                os.makedirs(os.path.dirname(roi_path), exist_ok=True)
+                save_numpy_as_npy(roi, roi_path, overwrite=True)
+            
         if save_npy:
             if save_path is None:
                 save_path = os.path.join(self._config.study_folder, "generated_hybrid_samples")
@@ -563,8 +573,15 @@ class HybridDataGenerator:
             os.makedirs(seg_folder, exist_ok=True)
 
             img_path = os.path.join(img_folder, basename_of_control_sample)
-            seg_path = os.path.join(seg_folder, basename_of_control_sample)
+            seg_path = os.path.join(seg_folder, basename_of_control_sample)   
             save_numpy_as_npy(img, img_path, overwrite=True)
             save_numpy_as_npy(seg_final, seg_path, overwrite=True)
 
         return img, seg_final
+    
+    def run_evaluation_pipeline(self, sample_dataloader: Iterator[Tuple[np.ndarray, np.ndarray, str]]):
+        self._log_step("Step 9/9: Starting evaluation pipeline.")
+        evaluation_pipeline(sample_dataloader, self._config)
+
+    def visualize_evaluation_results(self):
+        run_outlier_gui(self._config)

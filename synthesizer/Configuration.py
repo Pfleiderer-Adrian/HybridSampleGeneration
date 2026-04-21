@@ -90,6 +90,9 @@ class Configuration:
         self.matching_routine = "fixed_from_extraction_anomaly_fusion"
         self.anomaly_duplicates = False
 
+        self.fusions_per_control = 1  # for local and global matching
+        self.max_fusions_per_control_deviation = 0
+
         # fusion parameter
         self.fusion_mask_params = {
             "max_alpha": 0.8,
@@ -136,6 +139,28 @@ class Configuration:
         }
 
         self.model_params = get_model_configuration(model_name, anomaly_size[0], debug=False)
+
+         # (optional) fixed roi size - can also be set to None for variable roi size
+        self.fixed_roi_size = (64, 64)
+
+        # evaluation parameter
+        # (optional) absolute thresholds
+        self.custom_outlier_thresholds = {
+            "Contrast": {"min": None, "max": None},
+            "Homogeneity": {"min": None, "max": None},
+            "Energy": {"min": None, "max": None},
+            "Correlation": {"min": None, "max": None},
+
+            "roi_Contrast": {"min": None, "max": None},
+            "roi_Homogeneity": {"min": None, "max": None},
+            "roi_Energy": {"min": None, "max": None},
+            "roi_Correlation": {"min": None, "max": None},
+
+            "Volume": {"min": None, "max": None},
+            "D-center": {"min": None, "max": None},
+            "H-center": {"min": None, "max": None},
+            "W-center": {"min": None, "max": None},
+        }
 
 
     # set hyperparameter space. need min and max config of model.py
@@ -293,14 +318,14 @@ class Configuration:
                 anomalies = []
 
                 for item in parsed:
-                    if not (isinstance(item, tuple) and len(item) == 2):
+                    if not (isinstance(item, (tuple, list)) and len(item) == 2):
                         raise ValueError(f"Unexpected element in anomaly_list for {control}: {item!r}")
 
                     name, coords = item
-                    if not (isinstance(name, str) and isinstance(coords, (list, tuple)) and len(coords) == 2):
+                    if not (isinstance(name, str) and isinstance(coords, (list, tuple)) and len(coords) in [2, 3]):
                         raise ValueError(f"Unexpected tuple format for {control}: {item!r}")
-
-                    anomalies.append((name, [float(coords[0]), float(coords[1])]))
+                    float_coords = [float(c) for c in coords]
+                    anomalies.append((name, float_coords))
 
                 result[control] = anomalies
         self.matching_dict = result

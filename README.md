@@ -88,31 +88,124 @@ Each iteration must yield:
     # 4) Or load already created matching dict
     HDG.load_matching_dict()
 
-    # 5) Generate new Hybrid Training Samples
+    # 5) Generate new Hybrid Training Samples and synthetic ROIs
     img, seg = HDG.fusion_synth_anomalies(control_image, basename_of_image)
+
+    # 6) Compute (textural and morphological) metric differences for real-synthetic pairs
+    HDG.run_evaluation_pipeline(dataloader_samples_with_anomalies)
+
+    # 7) Start Outlier Viewer for manual inspection of generated samples
+    HDG.visualize_evaluation_results()
+
 ```
 
 ---
 
+### Matching logic
+  Pair control samples and synthetic anomalies for fusion and save the results in matching_dict.csv: control, [(anomaly, fusion_position), ...]
+
+  Choose one of four possible matching_routines:
+  - fixed_from_extraction_anomaly_fusion: 
+      Iterates through every control sample and attempts to find a specific set of synthetic ROIs pre-assigned to it.
+      Uses a naming convention (control_filename + index) to identify and load matching ROI files.
+      Retrieves the exact fusion positions (centroids) from the metadata.
+      Continues to load and append ROIs for a single control sample until no further matching filenames are found.
+      Bypasses overlap checks and similarity scores, assuming the pre-extracted anomalies are already valid for the target control.
+
+  - fixed_from_extraction_control_fusion:
+      Iterates through every control sample and pairs it with exactly one ROI from the dataloader in a sequential 1:1 relationship.
+      Retrieves the exact fusion positions (centroids) from the metadata.
+      If the ROI dataloader is exhausted and anomaly_duplicates is enabled, the routine restarts from the beginning of the ROI list to continue pairing.
+      If the ROI dataloader is exhausted and anomaly_duplicates is disabled, the process stops entirely.
+      Bypasses similarity scores, assuming the pre-extracted anomalies are already valid for the target control.
+
+  - local: (pairing not optimal, but fast)
+      Iterates through every control sample and attempts to find a specified number of ROI matches (depending on fusions_per_control and max_fusions_per_control_deviation).
+      Always only checks the next ROI from the dataloader (until enough matches were found).
+      Uses template matching to find the position with the highest similarity score for a given ROI within the control sample.
+      ROIs matched with the same control sample can not spatially overlap.
+      If a ROI does not fit in the current control (ROI bigger than control or overlap), it is added to skipped_rois.
+      Before loading new ROIs, the routine always checks skipped_rois to see if they fit the current control sample.
+      If all new ROIs are exhausted and anomaly_duplicates is enabled, the routine restarts from the beginning of the ROI list.
+      If the target number of matches cannot be reached, it issues a warning and moves to the next control sample.
+
+  - global: (optimal pairing, but slow)
+      Iterates through every control sample and attempts to find a specified number of ROI matches (depending on fusions_per_control and max_fusions_per_control_deviation).
+      Performs template matching for all available ROIs against the current control sample to find the best possible positions for every ROI and save info in all_matches list.
+      ROIs matched with the same control sample can not spatially overlap.
+      Prioritizes matches based on the highest similarity score (sort all_matches by similarity descending and then always try to match the next index until no further matches are needed)
+      ROIs that have been successfully matched are added to excluded_roi_samples and are excluded from future controls to avoid reuse.
+      If no more matches are possible for the current control and anomaly_duplicates is enabled, also check excluded_roi_samples and select those with highest similarity.
+      If all available ROIs have been excluded and anomaly_duplicates is enabled, the exclusion list is cleared to allow a full restart of the ROI pool.
+      If the target number of matches cannot be reached, it issues a warning and moves to the next control sample.
+
+  Matching Summary:
+    After the matching process, the system provides a summary to evaluate the efficiency of the chosen routine and parameters:
+    Utilization Rate: Tracks how many of the available synthetic ROIs were actually fused into control samples.
+    Unused ROIs: If some ROIs were never matched, the system calculates a suggested fusions_per_control value.
+    Optimization Tip: To achieve a ~100% utilization rate, the summary suggests increasing the fusions_per_control based on the ratio of available ROIs to processed control samples.
+
+---
+
+### Evaluation details
+  Pairwise comparison of real vs synthetic samples (pairing VAE Input with corresponding generated Output):
+
+  - Textural Comparison: GLCM-based features (Contrast, Homogeneity, Energy, Correlation).
+
+    GLCM (Gray-Level Co-occurrence Matrix):
+        - encodes spatial relationships between intensity values by counting how often pairs of gray levels occur at given directional offsets (2D: 4 directions, 3D: 13 directions)
+        - in this case, a distance of 1 is used, so only immediate neighbors are considered
+        - a GLCM is computed separately for each channel by aggregating over all directional offsets after quantizing intensity values into discrete gray levels
+    
+    Computing differences between real and synthetic anomaly cutouts and between real and synthetic ROIs.
+        Contrast:     Measures local intensity variations; high values indicate sharp edges or coarse textures.
+        Homogeneity:  Measures the similarity of neighboring pixels; high values indicate smooth transitions.
+        Energy:       Measures textural uniformity and order; high values indicate constant or repetitive patterns.
+        Correlation:  Measures the linear dependency of neighboring gray levels; high levels indicate a strong linear relationship.
+
+  - Morphological Comparison: Volume and Center of Mass (CoM). Computing differences between real and synthetic anomaly cutouts.
+        Volume:       Sum of voxels within the segmentation mask to ensure size-preservation during synthesis.
+        CoM:          The spatial centroid of the anomaly, used to detect positional shifts or shape-asymmetry. Calculated separately for each dimension.
+
+  - Outlier Detection: (Optional) automated removal of low-quality synthetic anomalies and synthetic ROIs (statistical outliers or based on optional fixed thresholds in config).
+      Manual removal of synthetic samples, synthetic ROIs, real anomalies + ROIs and whole generated hybrid samples + segmentations also possible within the Outlier Viewer.
+
+  - Execution Summary: Outputs key statistics to the console like metric averages for real and synthetic datasets, per-metric outlier counts,
+      and the intersection of outliers across different metrics (outlier overlaps).
+
+  - Saves results to the evaluation_results directory within study_folder:
+      metric_diffs.csv containing all computed metric difference values
+      Histograms (distributions of the metric differences) for every metric, grouped into three .png files: GLCM on cutouts, Volume (morphological metrics) on cutouts, and GLCM on ROIs
+
+---
+
 ### Visualize and Debug anomalies
+  To fine-tune the configuration, debug the generation pipeline or delete samples, you can use the Outlier Viewer.
 
-To fine-tune the configuration or debug the generation pipeline, you can visualize:
+  **Key Capabilities:**
+  - Hierarchical Navigation: parent-child relationship between generated hybrid samples and fused anomalies within them (treeview).
+      Navigate between samples (and Slices (Depth) in case of 3D) with on-screen buttons or keyboard arrow keys.
+      Shows generated hybrid sample + segmentation if control name is selected in treeview.
+      Shows synthetic and real anomalies and ROIs if anomaly name (within a control) is selected in treeview.
 
-- **Extracted input anomaly**: `./anomaly_data/<filename>.npy` (train input)
-- **Extracted ROI of anomaly**: `./anomaly_roi_data/<filename>.npy` (only for Matching)
-- **Generated synthetic anomaly**: `./synt_anomaly_data/<filename>.npy` (model output)
+  - Metric-based filtering and sorting: dynamically filter and sort dataset by selecting different metrics via checkboxes and adjusting the outlier threshold t via a mouse-draggable slider.
+      Filtering: For each selected metric, only anomalies that fall within the top t% of highest differences of the metric are included in the tree view.
+      Sorting: Ranks samples in descending order (average of their min-max normalized differences across all checked metrics). -> highest differences first
 
-Use the lightweight project viewer located at `./data_handler/Visualizer.py`:
+  - Deletion:
+      Delete button; always asks for confirmation before deletion
+      Delete whole generated hybrid sample + segmentation and all its ROIs if control name is selected in treeview
+      If anomaly name is selected in treeview the delete button opens a window with checkboxes where you can check what you want to delete:
+          Real Anomaly (VAE input) + real ROI
+          Synthetic ROI (just this fusion)
+          Synthetic Anomaly + all its ROIs (may affect other fusions)
+          Hybrid Sample + all ROIs inside
 
-```bash
-python ./data_handler/Visualizer.py /filepath/to/your/project/results/study_name
-```
+  - Extra Features: 
+      Contrast control via a mouse-draggable slider
+      Slices (Depth) navigation via mouse wheel scrolling
 
-**Features:**
-- Depth (D) navigation via a mouse-draggable slider (and mouse wheel scrolling over the image)
-- Contrast control via a mouse-draggable slider
-
->The viewer expects .npy arrays with shape (C, D, H, W) or (C, H, W).
+  >The viewer expects .npy arrays with shape (C, D, H, W) or (C, H, W). It loads data directly from the study_folder where it was saved during the generation process.
 
 ---
 

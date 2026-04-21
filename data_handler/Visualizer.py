@@ -1,11 +1,598 @@
-import argparse
+import argparse 
 import os
+import json
+import csv
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
+from collections import defaultdict
 
 import numpy as np
 import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+import tkinter as tk
+from tkinter import messagebox
+from tkinter import ttk
+
+class OutlierGUI:
+    def __init__(self, root, config):
+        self.root = root
+        self.root.title("Outlier Viewer")
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        self.config = config
+
+        self.synth_anomaly_dir = os.path.join(config.study_folder, "synth_anomaly_data")
+        self.synth_roi_dir = os.path.join(config.study_folder, "synth_roi_data")
+        self.anomaly_dir = os.path.join(config.study_folder, "anomaly_data")
+        self.anomaly_roi_dir = os.path.join(config.study_folder, "anomaly_roi_data")
+        
+        self.ghs_dir = os.path.join(config.study_folder, "generated_hybrid_samples", "images_npy")
+        self.ghs_seg_dir = os.path.join(config.study_folder, "generated_hybrid_samples", "segmentations_npy")
+
+        self.metric_stats = {}
+        
+        self.hierarchy = defaultdict(list)
+        self.metric_map = self.build_metric_sample_map()
+        
+        self.filtered_hierarchy = {}
+        self.sorted_controls = []
+        self.flat_list = []
+        
+        self.current_index = 0
+        self.current_slice = 0
+
+        self.build_ui()
+        self.update_filter()
+        self.root.focus_set()
+
+    def on_closing(self):
+        plt.close('all')
+        self.root.quit()
+        self.root.destroy()
+        os._exit(0)
+
+    def build_metric_sample_map(self):
+        metric_map = defaultdict(lambda: defaultdict(dict))
+        temp_values = defaultdict(list)
+        anomaly_to_controls = defaultdict(list) 
+        
+        if os.path.exists(self.synth_roi_dir):
+            for control_name in os.listdir(self.synth_roi_dir):
+                control_path = os.path.join(self.synth_roi_dir, control_name)
+                if os.path.isdir(control_path):
+                    anomalies = [f for f in os.listdir(control_path) if f.endswith('.npy')]
+                    self.hierarchy[control_name] = anomalies
+                    for a in anomalies:
+                        anomaly_to_controls[a].append(control_name)
+
+        csv_path = os.path.join(self.config.study_folder, "evaluation_results", "metric_diffs.csv")
+        
+        try:
+            with open(csv_path, mode='r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    if len(row) < 3:
+                        continue
+                    if row[0].lower() == "sample_name":
+                        continue 
+                    
+                    sample_id = row[0]
+                    try:
+                        data_dict = json.loads(row[2])
+                    except json.JSONDecodeError:
+                        continue
+                    
+                    is_roi = any(isinstance(v, dict) for v in data_dict.values())
+
+                    if is_roi:
+                        control_name = sample_id
+                        if control_name not in self.hierarchy:
+                            if control_name + '.png' in self.hierarchy:
+                                control_name += '.png'
+                            elif control_name + '.npy' in self.hierarchy:
+                                control_name += '.npy'
+                            else:
+                                base = control_name.replace('.png', '').replace('.npy', '')
+                                if base in self.hierarchy:
+                                    control_name = base
+                        
+                        for anomaly_name, metrics in data_dict.items():
+                            for metric_name, val in metrics.items():
+                                metric_map[metric_name][control_name][anomaly_name] = float(val)
+                                temp_values[metric_name].append(float(val))
+                                
+                                if anomaly_name not in self.hierarchy[control_name]:
+                                    self.hierarchy[control_name].append(anomaly_name)
+                                    anomaly_to_controls[anomaly_name].append(control_name)
+                    else:
+                        anomaly_name = sample_id
+                        
+                        if anomaly_name not in anomaly_to_controls:
+                            if anomaly_name + '.npy' in anomaly_to_controls:
+                                anomaly_name += '.npy'
+                            elif anomaly_name + '.png' in anomaly_to_controls:
+                                anomaly_name += '.png'
+                                
+                        associated_controls = anomaly_to_controls.get(anomaly_name, [])
+                        
+                        for control_name in associated_controls:
+                            for metric_name, val in data_dict.items():
+                                metric_map[metric_name][control_name][anomaly_name] = float(val)
+                                temp_values[metric_name].append(float(val))
+
+        except FileNotFoundError:
+            pass
+
+        for metric, values in temp_values.items():
+            if values:
+                self.metric_stats[metric] = {'min': min(values), 'max': max(values)}
+                
+        return metric_map
+
+    def build_ui(self):
+        control_frame = tk.Frame(self.root)
+        control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
+
+        tk.Label(control_frame, text="Filter & Sort by:", font=('Arial', 10, 'bold')).pack(anchor="w")
+        self.metric_vars = {}
+        for metric in sorted(self.metric_map.keys()):
+            var = tk.BooleanVar(value=False)
+            cb = tk.Checkbutton(control_frame, text=metric, variable=var, command=self.update_filter)
+            cb.pack(anchor="w")
+            self.metric_vars[metric] = var
+
+        tk.Label(control_frame, text="Outlier Threshold (Top %):", font=('Arial', 10, 'bold')).pack(anchor="w", pady=(10, 0))
+        self.outlier_slider = tk.Scale(control_frame, from_=0, to=10, resolution=.1, orient=tk.HORIZONTAL, 
+                                       command=lambda _: self.update_filter())
+        self.outlier_slider.set(1)
+        self.outlier_slider.pack(fill=tk.X, pady=(0, 5))
+
+        self.list_frame = tk.Frame(control_frame)
+        self.list_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+
+        self.scrollbar = tk.Scrollbar(self.list_frame)
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.tree = ttk.Treeview(self.list_frame, yscrollcommand=self.scrollbar.set, selectmode="browse")
+        self.tree.heading("#0", text="Controls / Anomalies", anchor="w")
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.scrollbar.config(command=self.tree.yview)
+        self.tree.bind('<<TreeviewSelect>>', self.on_treeview_select)
+
+        contrast_header_frame = tk.Frame(control_frame)
+        contrast_header_frame.pack(fill=tk.X, pady=(10, 0))
+        tk.Label(contrast_header_frame, text="Contrast:", font=('Arial', 10, 'bold')).pack(side=tk.LEFT)
+        tk.Button(contrast_header_frame, text="reset", command=self.reset_contrast, font=('Arial', 8, 'italic'),
+                  relief=tk.FLAT, padx=2, pady=0, cursor="hand2").pack(side=tk.LEFT, padx=5)
+
+        self.contrast_slider = tk.Scale(control_frame, from_=0.1, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, 
+                                        command=lambda _: self.update_display())
+        self.contrast_slider.set(1.0)
+        self.contrast_slider.pack(fill=tk.X, pady=(0, 10))
+
+        tk.Button(control_frame, text="Prev Sample (←)", command=self.prev_sample).pack(fill=tk.X, pady=2)
+        tk.Button(control_frame, text="Next Sample (→)", command=self.next_sample).pack(fill=tk.X, pady=2)
+        tk.Button(control_frame, text="Slice - (↓)", command=self.prev_slice).pack(fill=tk.X, pady=2)
+        tk.Button(control_frame, text="Slice + (↑)", command=self.next_slice).pack(fill=tk.X, pady=2)
+
+        self.info_text = tk.Text(control_frame, height=10, width=30, bg=self.root.cget("bg"), relief=tk.FLAT, font=("Arial", 10))
+        self.info_text.pack(pady=10, fill=tk.BOTH, expand=True, anchor="w")
+        self.info_text.tag_configure("active", foreground="black", font=("Arial", 10, "bold"))
+        self.info_text.tag_configure("inactive", foreground="gray")
+        self.info_text.tag_configure("header", font=("Arial", 10, "italic"))
+
+        button_frame = tk.Frame(control_frame)
+        button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(5, 0))
+        self.del_btn = tk.Button(button_frame, text="DELETE", command=self.delete_current_sample,
+                                 bg="#ffcccc", font=('Arial', 10, 'bold'), pady=5)
+        self.del_btn.pack(side=tk.TOP, fill=tk.X, pady=(2, 0))
+
+        self.fig, self.axs = plt.subplots(2, 2, figsize=(15, 5), constrained_layout=True)
+        self.axs = self.axs.flatten()
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.root)
+        self.canvas_widget = self.canvas.get_tk_widget()
+        self.canvas_widget.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+        self.canvas_widget.bind("<MouseWheel>", self.on_mouse_wheel)
+        self.canvas_widget.bind("<Button-4>", self.on_mouse_wheel)
+        self.canvas_widget.bind("<Button-5>", self.on_mouse_wheel)
+        self.root.bind("<Left>", lambda e: self.prev_sample())
+        self.root.bind("<Right>", lambda e: self.next_sample())
+        self.root.bind("<Up>", lambda e: self.next_slice())
+        self.root.bind("<Down>", lambda e: self.prev_slice())
+
+    def update_filter(self):
+        active_metrics = [m for m, v in self.metric_vars.items() if v.get()]
+        threshold_pct = float(self.outlier_slider.get())
+        
+        self.filtered_hierarchy = defaultdict(list)
+        control_scores = {}
+
+        if not active_metrics:
+            for m in self.metric_map:
+                for c, a_dict in self.metric_map[m].items():
+                    for a in a_dict:
+                        if a not in self.filtered_hierarchy[c]:
+                            self.filtered_hierarchy[c].append(a)
+            for c in self.filtered_hierarchy:
+                control_scores[c] = 0
+        else:
+            outlier_anomalies = []
+            
+            for m in active_metrics:
+                all_vals = []
+                for c_dict in self.metric_map[m].values():
+                    all_vals.extend(c_dict.values())
+                    
+                if not all_vals:
+                    outlier_anomalies.append(set())
+                    continue
+                    
+                cutoff_percentile = max(0.0, 100.0 - threshold_pct)
+                cutoff_value = np.percentile(all_vals, cutoff_percentile)
+                
+                m_outliers = set()
+                for c, a_dict in self.metric_map[m].items():
+                    for a, val in a_dict.items():
+                        if val >= cutoff_value:
+                            m_outliers.add((c, a))
+                outlier_anomalies.append(m_outliers)
+
+            intersection = set.intersection(*outlier_anomalies) if outlier_anomalies else set()
+            
+            anomaly_scores = {}
+            for c, a in intersection:
+                norm_sum = 0
+                for m in active_metrics:
+                    val = self.metric_map[m].get(c, {}).get(a, 0)
+                    m_min, m_max = self.metric_stats[m]['min'], self.metric_stats[m]['max']
+                    norm_val = (val - m_min) / (m_max - m_min) if m_max > m_min else 1.0
+                    norm_sum += norm_val
+                score = norm_sum / len(active_metrics)
+                anomaly_scores[(c, a)] = score
+                
+            for (c, a), score in anomaly_scores.items():
+                self.filtered_hierarchy[c].append(a)
+                if c not in control_scores or score > control_scores[c]:
+                    control_scores[c] = score
+
+        self.sorted_controls = sorted(self.filtered_hierarchy.keys(), key=lambda x: control_scores.get(x, 0), reverse=True)
+        
+        self.flat_list = []
+        for c in self.sorted_controls:
+            self.flat_list.append(("control", c))
+            self.filtered_hierarchy[c].sort()
+            for a in self.filtered_hierarchy[c]:
+                self.flat_list.append(("anomaly", c, a))
+                
+        if self.current_index >= len(self.flat_list):
+            self.current_index = max(0, len(self.flat_list) - 1)
+            
+        self.update_treeview()
+        self.update_display()
+
+    def update_treeview(self):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        self.tree_item_mapping = {} 
+        
+        flat_idx = 0
+        for c in self.sorted_controls:
+            parent_id = self.tree.insert("", tk.END, text=c, open=True)
+            self.tree_item_mapping[flat_idx] = parent_id
+            self.tree_item_mapping[parent_id] = flat_idx
+            flat_idx += 1
+            
+            for a in self.filtered_hierarchy[c]:
+                child_id = self.tree.insert(parent_id, tk.END, text=a)
+                self.tree_item_mapping[flat_idx] = child_id
+                self.tree_item_mapping[child_id] = flat_idx
+                flat_idx += 1
+                
+        self._sync_treeview_selection()
+
+    def _sync_treeview_selection(self):
+        if self.flat_list and self.current_index in self.tree_item_mapping:
+            item_id = self.tree_item_mapping[self.current_index]
+            self.tree.selection_set(item_id)
+            self.tree.focus(item_id)
+            self.tree.see(item_id)
+
+    def on_treeview_select(self, event):
+        selection = self.tree.selection()
+        if not selection:
+            return
+        item_id = selection[0]
+        
+        if item_id in self.tree_item_mapping:
+            new_idx = self.tree_item_mapping[item_id]
+            if new_idx != self.current_index:
+                self.current_index = new_idx
+                self.current_slice = 0
+                self.update_display()
+
+    def reset_contrast(self):
+        self.contrast_slider.set(1.0)
+        self.update_display()
+
+    def next_sample(self):
+        if self.current_index < len(self.flat_list) - 1:
+            self.current_index += 1
+            self.current_slice = 0
+            self._sync_treeview_selection()
+            self.update_display()
+
+    def prev_sample(self):
+        if self.current_index > 0:
+            self.current_index -= 1
+            self.current_slice = 0
+            self._sync_treeview_selection()
+            self.update_display()
+
+    def next_slice(self):
+        self.current_slice += 1
+        self.update_display()
+
+    def prev_slice(self):
+        if self.current_slice > 0:
+            self.current_slice -= 1
+            self.update_display()
+
+    def on_mouse_wheel(self, event):
+        if event.num == 4 or event.delta > 0:
+            self.next_slice()
+        elif event.num == 5 or event.delta < 0:
+            self.prev_slice()
+
+    def _remove_if_exists(self, path):
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+
+    def _remove_anomaly_from_hierarchy(self, control, anomaly):
+        if control in self.hierarchy and anomaly in self.hierarchy[control]:
+            self.hierarchy[control].remove(anomaly)
+        if control in self.hierarchy and not self.hierarchy[control]:
+            del self.hierarchy[control]
+            
+        for m in self.metric_map:
+            if control in self.metric_map[m] and anomaly in self.metric_map[m][control]:
+                del self.metric_map[m][control][anomaly]
+
+    def _delete_files_for_anomaly(self, control, anomaly):
+        targets = [
+            os.path.join(self.synth_roi_dir, control, anomaly),
+            os.path.join(self.anomaly_dir, anomaly),
+            os.path.join(self.anomaly_roi_dir, anomaly),
+            os.path.join(self.synth_anomaly_dir, anomaly) 
+        ]
+        for path in targets:
+            self._remove_if_exists(path)
+            
+        self._remove_anomaly_from_hierarchy(control, anomaly)
+
+    def _delete_files_for_control(self, control):
+        anomalies_to_delete = list(self.hierarchy.get(control, []))
+        for a in anomalies_to_delete:
+            roi_path = os.path.join(self.synth_roi_dir, control, a)
+            self._remove_if_exists(roi_path)
+            
+            self._remove_anomaly_from_hierarchy(control, a)
+            
+        control_roi_dir = os.path.join(self.synth_roi_dir, control)
+        if os.path.exists(control_roi_dir):
+            try:
+                os.rmdir(control_roi_dir)
+            except OSError:
+                pass
+
+        targets = [
+            os.path.join(self.ghs_dir, control),
+            os.path.join(self.ghs_dir, control.replace('.png', '.npy')),
+            os.path.join(self.ghs_seg_dir, control),
+            os.path.join(self.ghs_seg_dir, control.replace('.png', '.npy'))
+        ]
+        for path in targets:
+            self._remove_if_exists(path)
+
+    def _show_anomaly_delete_dialog(self, control, anomaly):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Delete options")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        tk.Label(dialog, text=f"What data should be removed for '{anomaly}'?", font=('Arial', 10, 'bold')).pack(pady=10, padx=20)
+
+        var_real = tk.BooleanVar(value=False)
+        var_synth_roi = tk.BooleanVar(value=False)
+        var_synth_anom = tk.BooleanVar(value=False)
+        var_all = tk.BooleanVar(value=False)
+
+        tk.Checkbutton(dialog, text="Real Anomaly (VAE input) + real ROI", variable=var_real).pack(anchor='w', padx=20)
+        tk.Checkbutton(dialog, text="Synthetic ROI (just this fusion)", variable=var_synth_roi).pack(anchor='w', padx=20)
+        tk.Checkbutton(dialog, text="Synthetic Anomaly + all its ROIs (may affect other fusions)", variable=var_synth_anom).pack(anchor='w', padx=20)
+        tk.Checkbutton(dialog, text="Hybrid Sample + all ROIs inside", variable=var_all).pack(anchor='w', padx=20, pady=(10, 0))
+
+        def execute_delete():
+            deleted_anything = False
+            
+            if var_all.get():
+                self._delete_files_for_control(control)
+                deleted_anything = True
+            
+            if var_real.get():
+                self._remove_if_exists(os.path.join(self.anomaly_dir, anomaly))
+                self._remove_if_exists(os.path.join(self.anomaly_roi_dir, anomaly))
+                deleted_anything = True
+            
+            if var_synth_roi.get():
+                self._remove_if_exists(os.path.join(self.synth_roi_dir, control, anomaly))
+                deleted_anything = True
+
+            if var_synth_anom.get():
+                self._remove_if_exists(os.path.join(self.synth_anomaly_dir, anomaly))
+                controls_to_check = list(self.hierarchy.keys())
+                for c in controls_to_check:
+                    if anomaly in self.hierarchy.get(c, []):
+                        roi_path = os.path.join(self.synth_roi_dir, c, anomaly)
+                        self._remove_if_exists(roi_path)
+                        self._remove_anomaly_from_hierarchy(c, anomaly)
+                deleted_anything = True
+
+            if deleted_anything:
+                self._remove_anomaly_from_hierarchy(control, anomaly)
+
+            dialog.destroy()
+            
+            if deleted_anything:
+                self.update_filter()
+
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=15)
+        tk.Button(btn_frame, text="Delete", bg="#ffcccc", font=('Arial', 10, 'bold'), command=execute_delete).pack(side=tk.LEFT, padx=10)
+        tk.Button(btn_frame, text="Cancel", font=('Arial', 10), command=dialog.destroy).pack(side=tk.LEFT)
+
+        self.root.wait_window(dialog)
+
+    def delete_current_sample(self):
+        if not self.flat_list:
+            return
+        item = self.flat_list[self.current_index]
+        
+        if item[0] == "control":
+            control = item[1]
+            if not messagebox.askyesno("Delete Control", f"Do you want to delete the Hybrid Sample '{control}' with all its ROIs?"):
+                return
+            self._delete_files_for_control(control)
+            self.update_filter()
+        else:
+            _, control, anomaly = item
+            self._show_anomaly_delete_dialog(control, anomaly)
+
+    def _get_fallback_path(self, base_dir, filename):
+        p = os.path.join(base_dir, filename)
+        if os.path.exists(p):
+            return p
+        p_npy = os.path.join(base_dir, filename.replace('.png', '.npy'))
+        if os.path.exists(p_npy):
+            return p_npy
+        p_append = p + '.npy'
+        if os.path.exists(p_append):
+            return p_append
+        return p
+
+    def update_display(self):
+        for ax in self.axs: 
+            ax.clear()
+            ax.axis("off")
+
+        if not self.flat_list:
+            self.axs[0].set_title("No samples found")
+            self.canvas.draw()
+            return
+
+        item = self.flat_list[self.current_index]
+        contrast = float(self.contrast_slider.get())
+        
+        if item[0] == "control":
+            control = item[1]
+            self.fig.suptitle(f"Control: {control}", fontsize=14, fontweight='bold', y=.995)
+            
+            ghs_path = self._get_fallback_path(self.ghs_dir, control)
+            ghs_seg_path = self._get_fallback_path(self.ghs_seg_dir, control)
+            
+            paths = [
+                (ghs_path, "Generated Hybrid Sample"),
+                (ghs_seg_path, "Generated Hybrid Segmentation"),
+                (None, ""),
+                (None, "")
+            ]
+        else:
+            _, control, anomaly = item
+            self.fig.suptitle(f"{anomaly} in {control}", fontsize=14, fontweight='bold', y=.995)
+
+            paths = [
+                (os.path.join(self.synth_anomaly_dir, anomaly), "synth_anomaly_data"),
+                (os.path.join(self.synth_roi_dir, control, anomaly), "synth_roi_data"),
+                (os.path.join(self.anomaly_dir, anomaly), "anomaly_data"),
+                (os.path.join(self.anomaly_roi_dir, anomaly), "anomaly_roi_data")
+            ]
+
+        loaded_data = []
+        max_slices = 0
+        for p, title in paths:
+            if p and os.path.exists(p):
+                arr = np.load(p)
+                if arr.ndim == 4:
+                    max_slices = max(max_slices, arr.shape[1])
+                    curr_slice = min(self.current_slice, arr.shape[1] - 1)
+                    img = arr[:, curr_slice, :, :]
+                    img = np.transpose(img, (1, 2, 0))
+                    display_title = f"{title}\nSlice {curr_slice}"
+                elif arr.ndim == 3:
+                    img = np.transpose(arr, (1, 2, 0))
+                    display_title = title
+                else:
+                    img = arr
+                    display_title = title
+                loaded_data.append((img, display_title))
+            else:
+                loaded_data.append((None, title))
+
+        if self.current_slice >= max_slices and max_slices > 0:
+            self.current_slice = max_slices - 1
+
+        for i, (img, title) in enumerate(loaded_data):
+            if not title:
+                continue
+            
+            if img is None:
+                self.axs[i].set_title(f"{title}\nNOT FOUND", fontsize=9)
+                continue
+
+            img_float = img.astype(np.float32)
+            i_min, i_max = np.min(img_float), np.max(img_float)
+            img_norm = (img_float - i_min) / (i_max - i_min) if i_max > i_min else img_float - i_min
+            img_display = np.clip(img_norm * contrast, 0, 1)
+
+            self.axs[i].set_title(title, fontsize=10, pad=10)
+            
+            if img_display.ndim == 3 and img_display.shape[-1] == 1:
+                self.axs[i].imshow(img_display[:, :, 0], cmap="gray", vmin=0, vmax=1, aspect='equal')
+            elif img_display.ndim == 3:
+                self.axs[i].imshow(img_display, aspect='equal')
+            else:
+                self.axs[i].imshow(img_display, cmap="gray", vmin=0, vmax=1, aspect='equal')
+
+        self.info_text.config(state=tk.NORMAL)
+        self.info_text.delete('1.0', tk.END)
+        self.info_text.insert(tk.END, f"Selected: {self.current_index+1} / {len(self.flat_list)}\n\n", "header")
+        
+        active = [m for m, v in self.metric_vars.items() if v.get()]
+        
+        if item[0] == "control":
+            self.info_text.insert(tk.END, f"Anomalies in this control: {len(self.filtered_hierarchy.get(item[1], []))}\n", "active")
+        else:
+            control, anomaly = item[1], item[2]
+            for m in sorted(self.metric_map.keys()):
+                if control in self.metric_map[m] and anomaly in self.metric_map[m][control]:
+                    val = self.metric_map[m][control][anomaly]
+                    line = f"{m}: {val:.4f}\n"
+                    self.info_text.insert(tk.END, line, "active" if m in active else "inactive")
+                
+        self.info_text.config(state=tk.DISABLED)
+        self.canvas.draw()
+
+def run_outlier_gui(config):
+    root = tk.Tk()
+    root.tk.call('tk', 'scaling', 2.0)
+    app = OutlierGUI(root, config)
+    root.mainloop()
 
 def _select_gui_backend(prefer: str = "tk") -> str:
     """Select and activate a Matplotlib GUI backend (QtAgg or TkAgg)."""
