@@ -375,10 +375,10 @@ class Config:
     use_multires_skips: bool = True
     recon_weight: float = 100.0
     beta_kl: float = 1.0
-    beta_kl_start: float = 0.0,
-    beta_kl_max: float = 4.0,
-    beta_kl_warmup_start: float = 0,
-    beta_kl_warmup_epochs: int = 100,
+    beta_kl_start: float = 0.0
+    beta_kl_max: float = 4.0
+    beta_kl_warmup_start: float = 0
+    beta_kl_warmup_epochs: int = 100
     recon_loss: str = "smoothl1"  # 'smoothl1' or 'mse'
     recon_smoothl1_beta: float = 1.0
     use_transpose_conv: bool = True
