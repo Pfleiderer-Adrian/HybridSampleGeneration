@@ -135,7 +135,7 @@ class HybridDataGenerator:
                 continue
 
             if img.ndim == 3:
-                anomalies, anomalies_roi, org_masks = crop_and_center_anomaly_2d(
+                anomalies, anomalies_roi, org_masks = crop_and_center_anomaly_2d(   # TODO: return org_masks if multiclass sonst none
                     img,
                     seg,
                     self._config,
@@ -144,7 +144,7 @@ class HybridDataGenerator:
                     normalization_eps=self._config.normalization_eps,
                 )
             elif img.ndim == 4:
-                anomalies, anomalies_roi, org_masks = crop_and_center_anomaly_3d(
+                anomalies, anomalies_roi, org_masks = crop_and_center_anomaly_3d(   # TODO: return org_masks if multiclass sonst none
                     img,
                     seg,
                     self._config,
@@ -156,8 +156,8 @@ class HybridDataGenerator:
                 raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
 
 
-            if org_masks:   # crop_and_center gibt != None zurück falls config.multiclass True
-                # hier tgt Masken erstellen. Funktion aufrufen (auf jede maske in org_masks einzeln?)
+            if self._config.multiclass:
+                # TODO: hier tgt Masken erstellen. Funktion aufrufen (auf jede maske in org_masks einzeln?)
                 tgt_masks = None
                 continue
 
@@ -392,7 +392,7 @@ class HybridDataGenerator:
                     if syn_anomaly_sample.shape != img.shape:
                         raise ValueError(f"Shape mismatch: {syn_anomaly_sample.shape} vs {img.shape}")
 
-                    if self._config.random_offset and not self._config.multicalss:  # TODO: erstmal kein random offset bei multiclass (masken müssen noch stimmen)
+                    if self._config.random_offset:  # TODO: check ob random offset ok bei multiclass??? Masken müssen zu anomalien passen!!!
                         _background_threshold = self._config.background_threshold
                         if _background_threshold is None:
                             _background_threshold = np.min(syn_anomaly_sample) + 0.01
