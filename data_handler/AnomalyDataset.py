@@ -6,6 +6,7 @@ from typing import Callable, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 
 
@@ -71,15 +72,18 @@ class AnomalyDataset(Dataset):
     - Optional: preload everything into RAM (load_to_ram=True).
 
     Return format:
-    - return_filename=False -> x
-    - return_filename=True  -> (x, fname)
+    - If return_filename=False -> returns x (or x, org_mask, tgt_mask)
+    - If return_filename=True  -> returns (x, fname) (or x, org_mask, tgt_mask, fname)
       where fname is the basename including extension (e.g., "sample_0.npy").
     """
 
     def __init__(
         self,
         folder: Union[str, os.PathLike],
+        org_mask_folder: Optional[Union[str, os.PathLike]] = None,
+        tgt_mask_folder: Optional[Union[str, os.PathLike]] = None,
         *,
+        num_classes: Optional[int] = None,
         return_filename: bool = True,
         dtype: torch.dtype = torch.float32,
         transform: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
@@ -97,8 +101,16 @@ class AnomalyDataset(Dataset):
         ------
         folder:
             Path to a directory containing `.npy` files.
+        org_mask_folder:
+            Optional path to a directory containing the original masks as `.npy` files. (multiclass)
+        tgt_mask_folder:
+            Optional path to a directory containing the target masks as `.npy` files. (multiclass)
+            If org_mask_folder is None, tgt_mask_folder has no effect.
+            If org_mask_folder is not None but tgt_mask_folder is None: tgt_mask_folder = org_mask_folder.
+        num_classes:
+            Number of different classes. (Set for multiclass One-Hot Encoding)
         return_filename:
-            If True, __getitem__ returns (x, filename). Otherwise returns x only.
+            If True, __getitem__ returns the filename at the end of the tuple.
         dtype:
             Torch dtype used when converting numpy arrays into torch tensors.
             (Ignored if numpy_mode=True.)
@@ -118,21 +130,24 @@ class AnomalyDataset(Dataset):
             NOTE: If load_to_ram=True, mmap_mode is ignored (set to None).
         numpy_mode:
             If True, __getitem__ returns numpy arrays instead of torch tensors.
-
-        Outputs
-        -------
-        None
-            Side effects:
-              - scans the folder and stores file paths
-              - builds fast lookup dicts for basename and stem
-              - optionally preloads arrays into RAM
         """
         # Resolve folder path
         self.folder = Path(folder).expanduser().resolve()
         if not self.folder.is_dir():
             raise FileNotFoundError(str(self.folder))
 
+        self.org_mask_folder = None
+        self.tgt_mask_folder = None
+        if org_mask_folder is not None:
+            self.org_mask_folder = Path(org_mask_folder).expanduser().resolve()
+            if not self.org_mask_folder.is_dir():
+                raise FileNotFoundError(f"Mask folder not found: {self.org_mask_folder}")
+            if tgt_mask_folder is None: 
+                tgt_mask_folder = org_mask_folder
+            self.tgt_mask_folder = Path(tgt_mask_folder).expanduser().resolve()
+
         # Store configuration flags
+        self.num_classes = num_classes
         self.numpy_mode = numpy_mode
         self.return_filename = return_filename
         self.dtype = dtype
@@ -163,11 +178,37 @@ class AnomalyDataset(Dataset):
 
         # Optional preload into RAM for faster access during training/inference
         self._ram_arrays: Optional[List[np.ndarray]] = None
+        self._ram_org_masks: Optional[List[np.ndarray]] = None
+        self._ram_tgt_masks: Optional[List[np.ndarray]] = None
+
         if self.load_to_ram:
             self._ram_arrays = []
+            
+            if self.org_mask_folder:
+                self._ram_org_masks = []
+                self._ram_tgt_masks = []
+                same_mask_folders = (self.org_mask_folder == self.tgt_mask_folder)
+                
             for p in self._paths:
                 # allow_pickle=False for safety; loads full array into memory
                 self._ram_arrays.append(np.load(p, allow_pickle=False))
+                
+                # Load masks if folder is provided
+                if self.org_mask_folder:
+                    org_mask_path = os.path.join(self.org_mask_folder, os.path.basename(p))
+                    if not os.path.exists(org_mask_path):
+                        raise FileNotFoundError(f"Expected org_mask file missing: {org_mask_path}")
+                    
+                    loaded_org_mask = np.load(org_mask_path, allow_pickle=False)
+                    self._ram_org_masks.append(loaded_org_mask)
+
+                    if same_mask_folders:
+                        self._ram_tgt_masks.append(loaded_org_mask)
+                    else:
+                        tgt_mask_path = os.path.join(self.tgt_mask_folder, os.path.basename(p))
+                        if not os.path.exists(tgt_mask_path):
+                            raise FileNotFoundError(f"Expected tgt_mask file missing: {tgt_mask_path}")
+                        self._ram_tgt_masks.append(np.load(tgt_mask_path, allow_pickle=False))
 
     def _collect_paths(self) -> List[str]:
         """
@@ -279,11 +320,9 @@ class AnomalyDataset(Dataset):
         Outputs
         -------
         If return_filename == True:
-            (x, fname)
-              - x: torch.Tensor (default) or np.ndarray (if numpy_mode=True)
-              - fname: str basename (e.g. "foo.npy")
+            (x, [org_mask, tgt_mask,] fname)
         Else:
-            x only
+            x or (x, org_mask, tgt_mask)
 
         Notes
         -----
@@ -308,14 +347,75 @@ class AnomalyDataset(Dataset):
         else:
             x = img_np
 
-        # Optional transform hook
+        # Optional transform hook (Intensity transforms only, don't apply to masks)
         if self.transform is not None:
             x = self.transform(x)
 
-        # Return format
+        # --- FALL: Legacy / Keine Masken ---
+        if self.org_mask_folder is None:
+            if self.return_filename:
+                return x, fname
+            return x
+
+        # --- 2. Masken laden (Entweder aus RAM oder von Festplatte) ---
+        if self._ram_org_masks is not None:
+            org_mask_np = self._ram_org_masks[idx]
+            tgt_mask_np = self._ram_tgt_masks[idx]
+        else:
+            org_mask_path = os.path.join(self.org_mask_folder, fname)
+            org_mask_np = np.load(org_mask_path, allow_pickle=False, mmap_mode=self.mmap_mode)
+            
+            if self.org_mask_folder == self.tgt_mask_folder:
+                tgt_mask_np = org_mask_np
+            else:
+                tgt_mask_path = os.path.join(self.tgt_mask_folder, fname)
+                tgt_mask_np = np.load(tgt_mask_path, allow_pickle=False, mmap_mode=self.mmap_mode)
+
+        # --- 3. One-Hot Verarbeitung ---
+        org_mask_tensor = self._to_tensor(org_mask_np)
+        tgt_mask_tensor = self._to_tensor(tgt_mask_np)
+
+        if self.num_classes is not None and self.num_classes > 1:
+            
+            # --- ORG MASK CHECK & SQUEEZE ---
+            org_mask_tensor = org_mask_tensor.long()
+            if org_mask_tensor.ndim == 4:
+                if org_mask_tensor.shape[0] != 1:
+                    raise ValueError(f"Ungültige org_mask Shape! Bei 4D muss Kanal 0 exakt 1 sein. Bekommen: {org_mask_tensor.shape}")
+                org_mask_tensor = org_mask_tensor.squeeze(0)
+            elif org_mask_tensor.ndim != 3:
+                raise ValueError(f"org_mask muss 3D (D,H,W) oder 4D (1,D,H,W) sein. Bekommen: {org_mask_tensor.shape}")
+
+            org_mask_tensor = F.one_hot(org_mask_tensor, num_classes=self.num_classes)
+            org_mask_tensor = org_mask_tensor[..., 1:] 
+            org_mask_tensor = org_mask_tensor.permute(3, 0, 1, 2).float()
+
+            # --- TGT MASK CHECK & SQUEEZE ---
+            tgt_mask_tensor = tgt_mask_tensor.long()
+            if tgt_mask_tensor.ndim == 4:
+                if tgt_mask_tensor.shape[0] != 1:
+                    raise ValueError(f"Ungültige tgt_mask Shape! Bei 4D muss Kanal 0 exakt 1 sein. Bekommen: {tgt_mask_tensor.shape}")
+                tgt_mask_tensor = tgt_mask_tensor.squeeze(0)
+            elif tgt_mask_tensor.ndim != 3:
+                raise ValueError(f"tgt_mask muss 3D (D,H,W) oder 4D (1,D,H,W) sein. Bekommen: {tgt_mask_tensor.shape}")
+
+            tgt_mask_tensor = F.one_hot(tgt_mask_tensor, num_classes=self.num_classes)
+            tgt_mask_tensor = tgt_mask_tensor[..., 1:] 
+            tgt_mask_tensor = tgt_mask_tensor.permute(3, 0, 1, 2).float()
+
+        # Numpy-Fallback falls für Feedback benötigt
+        if self.numpy_mode:
+            org_mask_out = org_mask_tensor.numpy()
+            tgt_mask_out = tgt_mask_tensor.numpy()
+        else:
+            org_mask_out = org_mask_tensor
+            tgt_mask_out = tgt_mask_tensor
+
+        # --- 4. Synthese-Ready Return ---
         if self.return_filename:
-            return x, fname
-        return x
+            return x, org_mask_out, tgt_mask_out, fname
+            
+        return x, org_mask_out, tgt_mask_out
 
     def load_numpy_by_basename(self, basename: str) -> np.ndarray:
         """
@@ -371,3 +471,4 @@ class AnomalyDataset(Dataset):
             return self._ram_arrays[idx]
 
         return np.load(self._paths[idx], allow_pickle=False, mmap_mode=self.mmap_mode)
+    

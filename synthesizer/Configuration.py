@@ -86,6 +86,8 @@ class Configuration:
         self.random_offset_foreground_threshold_rel = 0.001
         self.add_bg_noise = True
 
+        self.multiclass = "multiclass" in self.model_name
+        self.num_classes = None # number of classes including class 0
 
         # synthesizer parameter
         self.prior_sampling = False

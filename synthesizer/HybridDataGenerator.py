@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os.path
+from pathlib import Path
 import shutil
 from typing import Iterator
 import numpy as np
@@ -64,6 +65,8 @@ class HybridDataGenerator:
         sample_dataloader: Iterator[Tuple[np.ndarray, np.ndarray, str]],
         save_folder=None,
         save_folder_roi=None,
+        save_folder_org_mask=None,
+        save_folder_tgt_mask=None,
     ):
         """
         Extract anomaly cutouts (and anomaly ROIs) from samples that contain anomalies.
@@ -112,6 +115,19 @@ class HybridDataGenerator:
             shutil.rmtree(save_folder_roi)
         os.makedirs(save_folder_roi, exist_ok=True)
         os.makedirs(save_folder, exist_ok=True)
+
+        if self._config.multiclass:
+            if save_folder_org_mask is None:
+                save_folder_org_mask = os.path.join(self._config.study_folder, "org_masks")
+            if save_folder_tgt_mask is None:
+                save_folder_tgt_mask = os.path.join(self._config.study_folder, "tgt_masks")
+            if os.path.exists(save_folder_org_mask):    
+                shutil.rmtree(save_folder_org_mask)
+            if os.path.exists(save_folder_tgt_mask):
+                shutil.rmtree(save_folder_tgt_mask)
+            os.makedirs(save_folder_org_mask, exist_ok=True)
+            os.makedirs(save_folder_tgt_mask, exist_ok=True)
+        
         for img, seg, basename in sample_dataloader:
             # check if sample has no anomaly
             if not np.any(seg):
@@ -119,7 +135,7 @@ class HybridDataGenerator:
                 continue
 
             if img.ndim == 3:
-                anomalies, anomalies_roi = crop_and_center_anomaly_2d(
+                anomalies, anomalies_roi, org_masks = crop_and_center_anomaly_2d(
                     img,
                     seg,
                     self._config,
@@ -128,7 +144,7 @@ class HybridDataGenerator:
                     normalization_eps=self._config.normalization_eps,
                 )
             elif img.ndim == 4:
-                anomalies, anomalies_roi = crop_and_center_anomaly_3d(
+                anomalies, anomalies_roi, org_masks = crop_and_center_anomaly_3d(
                     img,
                     seg,
                     self._config,
@@ -138,6 +154,12 @@ class HybridDataGenerator:
                 )
             else:
                 raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
+
+
+            if org_masks:   # crop_and_center gibt != None zurück falls config.multiclass True
+                # hier tgt Masken erstellen. Funktion aufrufen (auf jede maske in org_masks einzeln?)
+                tgt_masks = None
+                continue
 
             i = 0
             # save anomaly cutout for training
@@ -150,10 +172,19 @@ class HybridDataGenerator:
             for roi_sample in anomalies_roi:
                 save_numpy_as_npy(roi_sample, os.path.join(save_folder_roi, basename+"_"+str(i)+".npy"), overwrite=True)
                 i = i + 1
+            i = 0    
+            # save org mask for Encoder input (and Decoder in training)
+            for org_mask in org_masks:
+                save_numpy_as_npy(org_mask, save_folder_org_mask, basename+"_"+str(i)+".npy", overwrite=True)
+                i = i + 1
+            i = 0
+            # save tgt mask for Decoder (only for inception)
+            for tgt_mask in tgt_masks:
+                save_numpy_as_npy(tgt_mask, save_folder_tgt_mask, basename+"_"+str(i)+".npy", overwrite=True)
         self._config.save_anomaly_transformations()
-        self.load_anomalies(anomaly_folder=save_folder)
+        self.load_anomalies(anomaly_folder=save_folder) 
 
-    def load_anomalies(self, anomaly_folder=None):
+    def load_anomalies(self, anomaly_folder=None, org_mask_folder=None, tgt_mask_folder=None):
         """
         Load previously extracted anomaly cutouts into an AnomalyDataset3D and
         load their transformation meta-data from config.
@@ -163,6 +194,16 @@ class HybridDataGenerator:
         anomaly_folder:
             Folder containing anomaly .npy files.
             If None: "<study_folder>/anomaly_data"
+        org_mask_folder:
+            Folder containing real segmentations as .npy files.
+            If None: "<study_folder>/org_masks"
+        tgt_mask_folder:
+            Folder containing target segmentations as .npy files.
+            If None: "<study_folder>/tgt_masks"
+
+        Classes in masks must be integers (in one channel) 0,1,2,...,num_classes-1 (with background class 0)
+        num_classes will be calculated here if was not set manually in config
+
 
         Outputs
         -------
@@ -172,12 +213,41 @@ class HybridDataGenerator:
         self._log_step("Step 2/9: Loading anomaly dataset.")
         if anomaly_folder is None:
             anomaly_folder = os.path.join(self._config.study_folder, "anomaly_data")
-        self._anomaly_dataset = AnomalyDataset(
-            anomaly_folder,  # oder samples=[...]
-            return_filename=True,
-            load_to_ram=True,
-            dtype=torch.float32,
-        )
+        
+        if self._config.multiclass:
+            if org_mask_folder is None:
+                org_mask_folder = os.path.join(self._config.study_folder, "org_masks")
+            if tgt_mask_folder is None:
+                tgt_mask_folder = os.path.join(self._config.study_folder, "tgt_masks")
+            # calc num_classes if necessary    
+            if self._config.num_classes is None:
+                mask_dir = Path(org_mask_folder)
+                max_class_val = 0
+                # classes must be integers 0,1,2,...,num_classes-1 (with background class 0)
+                for mask_path in mask_dir.glob("*.npy"):
+                    mask = np.load(mask_path, allow_pickle=False, mmap_mode='r')
+                    max_val_in_file = np.max(mask)
+                    if max_val_in_file > max_class_val:
+                        max_class_val = max_val_in_file
+                self._config.num_classes = int(max_class_val) + 1
+
+            self._anomaly_dataset = AnomalyDataset(
+                anomaly_folder,
+                org_mask_folder,
+                tgt_mask_folder,
+                num_classes=self._config.num_classes,
+                return_filename=True,
+                load_to_ram=True,
+                dtype=torch.float32,
+                numpy_mode=False
+            )
+        else:
+            self._anomaly_dataset = AnomalyDataset(
+                anomaly_folder,
+                return_filename=True,
+                load_to_ram=True,
+                dtype=torch.float32,
+            )
         self._config.load_anomaly_transformations()
 
     def train_generator(self, no_of_trails):
@@ -264,20 +334,9 @@ class HybridDataGenerator:
         """
         Generate synthetic anomalies for each anomaly in the loaded anomaly dataset.
 
-        For each (img, basename) in anomaly dataset:
-          - run model.generate_synth_sample(img)
+        For each anomaly in anomaly dataset:
+          - run model.generate_synth_sample(...)
           - save output as .npy under the same basename
-
-        Inputs
-        ------
-        save_folder:
-            Output folder for synthetic anomaly .npy files.
-            If None: "<study_folder>/synth_anomaly_data"
-
-        Outputs
-        -------
-        None
-            Side effects: writes synthetic .npy files and sets self._synth_anomaly_dataset via load_synth_anomalies().
         """
         self._log_step("Step 5/9: Generating synthetic anomalies.")
         if self._anomaly_dataset is None:
@@ -290,66 +349,107 @@ class HybridDataGenerator:
             shutil.rmtree(save_folder)
         os.makedirs(save_folder, exist_ok=True)
 
-
-        # use feedback system to generate similar anomalies
         if self._config.use_feedback:
             self._anomaly_dataset.numpy_mode = True
             bad_anomalies = []
 
-            for img, basename in tqdm(self._anomaly_dataset):
-                #syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
+            for batch in tqdm(self._anomaly_dataset):
+                if self._config.multiclass:
+                    img, org_mask, tgt_mask, basename = batch
+                else:
+                    img, basename = batch
+                    org_mask, tgt_mask = None, None
 
                 best = -1
                 best_image = None
                 syn_anomaly_sample = None
                 i = 0
+                
                 while best < self._config.feedback_threshold:
-                    if self._config.prior_sampling:
-                        syn_anomaly_sample = self._model.generate_synth_sample_prior(clamp_01=self._config.clamp01_output, out_hw=self._config.anomaly_size[1:])
+                    if self._config.multiclass:
+                        # TODO: hier noch prior einbauen?
+                        syn_anomaly_sample = self._model.generate_synth_sample(
+                            sample=img, 
+                            original_mask=org_mask, 
+                            target_mask=tgt_mask, 
+                            clamp_01=self._config.clamp01_output
+                        )
                     else:
-                        syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
+                        if getattr(self._config, "prior_sampling", False):
+                            syn_anomaly_sample = self._model.generate_synth_sample_prior(
+                                clamp_01=self._config.clamp01_output, 
+                                out_hw=self._config.anomaly_size[1:]
+                            )
+                        else:
+                            syn_anomaly_sample = self._model.generate_synth_sample(
+                                sample=img, 
+                                clamp_01=self._config.clamp01_output
+                            )
 
                     if best_image is None:
                         best_image = syn_anomaly_sample
 
-
                     if syn_anomaly_sample.shape != img.shape:
-                        raise ValueError(str(syn_anomaly_sample.shape)+"vs"+str(img.shape))
+                        raise ValueError(f"Shape mismatch: {syn_anomaly_sample.shape} vs {img.shape}")
 
-                    if self._config.random_offset:
+                    if self._config.random_offset and not self._config.multicalss:  # TODO: erstmal kein random offset bei multiclass (masken müssen noch stimmen)
                         _background_threshold = self._config.background_threshold
                         if _background_threshold is None:
-                            _background_threshold = np.min(syn_anomaly_sample)+0.01
-                        syn_anomaly_sample, _, _, _ = center_foreground_com(syn_anomaly_sample, _background_threshold, largest_only=True)
-                        img, _, _, _ = center_foreground_com(img, _background_threshold)
-                    similarity_score = ssim_01(img, syn_anomaly_sample)
+                            _background_threshold = np.min(syn_anomaly_sample) + 0.01
+                            
+                        syn_anomaly_sample_eval, _, _, _ = center_foreground_com(
+                            syn_anomaly_sample, _background_threshold, largest_only=True
+                        )
+                        img_eval, _, _, _ = center_foreground_com(img, _background_threshold)
+                        similarity_score = ssim_01(img_eval, syn_anomaly_sample_eval)
+                    else:
+                        similarity_score = ssim_01(img, syn_anomaly_sample)
 
                     if similarity_score > best:
                         best = similarity_score
                         best_image = syn_anomaly_sample
                         print("New best Score: "+str(best))
                     
-                    if i % 100 == 0:
+                    if i % 100 == 0 and i > 0:
                         if self._config.feedback_threshold > 0.15:
-                            self._config.feedback_threshold = self._config.feedback_threshold * self._config.threshold_relaxation_factor
-                    i = i + 1
-                if(best < 0.25):
+                            self._config.feedback_threshold *= self._config.threshold_relaxation_factor
+                    i += 1
+                    
+                if best < 0.25:
                     bad_anomalies.append(basename)
+                
                 print("Generated "+str(i)+" anomalies and save at threshold: "+str(best))
                 save_numpy_as_npy(best_image, str(os.path.join(save_folder, basename)), overwrite=True)
+                
             print("Summary")
-            print("No-of bad Anomalies:"+ str(len(bad_anomalies)))
+            print("No-of bad Anomalies: " + str(len(bad_anomalies)))
             for name in bad_anomalies:
                 print(name)
 
-        # standard generation without feedback
         else:
-            for img, basename in tqdm(self._anomaly_dataset):
-                syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
+            # Standard generation without feedback
+            self._anomaly_dataset.numpy_mode = True
+            
+            for batch in tqdm(self._anomaly_dataset):
+                if self._config.multiclass:
+                    img, org_mask, tgt_mask, basename = batch
+                    
+                    syn_anomaly_sample = self._model.generate_synth_sample(
+                        sample=img, 
+                        original_mask=org_mask, 
+                        target_mask=tgt_mask, 
+                        clamp_01=self._config.clamp01_output
+                    )
+                else:
+                    img, basename = batch
+                    syn_anomaly_sample = self._model.generate_synth_sample(
+                        sample=img, 
+                        clamp_01=self._config.clamp01_output
+                    )
+                    
                 save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(save_folder, basename)), overwrite=True)
 
         self.load_synth_anomalies(save_folder)
-
 
 
     def load_synth_anomalies(self, synth_anomaly_folder=None, transformation_file=None):
@@ -378,7 +478,7 @@ class HybridDataGenerator:
 
         self._config.load_anomaly_transformations(transformation_file)
         self._synth_anomaly_dataset = AnomalyDataset(
-            synth_anomaly_folder,  # oder samples=[...]
+            synth_anomaly_folder,  
             return_filename=True,
             load_to_ram=True,
             dtype=torch.float32,
@@ -400,11 +500,6 @@ class HybridDataGenerator:
         control_samples_dataloader:
             Iterator yielding (img, seg, basename) for control samples.
             (seg can be present even for controls; matching function decides how to use it.)
-        matching_routine:
-            One of: "local", "global", "fixed_from_extraction"
-              - "local": match ith control with ith ROI (sequential) and compute best template position (resource middle - O(n)!)
-              - "global": for each control, search over all ROI and pick best similarity (resource heavy - O(n2)!!)
-              - "fixed_from_extraction": sequential mapping, take centroid from extraction metadata (resource lite)
         roi_folder:
             Folder containing ROI .npy files (saved during extract_anomalies()).
             If None: "<study_folder>/anomaly_roi_data"
