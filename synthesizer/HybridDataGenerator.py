@@ -264,20 +264,9 @@ class HybridDataGenerator:
         """
         Generate synthetic anomalies for each anomaly in the loaded anomaly dataset.
 
-        For each (img, basename) in anomaly dataset:
-          - run model.generate_synth_sample(img)
+        For each anomaly in anomaly dataset:
+          - run model.generate_synth_sample(...)
           - save output as .npy under the same basename
-
-        Inputs
-        ------
-        save_folder:
-            Output folder for synthetic anomaly .npy files.
-            If None: "<study_folder>/synth_anomaly_data"
-
-        Outputs
-        -------
-        None
-            Side effects: writes synthetic .npy files and sets self._synth_anomaly_dataset via load_synth_anomalies().
         """
         self._log_step("Step 5/9: Generating synthetic anomalies.")
         if self._anomaly_dataset is None:
@@ -290,62 +279,110 @@ class HybridDataGenerator:
             shutil.rmtree(save_folder)
         os.makedirs(save_folder, exist_ok=True)
 
-
-        # use feedback system to generate similar anomalies
         if self._config.use_feedback:
             self._anomaly_dataset.numpy_mode = True
             bad_anomalies = []
 
-            for img, basename in tqdm(self._anomaly_dataset):
-                #syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
+            for batch in tqdm(self._anomaly_dataset):
+                if self._config.multiclass:
+                    img, org_mask, tgt_mask, basename = batch
+                else:
+                    img, basename = batch
+                    org_mask, tgt_mask = None, None
 
                 best = -1
                 best_image = None
                 syn_anomaly_sample = None
                 i = 0
+                
                 while best < self._config.feedback_threshold:
-                    if self._config.prior_sampling:
-                        syn_anomaly_sample = self._model.generate_synth_sample_prior(clamp_01=self._config.clamp01_output, out_hw=self._config.anomaly_size[1:])
+                    if self._config.multiclass:
+                        if getattr(self._config, "prior_sampling", False):
+                            syn_anomaly_sample = self._model.generate_synth_sample_prior(
+                                target_mask=tgt_mask,
+                                clamp_01=self._config.clamp01_output, 
+                                out_hw=self._config.anomaly_size[1:]
+                            )
+                        else:
+                            syn_anomaly_sample = self._model.generate_synth_sample(
+                                sample=img, 
+                                original_mask=org_mask, 
+                                target_mask=tgt_mask, 
+                                clamp_01=self._config.clamp01_output
+                            )
                     else:
-                        syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
+                        if getattr(self._config, "prior_sampling", False):
+                            syn_anomaly_sample = self._model.generate_synth_sample_prior(
+                                clamp_01=self._config.clamp01_output, 
+                                out_hw=self._config.anomaly_size[1:]
+                            )
+                        else:
+                            syn_anomaly_sample = self._model.generate_synth_sample(
+                                sample=img, 
+                                clamp_01=self._config.clamp01_output
+                            )
 
                     if best_image is None:
                         best_image = syn_anomaly_sample
 
-
                     if syn_anomaly_sample.shape != img.shape:
-                        raise ValueError(str(syn_anomaly_sample.shape)+"vs"+str(img.shape))
+                        raise ValueError(f"Shape mismatch: {syn_anomaly_sample.shape} vs {img.shape}")
 
-                    if self._config.random_offset:
+                    if self._config.random_offset:  # TODO: check ob random offset ok bei multiclass??? Masken müssen zu anomalien passen!!!
                         _background_threshold = self._config.background_threshold
                         if _background_threshold is None:
-                            _background_threshold = np.min(syn_anomaly_sample)+0.01
-                        syn_anomaly_sample, _, _, _ = center_foreground_com(syn_anomaly_sample, _background_threshold, largest_only=True)
-                        img, _, _, _ = center_foreground_com(img, _background_threshold)
-                    similarity_score = ssim_01(img, syn_anomaly_sample)
+                            _background_threshold = np.min(syn_anomaly_sample) + 0.01
+                            
+                        syn_anomaly_sample_eval, _, _, _ = center_foreground_com(
+                            syn_anomaly_sample, _background_threshold, largest_only=True
+                        )
+                        img_eval, _, _, _ = center_foreground_com(img, _background_threshold)
+                        similarity_score = ssim_01(img_eval, syn_anomaly_sample_eval)
+                    else:
+                        similarity_score = ssim_01(img, syn_anomaly_sample)
 
                     if similarity_score > best:
                         best = similarity_score
                         best_image = syn_anomaly_sample
                         print("New best Score: "+str(best))
                     
-                    if i % 100 == 0:
+                    if i % 100 == 0 and i > 0:
                         if self._config.feedback_threshold > 0.15:
-                            self._config.feedback_threshold = self._config.feedback_threshold * self._config.threshold_relaxation_factor
-                    i = i + 1
-                if(best < 0.25):
+                            self._config.feedback_threshold *= self._config.threshold_relaxation_factor
+                    i += 1
+                    
+                if best < 0.25:
                     bad_anomalies.append(basename)
+                
                 print("Generated "+str(i)+" anomalies and save at threshold: "+str(best))
                 save_numpy_as_npy(best_image, str(os.path.join(save_folder, basename)), overwrite=True)
+                
             print("Summary")
-            print("No-of bad Anomalies:"+ str(len(bad_anomalies)))
+            print("No-of bad Anomalies: " + str(len(bad_anomalies)))
             for name in bad_anomalies:
                 print(name)
 
-        # standard generation without feedback
         else:
-            for img, basename in tqdm(self._anomaly_dataset):
-                syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
+            # Standard generation without feedback
+            self._anomaly_dataset.numpy_mode = True
+            
+            for batch in tqdm(self._anomaly_dataset):
+                if self._config.multiclass:
+                    img, org_mask, tgt_mask, basename = batch
+                    
+                    syn_anomaly_sample = self._model.generate_synth_sample(
+                        sample=img, 
+                        original_mask=org_mask, 
+                        target_mask=tgt_mask, 
+                        clamp_01=self._config.clamp01_output
+                    )
+                else:
+                    img, basename = batch
+                    syn_anomaly_sample = self._model.generate_synth_sample(
+                        sample=img, 
+                        clamp_01=self._config.clamp01_output
+                    )
+                    
                 save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(save_folder, basename)), overwrite=True)
 
         self.load_synth_anomalies(save_folder)

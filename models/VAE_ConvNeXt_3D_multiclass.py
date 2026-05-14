@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-"""ConvNeXt3D-U-Net VAE
+"""ConvNeXt3D-U-Net multiclass VAE
 
 Features:
+- mask (one-hot encoded) concatenated to corresponding input
 - ConvNeXt3D blocks (depthwise conv + pointwise MLP)
 - BatchNorm -> GroupNorm (more stable for 3D and small batch sizes)
 - True U-Net skip connections (feature concatenation)
+- SPADE blocks for mask integration in decoder
 
 """
 
@@ -70,6 +72,37 @@ def _crop_like_3d(x: torch.Tensor, ref_dhw: Tuple[int, int, int]) -> torch.Tenso
 # blocks (3D)
 # -------------------------
 
+class SPADE3D(nn.Module):
+    """Spatially-Adaptive Normalization (SPADE) for 3D data."""
+    def __init__(self, norm_nc: int, label_nc: int, hidden_nc: int=128, kernel_size: int=3):
+        super().__init__()
+        # layer norm -> norm over all channels; affine=False: no params here as params should only come from SPADE
+        # must be for one-hot encoding (channels)
+        self.no_param_instance_norm = nn.GroupNorm(num_groups=1, num_channels=norm_nc, affine=False)
+
+        pw = kernel_size // 2
+        self.mlp_shared = nn.Sequential(
+            nn.Conv3d(label_nc, hidden_nc, kernel_size=kernel_size, padding=pw), # same padding
+            nn.GELU()
+        )
+        # gamma and beta are now tensors
+        self.mlp_gamma = nn.Conv3d(hidden_nc, norm_nc, kernel_size=kernel_size, padding=pw)
+        self.mlp_beta = nn.Conv3d(hidden_nc, norm_nc, kernel_size=kernel_size, padding=pw)
+    
+    def forward(self, x: torch.Tensor, tgt_mask: torch.Tensor) -> torch.Tensor:
+        normalized = self.no_param_instance_norm(x)
+
+        # scale mask to x's resolution, use 'nearest' if mask is one-hot encoded
+        if tgt_mask.shape[-3:] != x.shape[-3:]:
+            tgt_mask = F.interpolate(tgt_mask, size=x.shape[-3:], mode='nearest')
+
+        activation = self.mlp_shared(tgt_mask)
+        gamma = self.mlp_gamma(activation)
+        beta = self.mlp_beta(activation)
+
+        return normalized * (1 + gamma) + beta
+
+# kopiert aus convnext3d
 class ConvNeXtBlock3D(nn.Module):
     """ConvNeXt-style block for 3D volumes (channels-first).
 
@@ -130,6 +163,49 @@ class ConvNeXtBlock3D(nn.Module):
         x = self.drop_path(x)
         return residual + x
 
+class ConvNeXtSPADEBlock3D(nn.Module):
+    """ConvNeXt-style block for 3D volumes (channels-first).
+    SPADE instead of GroupNorm.
+    """
+
+    def __init__(
+        self,
+        channels: int,
+        mask_channels: int,
+        mlp_ratio: float = 4.0,
+        drop_path: float = 0.0,
+    ):
+        super().__init__()
+
+        self.dwconv = nn.Conv3d(
+            channels,
+            channels,
+            kernel_size=3,
+            padding=1,
+            groups=channels,
+            bias=True,
+        )
+
+        self.spade = SPADE3D(norm_nc=channels, label_nc=mask_channels)
+
+        hidden = int(channels * mlp_ratio)
+        self.pwconv1 = nn.Conv3d(channels, hidden, kernel_size=1, bias=True)
+        self.act = nn.GELU()
+        self.pwconv2 = nn.Conv3d(hidden, channels, kernel_size=1, bias=True)
+
+        # Optional stochastic depth
+        self.drop_path = DropPath(drop_path) if drop_path and drop_path > 0 else nn.Identity()
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        residual = x
+        x = self.dwconv(x)
+        x = self.spade(x, mask) # use mask here
+        x = self.pwconv1(x)
+        x = self.act(x)
+        x = self.pwconv2(x)
+        x = self.drop_path(x)
+        return residual + x
+
 
 class DropPath(nn.Module):
     """Stochastic Depth (per sample)."""
@@ -146,7 +222,6 @@ class DropPath(nn.Module):
         random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
         random_tensor = torch.floor(random_tensor)
         return x.div(keep_prob) * random_tensor
-
 
 class ConvNeXtUNetEncoder3D(nn.Module):
     """ConvNeXt3D encoder with U-Net skip outputs.
@@ -215,20 +290,17 @@ class ConvNeXtUNetEncoder3D(nn.Module):
         h = self.to_z(x)
         return h, skips
 
-
-class ConvNeXtUNetDecoder3D(nn.Module):
-    """ConvNeXt3D decoder with U-Net skips.
-
-    For API compatibility with the original decoder, forward(z) only takes `z`.
-    Skips are provided via set_skips(skips) before calling forward.
+class ConvNeXtSPADEUNetDecoder3D(nn.Module):
+    """ConvNeXtSPADE3D decoder with U-Net skips.
     """
-
     def __init__(
         self,
         out_channels: int,
         n_res_blocks: int,
+        n_spade_blocks: int,
         n_levels: int,
         z_channels: int,
+        mask_channels: int,
         use_multires_skips: bool = True,  # kept for API compatibility (not used)
         leak: float = 0.2,  # kept for API compatibility
         use_transpose_conv: bool = True,
@@ -242,6 +314,7 @@ class ConvNeXtUNetDecoder3D(nn.Module):
         self.skip_dropout_p = float(skip_dropout_p)
         self.skip_alpha = float(skip_alpha)
         self._skips: Optional[List[torch.Tensor]] = None
+        self.n_spade_blocks = n_spade_blocks
 
         # Project latent channels up to bottom channels
         self.bottom_ch = 2 ** (n_levels + 3)
@@ -275,10 +348,17 @@ class ConvNeXtUNetDecoder3D(nn.Module):
                 )
             )
 
-            stage = []
-            for _ in range(n_res_blocks):
-                stage.append(ConvNeXtBlock3D(ch, mlp_ratio=4.0, gn_groups=gn_groups))
-            self.blocks.append(nn.Sequential(*stage))
+            # use SPADE here
+            num_spade = min(self.n_spade_blocks, n_res_blocks) # how many SPADE blocks?
+            stage = nn.ModuleList()
+            for j in range(n_res_blocks):
+                if j < num_spade:
+                    # first num_spade blocks use SPADE
+                    stage.append(ConvNeXtSPADEBlock3D(channels=ch, mask_channels=mask_channels, mlp_ratio=4.0))
+                else:
+                    # normal convnext blocks
+                    stage.append(ConvNeXtBlock3D(channels=ch, mlp_ratio=4.0, gn_groups=gn_groups))
+            self.blocks.append(stage)
 
             prev_ch = ch
 
@@ -287,7 +367,8 @@ class ConvNeXtUNetDecoder3D(nn.Module):
     def set_skips(self, skips: List[torch.Tensor]) -> None:
         self._skips = skips
 
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
+    # take z AND mask
+    def forward(self, z: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         if self._skips is None:
             raise RuntimeError(
                 "Decoder skips are not set. Call decoder.set_skips(skips) before forward()."
@@ -324,7 +405,14 @@ class ConvNeXtUNetDecoder3D(nn.Module):
 
             x = torch.cat([x, skip], dim=1)
             x = self.fuse[i](x)
-            x = self.blocks[i](x)
+
+            # mask in every SPADE block
+            num_spade = min(self.n_spade_blocks, len(self.blocks[i]))
+            for j, block in enumerate(self.blocks[i]):
+                if j < num_spade:
+                    x = block(x, mask)  # SPADE block
+                else:
+                    x = block(x)    # normal block
 
         return self.out(x)
 
@@ -368,7 +456,9 @@ class Config:
       - `use_transpose_conv` is still honored.
     """
     in_channels: int = None
+    mask_channels: int = None
     n_res_blocks: int = 8
+    n_spade_blocks: int = 2 # how many of the res blocks should use spade? for every upscale?
     n_levels: int = 4
     z_channels: int = 250
     bottleneck_dim: int = 250
@@ -393,28 +483,20 @@ class Config:
     # 1.0 disables gating (default). Typical values for encouraging latent usage: 0.2 - 0.6
     skip_alpha: float = 1.0
 
-
-class ConvNeXtVAE3D(nn.Module):
-    """3D ConvNeXt-U-Net VAE.
-
-    Expected input:
-      - x: (B, C, D, H, W), float (continuous intensities).
-
-    Forward output is a dict:
-      - recon: reconstructed x (B,C,D,H,W)
-      - mu: mean vector (B, bottleneck_dim)
-      - logvar: log-variance vector (B, bottleneck_dim)
-      - x_ref: reference input used for reconstruction loss (cropped/padded version)
-    """
+class ConvNeXtSPADEVAE3D(nn.Module):
+    """3D ConvNeXt-U-Net VAE with SPADE."""
 
     def __init__(self, cfg: Config):
         super().__init__()
         self.cfg = cfg
         self.in_channels = cfg.in_channels
 
+        # encoder gets real mask as additional input (concatenated)
+        enc_in_channels = cfg.in_channels + cfg.mask_channels   
+
         # Encoder returns (h, skips)
         self.encoder = ConvNeXtUNetEncoder3D(
-            in_channels=cfg.in_channels,
+            in_channels=enc_in_channels,
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
@@ -422,11 +504,13 @@ class ConvNeXtVAE3D(nn.Module):
         )
 
         # Decoder reconstructs from latent feature map; skips are set each forward
-        self.decoder = ConvNeXtUNetDecoder3D(
+        self.decoder = ConvNeXtSPADEUNetDecoder3D(
             out_channels=cfg.in_channels,
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
+            n_spade_blocks=cfg.n_spade_blocks,
             z_channels=cfg.z_channels,
+            mask_channels=cfg.mask_channels,
             use_multires_skips=cfg.use_multires_skips,
             use_transpose_conv=cfg.use_transpose_conv,
             skip_dropout_p=getattr(cfg, 'skip_dropout_p', 0.0),
@@ -458,9 +542,11 @@ class ConvNeXtVAE3D(nn.Module):
         eps = torch.randn_like(std)
         return mu + eps * std
 
-    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
-        """Forward pass through encoder -> bottleneck -> decoder."""
-        if x.ndim != 5:
+    def forward(self, x: torch.Tensor, org_mask: torch.Tensor, tgt_mask: Optional[torch.Tensor]=None) -> Dict[str, torch.Tensor]:
+        """Forward pass through encoder (x and org_mask) -> bottleneck -> decoder with SPADE using tgt_mask."""
+        if tgt_mask is None:
+            tgt_mask = org_mask
+        if x.ndim != 5 or org_mask.ndim != 5 or tgt_mask.ndim != 5:
             raise ValueError(f"Expected (B,C,D,H,W), got {tuple(x.shape)}")
         if x.shape[1] != self.in_channels:
             raise ValueError(f"Expected C={self.in_channels}, got C={x.shape[1]}")
@@ -473,9 +559,12 @@ class ConvNeXtVAE3D(nn.Module):
         # Pad so D/H/W divisible by 2**n_levels
         multiple = 2 ** self.cfg.n_levels
         x_pad, pad = _pad_to_multiple_3d(x, multiple)
+        org_mask_pad, _ = _pad_to_multiple_3d(org_mask, multiple)
+        tgt_mask_pad, _ = _pad_to_multiple_3d(tgt_mask, multiple)
 
         # Encode -> (latent feature map, skips)
-        h, skips = self.encoder(x_pad)
+        enc_in = torch.cat([x_pad, org_mask_pad], dim=1)    # concat x and org_mask for encoder input
+        h, skips = self.encoder(enc_in)
         latent_dhw = tuple(h.shape[-3:])
 
         # Ensure FC layers
@@ -489,10 +578,12 @@ class ConvNeXtVAE3D(nn.Module):
         # Sample bottleneck
         z = self.reparameterize(mu, logvar)
 
+
         # Decode
         h_dec = self.fc_decode(z).reshape(B, self.cfg.z_channels, *latent_dhw)
         self.decoder.set_skips(skips)
-        recon = self.decoder(h_dec)
+        
+        recon = self.decoder(h_dec, tgt_mask_pad)
 
         # Crop recon back to original spatial size
         recon = _crop_like_3d(recon, ref_dhw)
@@ -541,28 +632,25 @@ class ConvNeXtVAE3D(nn.Module):
             "kl_weighted": kl_weighted,
         }
 
-    def _extract_x(self, batch) -> torch.Tensor:
-        """Extract the input tensor x from a batch (unchanged from original)."""
-        if isinstance(batch, list) and len(batch) == 2:
-            if isinstance(batch[0], torch.Tensor):
-                return batch[0]
-
-        if isinstance(batch, torch.Tensor):
-            return batch
-
-        if isinstance(batch, (tuple, list)) and len(batch) > 0:
-            x = batch[0]
-            if isinstance(x, torch.Tensor):
-                return x
-            return torch.as_tensor(x)
-
+    def _extract_inputs(self, batch) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Extract the input tensor x and the mask from a batch (unchanged from original)."""
+        # if dataloader loads dict (with keys "image"/"x", "mask"/"org_mask", "tgt_mask")
         if isinstance(batch, dict):
-            for key in ("x", "image", "inputs"):
-                if key in batch:
-                    v = batch[key]
-                    if isinstance(v, torch.Tensor):
-                        return v
-                    return torch.as_tensor(v)
+            x = batch.get("image", batch.get("x"))
+            org_mask = batch.get("org_mask", batch.get("mask"))
+            tgt_mask = batch.get("tgt_mask")
+            if x is not None and org_mask is not None and tgt_mask is not None:
+                return torch.as_tensor(x), torch.as_tensor(org_mask), torch.as_tensor(tgt_mask)
+            else:
+                raise ValueError(
+                f"Dataloader returned a dict, but expected keys are missing. "
+                f"Found keys: {list(batch.keys())}. "
+                f"Expected combinations of ('image' or 'x') and ('mask' or 'label') and 'tgt_mask'."
+            )
+
+        # if dataloader loads Tuple[torch.Tensor, torch.Tensor, ...] (like AnomalyDataset)
+        if isinstance(batch, (tuple, list)) and len(batch) >= 3:
+            return torch.as_tensor(batch[0]), torch.as_tensor(batch[1]), torch.as_tensor(batch[2])
 
         raise TypeError(f"Unknown batch type: {type(batch)}")
 
@@ -588,19 +676,20 @@ class ConvNeXtVAE3D(nn.Module):
 
             pbar = tqdm(loader, desc=("train" if training else "val"), leave=False, dynamic_ncols=True)
             for step, batch in enumerate(pbar, start=1):
-                x = self._extract_x(batch=batch)
-                if not isinstance(x, torch.Tensor):
-                    x = torch.as_tensor(x)
+                x, org_mask, _ = self._extract_inputs(batch=batch)  # no need for tgt_mask in training
                 x = x.to(device, non_blocking=True)
+                org_mask = org_mask.to(device, non_blocking=True)
 
-                if x.ndim != 5:
-                    raise ValueError(f"Expected (B,C,D,H,W) from dataloader, got {tuple(x.shape)}")
+                if x.ndim != 5 or org_mask.ndim != 5:
+                    raise ValueError(f"Expected (B,C,D,H,W) from dataloader, got {tuple(x.shape)} (x) and "
+                                     f"{tuple(org_mask.shape)} (org_mask).")
 
                 if training:
                     optimizer.zero_grad(set_to_none=True)
 
                 with torch.set_grad_enabled(training):
-                    out = model(x)
+                    # use org_mask as tgt_mask in training (so that SPADE is not contradicting the reconstruction score)
+                    out = model(x, org_mask, org_mask)
                     losses = model.loss(out)
                     loss = losses["total"]
 
@@ -637,6 +726,8 @@ class ConvNeXtVAE3D(nn.Module):
     def generate_synth_sample(
         self,
         sample: Union[np.ndarray, torch.Tensor],
+        original_mask: Union[np.ndarray, torch.Tensor],
+        target_mask: Optional[Union[np.ndarray, torch.Tensor]] = None,  # use target mask if you want spatial variation
         *,
         n: int = 1,
         s: float = 0.8,
@@ -658,7 +749,7 @@ class ConvNeXtVAE3D(nn.Module):
 
         Inputs
         ------
-        sample:
+        sample, original_mask, target_mask:
             Either (C,D,H,W) or (B,C,D,H,W).
 
         Outputs
@@ -668,6 +759,7 @@ class ConvNeXtVAE3D(nn.Module):
         If input is (B,C,D,H,W):
             returns (B,n,C,D,H,W)
         """
+
         if n <= 0:
             raise ValueError(f"n must be > 0, got {n}")
         if s < 0:
@@ -677,15 +769,25 @@ class ConvNeXtVAE3D(nn.Module):
         model = self.to(device)
         model.eval()
 
-        if not isinstance(sample, torch.Tensor):
-            x = torch.as_tensor(sample)
+        x = torch.as_tensor(sample).float()
+        org_mask = torch.as_tensor(original_mask).float()
+        if target_mask is None:
+            tgt_mask = org_mask
         else:
-            x = sample
+            tgt_mask = torch.as_tensor(target_mask).float()
 
-        x = x.float()
         single = False
+
+        if x.ndim != org_mask.ndim or x.ndim != tgt_mask.ndim:
+            raise ValueError(f"Image and masks must have the same number of dimensions. "
+                             f"x.ndim: {x.ndim}, "
+                             f"org_mask.ndim: {org_mask.ndim}, "
+                             f"tgt_mask.ndim: {tgt_mask.ndim}")
+
         if x.ndim == 4:
             x = x.unsqueeze(0)  # (1,C,D,H,W)
+            org_mask = org_mask.unsqueeze(0)
+            tgt_mask = tgt_mask.unsqueeze(0)
             single = True
         elif x.ndim == 5:
             pass
@@ -695,16 +797,19 @@ class ConvNeXtVAE3D(nn.Module):
         if clamp_01:
             x = x.clamp(0.0, 1.0)
 
-        x = x.to(device)
+        x, org_mask, tgt_mask = x.to(device), org_mask.to(device), tgt_mask.to(device)
 
         with torch.no_grad():
             # --- same preprocessing as forward() ---
             ref_dhw = tuple(x.shape[-3:])
             multiple = 2 ** self.cfg.n_levels
             x_pad, pad = _pad_to_multiple_3d(x, multiple)
+            org_mask_pad, _ = _pad_to_multiple_3d(org_mask, multiple)
+            tgt_mask_pad, _ = _pad_to_multiple_3d(tgt_mask, multiple)
 
+            enc_in = torch.cat([x_pad, org_mask_pad], dim=1)
             # Encode once
-            h, skips = model.encoder(x_pad)
+            h, skips = model.encoder(enc_in)
             latent_dhw = tuple(h.shape[-3:])
             model._ensure_fcs(latent_dhw, device)
 
@@ -731,7 +836,9 @@ class ConvNeXtVAE3D(nn.Module):
                 rep_skips.append(sk.repeat_interleave(n, dim=0))
             model.decoder.set_skips(rep_skips)
 
-            recon = model.decoder(h_dec)
+            # need tgt_mask n times for for n reconstructions
+            tgt_mask_pad_rep = tgt_mask_pad.repeat_interleave(n, dim=0)
+            recon = model.decoder(h_dec, tgt_mask_pad_rep)  # decoder gets tgt_mask
             recon = _crop_like_3d(recon, ref_dhw)
 
             if clamp_01:
@@ -742,7 +849,6 @@ class ConvNeXtVAE3D(nn.Module):
 
             if single:
                 recon = recon.squeeze(0)  # (n,C,D,H,W)
-                recon = recon.squeeze(0)
 
         if return_torch:
             return recon
@@ -779,7 +885,8 @@ class ConvNeXtVAE3D(nn.Module):
 
         with torch.no_grad():
             x = torch.zeros((1, C, D, H, W), device=device, dtype=dtype)
-            _ = self(x)
+            mask = torch.zeros((1, self.cfg.mask_channels, D, H, W), device=device, dtype=dtype)
+            _ = self(x, mask)
 
         if was_training:
             self.train()
@@ -788,94 +895,109 @@ class ConvNeXtVAE3D(nn.Module):
     
     def generate_synth_sample_prior(
         self,
+        target_mask: Union[np.ndarray, torch.Tensor],
         *,
-        out_dhw: tuple[int, int, int] | None = None,
-        s: float = 0.5,
-        device: str | torch.device = "cuda" if torch.cuda.is_available() else "cpu",
+        s: float = 1.0,
+        device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
         return_torch: bool = False,
-    ) -> np.ndarray | torch.Tensor:
+    ) -> Union[np.ndarray, torch.Tensor]:
         """
-        Generate ONE synthetic 3D sample via *prior sampling* (no input sample required).
+        Generate synthetic 3D samples via *prior sampling* conditioned on a target mask.
+        (No input image required).
 
         Samples:
-            z ~ N(0, I)  (scaled by s), then decode to 3D volume space.
+            z ~ N(0, I) (scaled by s), then decode to 3D volume space conditioned on target_mask.
 
         Parameters:
-        - out_dhw: output (D, H, W). If None, tries cfg.sample_dhw or cfg.image_dhw, else defaults to (64, 64, 64).
-        - s: prior temperature / diversity strength (1.0 is standard; <1.0 more conservative; >1.0 more diverse).
+        - target_mask: (C_mask, D, H, W) or (B, C_mask, D, H, W). Defines the classes and output spatial size.
+        - s: prior temperature / diversity strength (1.0 is standard; <1.0 more conservative).
         - clamp_01: clamp outputs to [0,1].
         - return_torch: return torch.Tensor instead of np.ndarray.
 
         Output:
-        - (C, D, H, W)
+        - (C, D, H, W) if input was 4D
+        - (B, C, D, H, W) if input was 5D
         """
         if s < 0:
             raise ValueError(f"s must be >= 0, got {s}")
-
-        # pick output size
-        if out_dhw is None:
-            out_dhw = getattr(self.cfg, "sample_dhw", None) or getattr(self.cfg, "image_dhw", None) or (64, 64, 64)
-        if not (isinstance(out_dhw, (tuple, list)) and len(out_dhw) == 3):
-            raise ValueError(f"out_dhw must be (D, H, W), got {out_dhw}")
-        
-        D, H, W = int(out_dhw[0]), int(out_dhw[1]), int(out_dhw[2])
-        if D <= 0 or H <= 0 or W <= 0:
-            raise ValueError(f"out_dhw must be positive, got {out_dhw}")
 
         device = torch.device(device)
         model = self.to(device)
         model.eval()
 
-        # Ensure decoder doesn't expect encoder skips (we have none for pure prior sampling)
-        try:
-            model.decoder.set_skips(None)
-        except Exception:
+        tgt_mask = torch.as_tensor(target_mask).float()
+        single = False
+
+        if tgt_mask.ndim == 4:
+            tgt_mask = tgt_mask.unsqueeze(0)  # (1, C_mask, D, H, W)
+            single = True
+        elif tgt_mask.ndim == 5:
             pass
+        else:
+            raise ValueError(f"Expected target_mask (C,D,H,W) or (B,C,D,H,W), got {tuple(tgt_mask.shape)}")
 
-        # Compute latent spatial size (assuming 2x downsample per level)
-        down = 2 ** int(self.cfg.n_levels)
-
-        # Pad to be divisible by down (so latent grid is integer)
-        pad_d = (down - (D % down)) % down
-        pad_h = (down - (H % down)) % down
-        pad_w = (down - (W % down)) % down
-        
-        D_pad, H_pad, W_pad = D + pad_d, H + pad_h, W + pad_w
-        latent_dhw = (D_pad // down, H_pad // down, W_pad // down)
-
-        # Determine latent vector dim for fc_decode (matches your fc_mu/fc_logvar output)
-        z_dim = int(getattr(self.cfg, "bottleneck_dim", 256))
+        tgt_mask = tgt_mask.to(device)
 
         with torch.no_grad():
+            ref_dhw = tuple(tgt_mask.shape[-3:])
+            multiple = 2 ** self.cfg.n_levels
+            
+            # Pad the target mask so spatial dims are divisible by the downsampling factor
+            tgt_mask_pad, pad = _pad_to_multiple_3d(tgt_mask, multiple)
+
+            # Calculate latent dimensions based on the padded mask
+            latent_dhw = (
+                tgt_mask_pad.shape[2] // multiple,
+                tgt_mask_pad.shape[3] // multiple,
+                tgt_mask_pad.shape[4] // multiple
+            )
+            
             model._ensure_fcs(latent_dhw, device)
+
+            B = tgt_mask.shape[0]
+            z_dim = int(getattr(self.cfg, "bottleneck_dim", 256))
 
             # Prior sampling: z ~ N(0, I)
             if s == 0.0:
-                z = torch.zeros((1, z_dim), device=device)
+                z = torch.zeros((B, z_dim), device=device)
             else:
-                z = torch.randn((1, z_dim), device=device) * float(s)
+                z = torch.randn((B, z_dim), device=device) * float(s)
 
-            # Map z -> decoder feature map and decode
-            h_dec = model.fc_decode(z).reshape(1, int(self.cfg.z_channels), *latent_dhw)
-            recon = model.decoder(h_dec)  # (1, C, D_pad, H_pad, W_pad) typically
+            # Map z -> decoder feature map
+            h_dec = model.fc_decode(z).reshape(B, int(self.cfg.z_channels), *latent_dhw)
 
-            # Crop back to requested size and drop batch dim
-            recon = recon[..., :D, :H, :W].squeeze(0)
+            # Ensure decoder doesn't expect encoder skips (we have none for pure prior sampling)
+            try:
+                model.decoder.set_skips(None)
+            except Exception:
+                pass
+
+            # Decode conditioned on the target mask
+            recon = model.decoder(h_dec, tgt_mask_pad)
+            
+            # Crop back to exact requested size
+            recon = _crop_like_3d(recon, ref_dhw)
 
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)
+
+            # Squeeze batch dimension if input lacked it
+            if single:
+                recon = recon.squeeze(0)
 
         if return_torch:
             return recon
 
         return recon.detach().cpu().numpy().astype(np.float32, copy=False)
 
-
 if __name__ == "__main__":
     # Quick sanity check
-    cfg = Config(n_res_blocks=2, n_levels=4, z_channels=64, bottleneck_dim=64)
-    model = ConvNeXtVAE3D(in_channels=1, cfg=cfg)
+    cfg = Config(in_channels=1, mask_channels=4, n_res_blocks=2, n_levels=4, z_channels=64, bottleneck_dim=64)  # 4 classes one-hot encoded
+    model = ConvNeXtSPADEVAE3D(cfg=cfg)
+    
     x = torch.randn(1, 1, 64, 64, 64)
-    out = model(x)
+    mask = torch.zeros(1, cfg.mask_channels, 64, 64, 64)
+    
+    out = model(x, mask)
     print({k: tuple(v.shape) for k, v in out.items()})
