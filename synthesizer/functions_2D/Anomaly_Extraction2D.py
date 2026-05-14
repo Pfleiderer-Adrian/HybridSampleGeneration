@@ -304,6 +304,8 @@ def crop_and_center_anomaly_2d(
         raise ValueError(f"img must be 3D (C,H,W). Got {img.shape}")
     if seg.ndim != 3:
         raise ValueError(f"seg must be 3D (C,H,W). Got {seg.shape}")
+    if img.shape != seg.shape:
+        raise ValueError(f"img and seg must have same shape. Got img={img.shape}, seg={seg.shape}")
 
     C, H, W = img.shape
     shape = img.shape
@@ -373,7 +375,6 @@ def crop_and_center_anomaly_2d(
             size_spatial = config.fixed_roi_size
         
         anomalies_roi.append(crop_square_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False))
-
         anomalies.append((padded_arr, meta_data))
 
         if config.multiclass:

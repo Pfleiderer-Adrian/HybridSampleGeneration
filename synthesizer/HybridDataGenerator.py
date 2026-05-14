@@ -21,6 +21,7 @@ from synthesizer.functions_3D.Fusion3D import fusion3d
 from synthesizer.Matching import center_foreground_com, combine_binary_masks, create_matching_dictionary, crop_border, ssim_01, template_matching
 from synthesizer.Trainer import optimize
 from synthesizer.Evaluation import evaluation_pipeline
+from synthesizer.mask_augmentation import augment_mask
 from data_handler.Visualizer import run_outlier_gui
 
 
@@ -135,7 +136,7 @@ class HybridDataGenerator:
                 continue
 
             if img.ndim == 3:
-                anomalies, anomalies_roi, org_masks = crop_and_center_anomaly_2d(   # TODO: return org_masks if multiclass sonst none
+                anomalies, anomalies_roi, org_masks = crop_and_center_anomaly_2d(
                     img,
                     seg,
                     self._config,
@@ -144,7 +145,7 @@ class HybridDataGenerator:
                     normalization_eps=self._config.normalization_eps,
                 )
             elif img.ndim == 4:
-                anomalies, anomalies_roi, org_masks = crop_and_center_anomaly_3d(   # TODO: return org_masks if multiclass sonst none
+                anomalies, anomalies_roi, org_masks = crop_and_center_anomaly_3d(
                     img,
                     seg,
                     self._config,
@@ -154,12 +155,12 @@ class HybridDataGenerator:
                 )
             else:
                 raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
-
-
-            if self._config.multiclass:
-                # TODO: hier tgt Masken erstellen. Funktion aufrufen (auf jede maske in org_masks einzeln?)
-                tgt_masks = None
-                continue
+            
+            tgt_masks = []
+            if self._config.multiclass and org_masks is not None:
+                for org_mask in org_masks:
+                    tgt_mask = augment_mask(org_mask)
+                    tgt_masks.append(tgt_mask)
 
             i = 0
             # save anomaly cutout for training
@@ -175,12 +176,12 @@ class HybridDataGenerator:
             i = 0    
             # save org mask for Encoder input (and Decoder in training)
             for org_mask in org_masks:
-                save_numpy_as_npy(org_mask, save_folder_org_mask, basename+"_"+str(i)+".npy", overwrite=True)
+                save_numpy_as_npy(org_mask, os.path.join(save_folder_org_mask, basename+"_"+str(i)+".npy"), overwrite=True)
                 i = i + 1
             i = 0
             # save tgt mask for Decoder (only for inception)
             for tgt_mask in tgt_masks:
-                save_numpy_as_npy(tgt_mask, save_folder_tgt_mask, basename+"_"+str(i)+".npy", overwrite=True)
+                save_numpy_as_npy(tgt_mask, os.path.join(save_folder_tgt_mask, basename+"_"+str(i)+".npy"), overwrite=True)
         self._config.save_anomaly_transformations()
         self.load_anomalies(anomaly_folder=save_folder) 
 
