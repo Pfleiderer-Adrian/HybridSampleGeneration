@@ -21,6 +21,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
+from synthesizer.mask_augmentation import to_one_hot
+
 
 # -------------------------
 # helpers: padding/cropping
@@ -483,10 +485,10 @@ class Config:
     # 1.0 disables gating (default). Typical values for encouraging latent usage: 0.2 - 0.6
     skip_alpha: float = 1.0
 
-class ConvNeXtSPADEVAE3D(nn.Module):
+class ConvNeXtVAE3D_multiclass(nn.Module):
     """3D ConvNeXt-U-Net VAE with SPADE."""
 
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, mask_channels: int):
         super().__init__()
         self.cfg = cfg
         self.in_channels = cfg.in_channels
@@ -546,6 +548,8 @@ class ConvNeXtSPADEVAE3D(nn.Module):
         """Forward pass through encoder (x and org_mask) -> bottleneck -> decoder with SPADE using tgt_mask."""
         if tgt_mask is None:
             tgt_mask = org_mask
+        org_mask = to_one_hot(org_mask, self.cfg.mask_channels)
+        tgt_mask = to_one_hot(tgt_mask, self.cfg.mask_channels)
         if x.ndim != 5 or org_mask.ndim != 5 or tgt_mask.ndim != 5:
             raise ValueError(f"Expected (B,C,D,H,W), got {tuple(x.shape)}")
         if x.shape[1] != self.in_channels:
@@ -680,7 +684,7 @@ class ConvNeXtSPADEVAE3D(nn.Module):
                 x = x.to(device, non_blocking=True)
                 org_mask = org_mask.to(device, non_blocking=True)
 
-                if x.ndim != 5 or org_mask.ndim != 5:
+                if x.ndim != 5 or org_mask.ndim not in [4, 5]:
                     raise ValueError(f"Expected (B,C,D,H,W) from dataloader, got {tuple(x.shape)} (x) and "
                                      f"{tuple(org_mask.shape)} (org_mask).")
 
@@ -770,34 +774,30 @@ class ConvNeXtSPADEVAE3D(nn.Module):
         model.eval()
 
         x = torch.as_tensor(sample).float()
-        org_mask = torch.as_tensor(original_mask).float()
+        
+        # --- WICHTIG: KEIN .float() mehr für die Masken! ---
+        org_mask = torch.as_tensor(original_mask)
         if target_mask is None:
             tgt_mask = org_mask
         else:
-            tgt_mask = torch.as_tensor(target_mask).float()
+            tgt_mask = torch.as_tensor(target_mask)
 
         single = False
 
-        if x.ndim != org_mask.ndim or x.ndim != tgt_mask.ndim:
-            raise ValueError(f"Image and masks must have the same number of dimensions. "
-                             f"x.ndim: {x.ndim}, "
-                             f"org_mask.ndim: {org_mask.ndim}, "
-                             f"tgt_mask.ndim: {tgt_mask.ndim}")
-
         if x.ndim == 4:
             x = x.unsqueeze(0)  # (1,C,D,H,W)
-            org_mask = org_mask.unsqueeze(0)
-            tgt_mask = tgt_mask.unsqueeze(0)
             single = True
-        elif x.ndim == 5:
-            pass
-        else:
+        elif x.ndim != 5:
             raise ValueError(f"Expected (C,D,H,W) or (B,C,D,H,W), got {tuple(x.shape)}")
 
         if clamp_01:
             x = x.clamp(0.0, 1.0)
 
-        x, org_mask, tgt_mask = x.to(device), org_mask.to(device), tgt_mask.to(device)
+        x = x.to(device)
+        
+        # to device and then one-hot
+        org_mask = to_one_hot(org_mask.to(device), self.cfg.mask_channels)
+        tgt_mask = to_one_hot(tgt_mask.to(device), self.cfg.mask_channels)
 
         with torch.no_grad():
             # --- same preprocessing as forward() ---
@@ -885,22 +885,21 @@ class ConvNeXtSPADEVAE3D(nn.Module):
 
         with torch.no_grad():
             x = torch.zeros((1, C, D, H, W), device=device, dtype=dtype)
-            mask = torch.zeros((1, self.cfg.mask_channels, D, H, W), device=device, dtype=dtype)
+            mask = torch.zeros((1, D, H, W), device=device, dtype=torch.long)
             _ = self(x, mask)
 
         if was_training:
             self.train()
 
         return self
-
-
+    
 if __name__ == "__main__":
     # Quick sanity check
     cfg = Config(in_channels=1, mask_channels=4, n_res_blocks=2, n_levels=4, z_channels=64, bottleneck_dim=64)  # 4 classes one-hot encoded
-    model = ConvNeXtSPADEVAE3D(cfg=cfg)
+    model = ConvNeXtVAE3D_multiclass(cfg=cfg)
     
     x = torch.randn(1, 1, 64, 64, 64)
-    mask = torch.zeros(1, cfg.mask_channels, 64, 64, 64)
+    mask = torch.zeros(1, 64, 64, 64, dtype=torch.long)
     
     out = model(x, mask)
     print({k: tuple(v.shape) for k, v in out.items()})
