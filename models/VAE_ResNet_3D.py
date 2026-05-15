@@ -954,5 +954,5 @@ class ResNetVAE3D(nn.Module):
 
 if __name__ == "__main__":
     # debug
-    cfg = Config(n_res_blocks=4, n_levels=4, z_channels=128, bottleneck_dim=128)
-    model = ResNetVAE3D(in_channels=1, cfg=cfg)
+    cfg = Config(in_channels=1, n_res_blocks=4, n_levels=4, z_channels=128, bottleneck_dim=128)
+    model = ResNetVAE3D(cfg=cfg)

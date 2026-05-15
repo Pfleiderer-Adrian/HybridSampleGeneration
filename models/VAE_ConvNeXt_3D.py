@@ -789,8 +789,8 @@ class ConvNeXtVAE3D(nn.Module):
 
 if __name__ == "__main__":
     # Quick sanity check
-    cfg = Config(n_res_blocks=2, n_levels=4, z_channels=64, bottleneck_dim=64)
-    model = ConvNeXtVAE3D(in_channels=1, cfg=cfg)
+    cfg = Config(in_channels=1, n_res_blocks=2, n_levels=4, z_channels=64, bottleneck_dim=64)
+    model = ConvNeXtVAE3D(cfg=cfg)
     x = torch.randn(1, 1, 64, 64, 64)
     out = model(x)
     print({k: tuple(v.shape) for k, v in out.items()})

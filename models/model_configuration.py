@@ -1,11 +1,5 @@
 from dataclasses import asdict
-<<<<<<< HEAD
-
-from models import VAE_ConvNeXt_2D, VAE_ConvNeXt_3D, VAE_ResNet_2D, VAE_ResNet_3D
-=======
-from xml.parsers.expat import model
 from models import VAE_ConvNeXt_2D, VAE_ConvNeXt_3D, VAE_ConvNeXt_3D_multiclass, VAE_ResNet_2D, VAE_ResNet_3D
->>>>>>> d8210f7 (rework mask_channels parameter and bug fixes)
 
 
 MODEL_CONFIG_CLASSES = {
@@ -229,10 +223,7 @@ def get_model_configuration(model_name, in_channels, debug=False):
         if model_params is None:
             raise ValueError(f"Unknown model: {model_name}. Supported models: {list(MODEL_CONFIG_CLASSES)}")
 
-<<<<<<< HEAD
         if debug:
             model_params = {"min": model_params["max"].copy(), "max": model_params["max"].copy()}
 
-=======
->>>>>>> d8210f7 (rework mask_channels parameter and bug fixes)
         return model_params
