@@ -220,23 +220,22 @@ class HybridDataGenerator:
                 org_mask_folder = os.path.join(self._config.study_folder, "org_masks")
             if tgt_mask_folder is None:
                 tgt_mask_folder = os.path.join(self._config.study_folder, "tgt_masks")
-            # calc num_classes if necessary    
-            if self._config.num_classes is None:
+            # calc mask_channels if necessary    
+            if self._config.mask_channels is None:
                 mask_dir = Path(org_mask_folder)
                 max_class_val = 0
-                # classes must be integers 0,1,2,...,num_classes-1 (with background class 0)
+                # classes must be integers 0,1,2,...,mask_channels (with background class 0)
                 for mask_path in mask_dir.glob("*.npy"):
                     mask = np.load(mask_path, allow_pickle=False, mmap_mode='r')
                     max_val_in_file = np.max(mask)
                     if max_val_in_file > max_class_val:
                         max_class_val = max_val_in_file
-                self._config.num_classes = int(max_class_val) + 1
+                self._config.mask_channels = int(max_class_val)
 
             self._anomaly_dataset = AnomalyDataset(
                 anomaly_folder,
                 org_mask_folder,
                 tgt_mask_folder,
-                num_classes=self._config.num_classes,
                 return_filename=True,
                 load_to_ram=True,
                 dtype=torch.float32,

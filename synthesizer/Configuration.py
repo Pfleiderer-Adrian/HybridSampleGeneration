@@ -87,7 +87,7 @@ class Configuration:
         self.add_bg_noise = True
 
         self.multiclass = "multiclass" in self.model_name
-        self.num_classes = None # number of classes including class 0
+        self.mask_channels = None # number of anomaly classes (background class not encluded)
 
         # synthesizer parameter
         self.prior_sampling = False

@@ -6,7 +6,6 @@ from typing import Callable, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch.utils.data import Dataset
 
 
@@ -64,7 +63,7 @@ def save_numpy_as_npy(
 
 class AnomalyDataset(Dataset):
     """
-    PyTorch Dataset that loads 3D samples stored as `.npy` files from a folder.
+    PyTorch Dataset that loads 2D or 3D samples stored as `.npy` files from a folder.
 
     Key behavior:
     - The dataset is populated *only* from a folder (no manual add_sample/add_path).
@@ -83,7 +82,6 @@ class AnomalyDataset(Dataset):
         org_mask_folder: Optional[Union[str, os.PathLike]] = None,
         tgt_mask_folder: Optional[Union[str, os.PathLike]] = None,
         *,
-        num_classes: Optional[int] = None,
         return_filename: bool = True,
         dtype: torch.dtype = torch.float32,
         transform: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
@@ -351,13 +349,12 @@ class AnomalyDataset(Dataset):
         if self.transform is not None:
             x = self.transform(x)
 
-        # --- FALL: Legacy / Keine Masken ---
-        if self.org_mask_folder is None:
+        if self.org_mask_folder is None:    # no multiclass
             if self.return_filename:
                 return x, fname
             return x
 
-        # --- 2. Masken laden (Entweder aus RAM oder von Festplatte) ---
+        # multiclass -> loads masks
         if self._ram_org_masks is not None:
             org_mask_np = self._ram_org_masks[idx]
             tgt_mask_np = self._ram_tgt_masks[idx]
@@ -371,39 +368,18 @@ class AnomalyDataset(Dataset):
                 tgt_mask_path = os.path.join(self.tgt_mask_folder, fname)
                 tgt_mask_np = np.load(tgt_mask_path, allow_pickle=False, mmap_mode=self.mmap_mode)
 
-        # --- 3. One-Hot Verarbeitung ---
         org_mask_tensor = self._to_tensor(org_mask_np)
         tgt_mask_tensor = self._to_tensor(tgt_mask_np)
 
-        if self.num_classes is not None and self.num_classes > 1:
+        # remove channel dim for masks
+        org_mask_tensor = org_mask_tensor.long()
+        if org_mask_tensor.shape[0] == 1:
+            org_mask_tensor = org_mask_tensor.squeeze(0)
             
-            # --- ORG MASK CHECK & SQUEEZE ---
-            org_mask_tensor = org_mask_tensor.long()
-            if org_mask_tensor.ndim == 4:
-                if org_mask_tensor.shape[0] != 1:
-                    raise ValueError(f"Ungültige org_mask Shape! Bei 4D muss Kanal 0 exakt 1 sein. Bekommen: {org_mask_tensor.shape}")
-                org_mask_tensor = org_mask_tensor.squeeze(0)
-            elif org_mask_tensor.ndim != 3:
-                raise ValueError(f"org_mask muss 3D (D,H,W) oder 4D (1,D,H,W) sein. Bekommen: {org_mask_tensor.shape}")
+        tgt_mask_tensor = tgt_mask_tensor.long()
+        if tgt_mask_tensor.shape[0] == 1:
+            tgt_mask_tensor = tgt_mask_tensor.squeeze(0)
 
-            org_mask_tensor = F.one_hot(org_mask_tensor, num_classes=self.num_classes)
-            org_mask_tensor = org_mask_tensor[..., 1:] 
-            org_mask_tensor = org_mask_tensor.permute(3, 0, 1, 2).float()
-
-            # --- TGT MASK CHECK & SQUEEZE ---
-            tgt_mask_tensor = tgt_mask_tensor.long()
-            if tgt_mask_tensor.ndim == 4:
-                if tgt_mask_tensor.shape[0] != 1:
-                    raise ValueError(f"Ungültige tgt_mask Shape! Bei 4D muss Kanal 0 exakt 1 sein. Bekommen: {tgt_mask_tensor.shape}")
-                tgt_mask_tensor = tgt_mask_tensor.squeeze(0)
-            elif tgt_mask_tensor.ndim != 3:
-                raise ValueError(f"tgt_mask muss 3D (D,H,W) oder 4D (1,D,H,W) sein. Bekommen: {tgt_mask_tensor.shape}")
-
-            tgt_mask_tensor = F.one_hot(tgt_mask_tensor, num_classes=self.num_classes)
-            tgt_mask_tensor = tgt_mask_tensor[..., 1:] 
-            tgt_mask_tensor = tgt_mask_tensor.permute(3, 0, 1, 2).float()
-
-        # Numpy-Fallback falls für Feedback benötigt
         if self.numpy_mode:
             org_mask_out = org_mask_tensor.numpy()
             tgt_mask_out = tgt_mask_tensor.numpy()
@@ -411,7 +387,6 @@ class AnomalyDataset(Dataset):
             org_mask_out = org_mask_tensor
             tgt_mask_out = tgt_mask_tensor
 
-        # --- 4. Synthese-Ready Return ---
         if self.return_filename:
             return x, org_mask_out, tgt_mask_out, fname
             
