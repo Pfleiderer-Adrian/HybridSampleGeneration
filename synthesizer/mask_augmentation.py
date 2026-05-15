@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-import torch.functional as F
+import torch.nn.functional as F
 
 def augment_mask(mask: np.ndarray):
     return mask

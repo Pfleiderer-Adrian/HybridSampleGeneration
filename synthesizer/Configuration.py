@@ -11,7 +11,7 @@ import jsonpickle
 from models.model_configuration import get_model_configuration
 
 # Allowed model choices (fixed set)
-ALLOWED_MODELS = ["VAE_ResNet_3D", "VAE_ResNet_2D", "VAE_ConvNeXt_3D", "VAE_ConvNeXt_2D"]
+ALLOWED_MODELS = ["VAE_ResNet_3D", "VAE_ResNet_2D", "VAE_ConvNeXt_3D", "VAE_ConvNeXt_3D_multiclass", "VAE_ConvNeXt_2D"]
 
 # creates a new interactive config object/file for the data generator
 class Configuration:
@@ -269,6 +269,17 @@ class Configuration:
         if isinstance(config, Mapping):
             return dict(config)
         raise TypeError("Model config must be a dataclass instance or mapping.")
+
+    def sync_model_mask_channels(self):
+        """
+        Copy the mask channel count (number of anomaly classes) into the model search space.
+        """
+        if not self.multiclass:
+            return
+        if self.mask_channels is None:
+            raise ValueError("mask_channels must be set before creating a multiclass model.")
+        for bounds in ("min", "max"):
+            self.model_params[bounds]["mask_channels"] = int(self.mask_channels)
 
     # save config as JSON
     def save_config_file(self, json_path=None, overwrite=False):

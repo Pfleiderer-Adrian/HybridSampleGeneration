@@ -201,7 +201,7 @@ def objective(trial: Trial, config: Configuration, dataset):
 
 
     # 2. Create the model with chosen hyperparameters
-    model = model_loader(config.model_name, params, config)
+    model = model_loader(config.model_name, params)
 
     n_val = int(len(dataset) * config.val_ratio)
     n_train = len(dataset) - n_val

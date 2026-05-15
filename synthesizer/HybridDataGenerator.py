@@ -231,6 +231,7 @@ class HybridDataGenerator:
                     if max_val_in_file > max_class_val:
                         max_class_val = max_val_in_file
                 self._config.mask_channels = int(max_class_val)
+            self._config.sync_model_mask_channels()
 
             self._anomaly_dataset = AnomalyDataset(
                 anomaly_folder,

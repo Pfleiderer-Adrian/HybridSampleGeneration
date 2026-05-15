@@ -1,6 +1,11 @@
 from dataclasses import asdict
+<<<<<<< HEAD
 
 from models import VAE_ConvNeXt_2D, VAE_ConvNeXt_3D, VAE_ResNet_2D, VAE_ResNet_3D
+=======
+from xml.parsers.expat import model
+from models import VAE_ConvNeXt_2D, VAE_ConvNeXt_3D, VAE_ConvNeXt_3D_multiclass, VAE_ResNet_2D, VAE_ResNet_3D
+>>>>>>> d8210f7 (rework mask_channels parameter and bug fixes)
 
 
 MODEL_CONFIG_CLASSES = {
@@ -80,6 +85,51 @@ def get_model_configuration(model_name, in_channels, debug=False):
                 use_multires_skips = True,
                 recon_weight = 1.0,
                 beta_kl = 4.0,
+                beta_kl_start=0.0,
+                beta_kl_max=7.0,
+                beta_kl_warmup_start=0,
+                beta_kl_warmup_epochs=100,
+                fg_weight=2.0,
+                fg_threshold=0.0,
+                skip_dropout_p=0.6,
+                skip_alpha=0.2,
+                recon_loss="mse",
+                use_transpose_conv=False))
+            model_params = {"min": _VAE3D_min_params, "max": _VAE3D_max_params}
+
+        if model_name == "VAE_ConvNeXt_3D_multiclass":
+            _VAE3D_min_params = asdict(VAE_ConvNeXt_3D_multiclass.Config(
+                in_channels=in_channels,
+                mask_channels=None,
+                n_res_blocks=5,
+                n_spade_blocks=2,
+                n_levels=5,
+                z_channels=128,
+                bottleneck_dim=256,
+                use_multires_skips=True,
+                recon_weight=1.0,
+                beta_kl=4.0,
+                beta_kl_start=0.0,
+                beta_kl_max=7.0,
+                beta_kl_warmup_start=0,
+                beta_kl_warmup_epochs=100,
+                fg_weight=1.0,
+                fg_threshold=0.0,
+                recon_loss="mse",
+                skip_dropout_p=0.6,
+                skip_alpha=0.2,
+                use_transpose_conv=False))
+            _VAE3D_max_params = asdict(VAE_ConvNeXt_3D_multiclass.Config(
+                in_channels=in_channels,
+                mask_channels=None,
+                n_res_blocks=6,
+                n_spade_blocks=2,
+                n_levels=6,
+                z_channels=128,
+                bottleneck_dim=256,
+                use_multires_skips=True,
+                recon_weight=1.0,
+                beta_kl=4.0,
                 beta_kl_start=0.0,
                 beta_kl_max=7.0,
                 beta_kl_warmup_start=0,
@@ -179,7 +229,10 @@ def get_model_configuration(model_name, in_channels, debug=False):
         if model_params is None:
             raise ValueError(f"Unknown model: {model_name}. Supported models: {list(MODEL_CONFIG_CLASSES)}")
 
+<<<<<<< HEAD
         if debug:
             model_params = {"min": model_params["max"].copy(), "max": model_params["max"].copy()}
 
+=======
+>>>>>>> d8210f7 (rework mask_channels parameter and bug fixes)
         return model_params

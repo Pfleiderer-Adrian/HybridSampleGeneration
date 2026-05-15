@@ -488,8 +488,10 @@ class Config:
 class ConvNeXtVAE3D_multiclass(nn.Module):
     """3D ConvNeXt-U-Net VAE with SPADE."""
 
-    def __init__(self, cfg: Config, mask_channels: int):
+    def __init__(self, cfg: Config):
         super().__init__()
+        if cfg.mask_channels is None:
+            raise ValueError("Config.mask_channels must be set for ConvNeXtVAE3D_multiclass.")
         self.cfg = cfg
         self.in_channels = cfg.in_channels
 

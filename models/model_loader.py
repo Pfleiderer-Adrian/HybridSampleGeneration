@@ -4,12 +4,11 @@ from models.VAE_ConvNeXt_3D_multiclass import ConvNeXtVAE3D_multiclass, Config a
 from models.VAE_ResNet_2D import ResNetVAE2D, Config as ResNetVAE2D_Config
 from models.VAE_ResNet_3D import ResNetVAE3D, Config as ResNetVAE3D_Config
 
-def model_loader(model_name, params, config):
+def model_loader(model_name, params):
+    params = dict(params)
     model = None
-    if config.multiclass:
-        params["mask_channels"] = config.mask_channels
-        if model_name == "VAE_ConvNeXt_3D_multiclass":
-            model = ConvNeXtVAE3D_multiclass(ConvNeXtVAE3D_multiclass_Config(**params))
+    if model_name == "VAE_ConvNeXt_3D_multiclass":
+        model = ConvNeXtVAE3D_multiclass(ConvNeXtVAE3D_multiclass_Config(**params))
     elif model_name == "VAE_ResNet_3D":
         model = ResNetVAE3D(ResNetVAE3D_Config(**params))
     elif model_name == "VAE_ResNet_2D":
