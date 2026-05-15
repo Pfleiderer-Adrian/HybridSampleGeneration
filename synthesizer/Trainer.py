@@ -2,13 +2,117 @@ import os
 import optuna
 import torch
 from optuna import Trial
-from torch.utils.data import random_split, DataLoader
+from torch.utils.data import random_split, DataLoader, Dataset
 from tqdm import tqdm
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from early_stopping_pytorch import EarlyStopping
 
 from models.model_loader import model_loader
 from synthesizer.Configuration import Configuration
+
+
+class _TrainingTransformDataset(Dataset):
+    """
+    Lightweight wrapper that applies a transform only for model training.
+
+    The underlying anomaly dataset is also reused later for synthetic anomaly
+    generation, so the persisted samples themselves must remain unmodified.
+    """
+
+    def __init__(self, dataset, transform):
+        self.dataset = dataset
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        item = self.dataset[idx]
+        if isinstance(item, tuple) and item:
+            return (self.transform(item[0]), *item[1:])
+        if isinstance(item, list) and item:
+            return [self.transform(item[0]), *item[1:]]
+        if isinstance(item, dict):
+            item = dict(item)
+            for key in ("x", "image", "inputs"):
+                if key in item:
+                    item[key] = self.transform(item[key])
+                    return item
+            return item
+        return self.transform(item)
+
+
+class _RandomSpatialOffset:
+    """
+    Randomly translate an anomaly inside its fixed canvas without cropping it.
+
+    The foreground bbox is estimated from the current tensor, then the allowed
+    shift range is restricted so the foreground remains fully inside the canvas.
+    This replaces the former extraction-time offset while keeping saved cutouts
+    centered for generation and fusion.
+    """
+
+    def __init__(
+        self,
+        *,
+        max_fraction: float = 1.0,
+        foreground_threshold_rel: float = 0.001,
+    ) -> None:
+        self.max_fraction = max(0.0, min(float(max_fraction), 1.0))
+        self.foreground_threshold_rel = max(float(foreground_threshold_rel), 0.0)
+
+    def __call__(self, x):
+        if not isinstance(x, torch.Tensor):
+            x = torch.as_tensor(x)
+
+        if x.ndim not in (3, 4):
+            return x
+
+        x_min = torch.amin(x)
+        x_max = torch.amax(x)
+        dynamic_range = x_max - x_min
+        if not bool(torch.isfinite(dynamic_range)) or float(dynamic_range) <= 0.0:
+            return x
+
+        threshold = x_min + dynamic_range * self.foreground_threshold_rel
+        foreground = torch.any(x > threshold, dim=0)
+        if not bool(torch.any(foreground)):
+            return x
+
+        coords = torch.nonzero(foreground, as_tuple=False)
+        spatial_min = coords.min(dim=0).values.tolist()
+        spatial_max = coords.max(dim=0).values.tolist()
+
+        shifts: list[int] = []
+        for axis, size in enumerate(x.shape[1:]):
+            min_shift = -int(spatial_min[axis])
+            max_shift = int(size - 1 - spatial_max[axis])
+            min_shift = int(round(min_shift * self.max_fraction))
+            max_shift = int(round(max_shift * self.max_fraction))
+
+            if min_shift == max_shift:
+                shifts.append(min_shift)
+            else:
+                shifts.append(int(torch.randint(min_shift, max_shift + 1, ()).item()))
+
+        if not any(shifts):
+            return x
+
+        shifted = torch.empty_like(x)
+        shifted.fill_(x_min)
+
+        src_slices = [slice(None)]
+        dst_slices = [slice(None)]
+        for shift, size in zip(shifts, x.shape[1:]):
+            if shift >= 0:
+                src_slices.append(slice(0, size - shift))
+                dst_slices.append(slice(shift, size))
+            else:
+                src_slices.append(slice(-shift, size))
+                dst_slices.append(slice(0, size + shift))
+
+        shifted[tuple(dst_slices)] = x[tuple(src_slices)]
+        return shifted
 
 
 def optimize(no_of_trails, config:Configuration, dataset):
@@ -93,16 +197,7 @@ def objective(trial: Trial, config: Configuration, dataset):
     - Writes trial metadata into the Optuna DB (user_attrs)
     """
     # 1. set hyperparameter tuning space via optuna
-    min_params = config.model_params["min"]
-    max_params = config.model_params["max"]
-    params = {}
-    for key, value in min_params.items():
-        if isinstance(value, bool):
-            params[key] = trial.suggest_categorical(key, [True, False])
-        elif isinstance(value, int):
-            params[key] = trial.suggest_int(key, value, max_params[key])
-        elif isinstance(value, float):
-            params[key] = trial.suggest_float(key, value, max_params[key])
+    params = sample_model_params(trial, config.model_params)
 
 
     # 2. Create the model with chosen hyperparameters
@@ -113,6 +208,7 @@ def objective(trial: Trial, config: Configuration, dataset):
 
     g = torch.Generator().manual_seed(42)
     train_ds, val_ds = random_split(dataset, [n_train, n_val], generator=g)
+    train_ds = _apply_training_offset_augmentation(train_ds, config)
 
     _anomaly_train_loader = DataLoader(
             train_ds,
@@ -157,6 +253,65 @@ def objective(trial: Trial, config: Configuration, dataset):
 
     # lowest validation error over all epochs
     return min(val_losses)
+
+
+def _apply_training_offset_augmentation(dataset, config: Configuration):
+    if not getattr(config, "random_offset", False):
+        return dataset
+
+    transform = _RandomSpatialOffset(
+        max_fraction=getattr(config, "random_offset_max_fraction", 1.0),
+        foreground_threshold_rel=getattr(config, "random_offset_foreground_threshold_rel", 0.001),
+    )
+    return _TrainingTransformDataset(dataset, transform)
+
+
+def sample_model_params(trial: Trial, model_params):
+    """
+    Build concrete model params from a {"min": ..., "max": ...} search space.
+
+    Equal min/max values are treated as fixed constants. Strings and booleans
+    become categorical choices when min/max differ.
+    """
+    min_params = model_params["min"]
+    max_params = model_params["max"]
+    params = {}
+
+    for key in sorted(set(min_params) | set(max_params)):
+        min_value = min_params.get(key)
+        max_value = max_params.get(key, min_value)
+        params[key] = _sample_or_fix_param(trial, key, min_value, max_value)
+
+    return params
+
+
+def _sample_or_fix_param(trial: Trial, key, min_value, max_value):
+    if min_value == max_value:
+        return min_value
+
+    if isinstance(min_value, bool) and isinstance(max_value, bool):
+        return trial.suggest_categorical(key, _unique_choices([min_value, max_value]))
+
+    if isinstance(min_value, int) and isinstance(max_value, int):
+        low, high = sorted((min_value, max_value))
+        return trial.suggest_int(key, low, high)
+
+    if isinstance(min_value, (int, float)) and isinstance(max_value, (int, float)):
+        low, high = sorted((float(min_value), float(max_value)))
+        return trial.suggest_float(key, low, high)
+
+    if isinstance(min_value, (list, tuple, set)) and max_value is None:
+        return trial.suggest_categorical(key, list(min_value))
+
+    return trial.suggest_categorical(key, _unique_choices([min_value, max_value]))
+
+
+def _unique_choices(values):
+    choices = []
+    for value in values:
+        if value not in choices:
+            choices.append(value)
+    return choices
 
 
 def beta_schedule(epoch, beta_start, beta_max, warmup_start, warmup_epochs):

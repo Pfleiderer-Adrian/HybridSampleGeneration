@@ -64,7 +64,6 @@ class HybridDataGenerator:
         sample_dataloader: Iterator[Tuple[np.ndarray, np.ndarray, str]],
         save_folder=None,
         save_folder_roi=None,
-        rng=None,
     ):
         """
         Extract anomaly cutouts (and anomaly ROIs) from samples that contain anomalies.
@@ -91,11 +90,10 @@ class HybridDataGenerator:
         save_folder_roi:
             Folder for saving anomaly ROI cutouts (.npy). If None:
             "<study_folder>/anomaly_roi_data"
-        random_offset:
-            If True, apply random spatial offsets to anomaly cutouts after resize+pad.
-        rng:
-            Optional numpy random Generator for reproducible offsets.
-        Note:
+        Notes
+        -----
+            Saved anomaly cutouts are always centered. Dynamic random offset
+            augmentation is applied later in the training dataloader.
             Normalization is controlled via config.normalization and config.normalization_eps.
 
         Outputs
@@ -126,8 +124,6 @@ class HybridDataGenerator:
                     seg,
                     self._config,
                     self._config.anomaly_size,
-                    random_offset=self._config.random_offset,
-                    rng=rng,
                     normalization=self._config.normalization,
                     normalization_eps=self._config.normalization_eps,
                 )
@@ -137,8 +133,6 @@ class HybridDataGenerator:
                     seg,
                     self._config,
                     self._config.anomaly_size,
-                    random_offset=self._config.random_offset,
-                    rng=rng,
                     normalization=self._config.normalization,
                     normalization_eps=self._config.normalization_eps,
                 )
@@ -470,6 +464,7 @@ class HybridDataGenerator:
 
 
     def fusion_synth_anomalies(self, control_samples_array, basename_of_control_sample, base_mask=None, save_npy=True, save_path=None) -> Tuple[np.ndarray, np.ndarray]:
+        self._log_step("Step 9/9: Fusing synthetic anomalies.")
         """
         Fuse a synthetic anomaly into a control sample according to the loaded matching dict.
 
@@ -580,8 +575,9 @@ class HybridDataGenerator:
         return img, seg_final
     
     def run_evaluation_pipeline(self, sample_dataloader: Iterator[Tuple[np.ndarray, np.ndarray, str]]):
-        self._log_step("Step 9/9: Starting evaluation pipeline.")
+        self._log_step("Evaluation 1/2: Starting evaluation pipeline.")
         evaluation_pipeline(sample_dataloader, self._config)
 
     def visualize_evaluation_results(self):
+        self._log_step("Evaluation 2/2: Starting visualization of evaluation results.")
         run_outlier_gui(self._config)

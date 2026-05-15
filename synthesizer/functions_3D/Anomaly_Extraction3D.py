@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.ndimage import zoom, label, find_objects, center_of_mass
 
-def resize_and_pad_3d(arr, target_size, order=1, *, random_offset=False, rng=None):
+def resize_and_pad_3d(arr, target_size, order=1):
     """
     Resize (downscale only) and center-pad a 4D tensor (C, D, H, W) to a target spatial size.
 
@@ -9,7 +9,7 @@ def resize_and_pad_3d(arr, target_size, order=1, *, random_offset=False, rng=Non
     - Only *downscales* if an input spatial dimension exceeds the target (scale factor < 1).
     - Never upscales (scale factors are capped at 1.0).
     - Pads with the minimum value of `arr` to keep background consistent.
-    - If random_offset=True, distributes padding asymmetrically to randomize anomaly placement.
+    - Pads symmetrically so the anomaly stays centered in the saved cutout.
     - Returns the padded array cropped to exactly (C, tD, tH, tW).
 
     Inputs
@@ -20,11 +20,6 @@ def resize_and_pad_3d(arr, target_size, order=1, *, random_offset=False, rng=Non
         Target spatial size (tD, tH, tW).
     order:
         Interpolation order for scipy.ndimage.zoom (1=linear).
-    random_offset:
-        If True, apply a random spatial offset by using asymmetric padding.
-    rng:
-        Optional numpy random Generator for reproducible offsets.
-
     Outputs
     -------
     arr_padded:
@@ -54,16 +49,9 @@ def resize_and_pad_3d(arr, target_size, order=1, *, random_offset=False, rng=Non
     pad_total_h = max(tH - h2, 0)
     pad_total_w = max(tW - w2, 0)
 
-    if random_offset:
-        if rng is None:
-            rng = np.random.default_rng()
-        pad_d0 = int(rng.integers(0, pad_total_d + 1))
-        pad_h0 = int(rng.integers(0, pad_total_h + 1))
-        pad_w0 = int(rng.integers(0, pad_total_w + 1))
-    else:
-        pad_d0 = pad_total_d // 2
-        pad_h0 = pad_total_h // 2
-        pad_w0 = pad_total_w // 2
+    pad_d0 = pad_total_d // 2
+    pad_h0 = pad_total_h // 2
+    pad_w0 = pad_total_w // 2
 
     pad_d = (pad_d0, pad_total_d - pad_d0)
     pad_h = (pad_h0, pad_total_h - pad_h0)
@@ -259,8 +247,6 @@ def crop_and_center_anomaly_3d(
     target_size,
     separated_anomaly=True,
     *,
-    random_offset=False,
-    rng=None,
     normalization=None,
     normalization_eps=1e-8,
 ):
@@ -295,10 +281,6 @@ def crop_and_center_anomaly_3d(
     min_region_voxels:
         Minimum voxel count for a connected component to be kept.
         If <= 0, defaults to 5% of target volume (0.05 * tD * tH * tW).
-    random_offset:
-        If True, apply random spatial offsets to anomaly cutouts after resize+pad.
-    rng:
-        Optional numpy random Generator for reproducible offsets.
     normalization:
         Normalization mode for anomaly cutouts: "zscore", "zscore_median", or None.
     normalization_eps:
@@ -383,8 +365,6 @@ def crop_and_center_anomaly_3d(
             result,
             target_size=target_size,
             order=1,
-            random_offset=random_offset,
-            rng=rng,
         )
         padded_arr, norm_meta = _normalize_anomaly(
             padded_arr, normalization=normalization, eps=float(normalization_eps)

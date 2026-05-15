@@ -1,8 +1,21 @@
-# model specific hyperparameter for dynamic tuning via optuna
-        
 from dataclasses import asdict
-from xml.parsers.expat import model
+
 from models import VAE_ConvNeXt_2D, VAE_ConvNeXt_3D, VAE_ResNet_2D, VAE_ResNet_3D
+
+
+MODEL_CONFIG_CLASSES = {
+    "VAE_ResNet_3D": VAE_ResNet_3D.Config,
+    "VAE_ResNet_2D": VAE_ResNet_2D.Config,
+    "VAE_ConvNeXt_3D": VAE_ConvNeXt_3D.Config,
+    "VAE_ConvNeXt_2D": VAE_ConvNeXt_2D.Config,
+}
+
+
+def get_model_config_class(model_name):
+        try:
+            return MODEL_CONFIG_CLASSES[model_name]
+        except KeyError:
+            raise ValueError(f"Unknown model: {model_name}. Supported models: {list(MODEL_CONFIG_CLASSES)}")
 
 
 def get_model_configuration(model_name, in_channels, debug=False):
@@ -163,7 +176,10 @@ def get_model_configuration(model_name, in_channels, debug=False):
                 fg_threshold=0.0
                 ))
             model_params = {"min": _VAE2D_min_params, "max": _VAE2D_max_params}
+        if model_params is None:
+            raise ValueError(f"Unknown model: {model_name}. Supported models: {list(MODEL_CONFIG_CLASSES)}")
+
         if debug:
-            model_params = {"min": model_params["max"], "max": _VAE2D_max_params}
+            model_params = {"min": model_params["max"].copy(), "max": model_params["max"].copy()}
 
         return model_params
