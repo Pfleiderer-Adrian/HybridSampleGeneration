@@ -306,6 +306,9 @@ def crop_and_center_anomaly_3d(
     anomalies_roi:
         list[np.ndarray]
         ROI crops around anomaly centroid, shape (C, d', h', w') (variable).
+    org_masks:
+        list[np.ndarray] if config.multiclass, else None
+        Segmentation (multiclass) crops around anomaly centroid, shape (C, tD, tH, tW).
 
     Notes
     -----
@@ -337,6 +340,7 @@ def crop_and_center_anomaly_3d(
 
     anomalies = []
     anomalies_roi = []
+    org_masks = [] if config.multiclass else None
 
     min_region_voxels = int(config.min_anomaly_percentage * (target_size[0] * target_size[1] * target_size[2]))
     for ridx, region in enumerate(regions, start=1):
@@ -391,4 +395,16 @@ def crop_and_center_anomaly_3d(
         
         anomalies.append((padded_arr, meta_data))
 
-    return anomalies, anomalies_roi
+        if config.multiclass:
+            # cutout like in img
+            m_result = seg[:, dsl, hsl, wsl]
+
+            # order=0 for nearest neighbor
+            padded_mask, _ = resize_and_pad_3d(
+                m_result,
+                target_size=target_size,
+                order=0,
+            )
+            org_masks.append(padded_mask)
+
+    return anomalies, anomalies_roi, org_masks
