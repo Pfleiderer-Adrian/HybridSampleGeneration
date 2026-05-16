@@ -426,6 +426,7 @@ class ResNetVAE2D(nn.Module):
         """
         super().__init__()
         self.cfg = cfg
+        self.in_channels = cfg.in_channels
 
         # 2D encoder outputs a latent feature map h
         self.encoder = ResNetEncoder2D(

@@ -105,8 +105,6 @@ class AnomalyDataset(Dataset):
             Optional path to a directory containing the target masks as `.npy` files. (multiclass)
             If org_mask_folder is None, tgt_mask_folder has no effect.
             If org_mask_folder is not None but tgt_mask_folder is None: tgt_mask_folder = org_mask_folder.
-        num_classes:
-            Number of different classes. (Set for multiclass One-Hot Encoding)
         return_filename:
             If True, __getitem__ returns the filename at the end of the tuple.
         dtype:
@@ -145,7 +143,6 @@ class AnomalyDataset(Dataset):
             self.tgt_mask_folder = Path(tgt_mask_folder).expanduser().resolve()
 
         # Store configuration flags
-        self.num_classes = num_classes
         self.numpy_mode = numpy_mode
         self.return_filename = return_filename
         self.dtype = dtype

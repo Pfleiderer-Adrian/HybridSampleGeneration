@@ -174,14 +174,15 @@ class HybridDataGenerator:
                 save_numpy_as_npy(roi_sample, os.path.join(save_folder_roi, basename+"_"+str(i)+".npy"), overwrite=True)
                 i = i + 1
             i = 0    
-            # save org mask for Encoder input (and Decoder in training)
-            for org_mask in org_masks:
-                save_numpy_as_npy(org_mask, os.path.join(save_folder_org_mask, basename+"_"+str(i)+".npy"), overwrite=True)
-                i = i + 1
-            i = 0
-            # save tgt mask for Decoder (only for inception)
-            for tgt_mask in tgt_masks:
-                save_numpy_as_npy(tgt_mask, os.path.join(save_folder_tgt_mask, basename+"_"+str(i)+".npy"), overwrite=True)
+            if self._config.multiclass:
+                # save org mask for Encoder input (and Decoder in training)
+                for org_mask in org_masks:
+                    save_numpy_as_npy(org_mask, os.path.join(save_folder_org_mask, basename+"_"+str(i)+".npy"), overwrite=True)
+                    i = i + 1
+                i = 0
+                # save tgt mask for Decoder (only for inception)
+                for tgt_mask in tgt_masks:
+                    save_numpy_as_npy(tgt_mask, os.path.join(save_folder_tgt_mask, basename+"_"+str(i)+".npy"), overwrite=True)
         self._config.save_anomaly_transformations()
         self.load_anomalies(anomaly_folder=save_folder) 
 
