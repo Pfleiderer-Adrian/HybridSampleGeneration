@@ -236,6 +236,7 @@ def crop_and_center_anomaly_2d(
     Extract connected anomaly regions from a 2D segmentation mask and return:
       - normalized-size anomaly cutouts (C, tH, tW) via resize+pad
       - ROI cutouts around the anomaly centroid (variable size)
+      - Segmentation (multiclass) crops around anomaly centroid, shape (C, tH, tW)
 
     Pipeline:
       1) Collapse seg across channel axis -> binary 2D mask (H,W)
@@ -285,16 +286,14 @@ def crop_and_center_anomaly_2d(
     anomalies_roi:
         list[np.ndarray]
         ROI crops around anomaly centroid, shape (C, h', w') (variable).
-
-    Notes
-    -----
-    - `seg` is treated as anomaly mask; any value > 0 counts as anomaly.
-    - This function expects **channel-first** arrays: (C, H, W).
+    org_masks:
+        list[np.ndarray] if config.multiclass, else None
+        Segmentation (multiclass) crops around anomaly centroid, shape (C, tH, tW).
     """
     target_size = _spatial_target_size(target_size)
 
     if seg is None or np.all(seg == 0):
-        return None, None
+        return None, None, None
 
     if img.ndim != 3:
         raise ValueError(f"img must be 3D (C,H,W). Got {img.shape}")
@@ -313,6 +312,7 @@ def crop_and_center_anomaly_2d(
 
     anomalies = []
     anomalies_roi = []
+    org_masks = [] if config.multiclass else None
 
     min_region_pixels = int(config.min_anomaly_percentage * (target_size[0] * target_size[1]))
 
@@ -340,7 +340,7 @@ def crop_and_center_anomaly_2d(
         #ch, cw = hsl[0]+((hsl[1]-hsl[0])/2), wsl[0]+((wsl[1]-wsl[0])/2)
         centroid_voxel = (ch, cw)
         centroid_norm = (ch / (H - 1), cw / (W - 1))
-#        centroid_norm = (centroid_voxel[0] / H, centroid_voxel[1] / W)
+        # centroid_norm = (centroid_voxel[0] / H, centroid_voxel[1] / W)
 
 
         padded_arr, scale_factor = resize_and_pad_2d(
@@ -373,4 +373,16 @@ def crop_and_center_anomaly_2d(
 
         anomalies.append((padded_arr, meta_data))
 
-    return anomalies, anomalies_roi
+        if config.multiclass:
+            # Cutout aus der originalen Maske (analog zum Image-Cutout)
+            m_result = seg[:, hsl, wsl]
+
+            # order=0 sorgt für Nearest-Neighbor, damit Klassen sauber bleiben
+            padded_mask, _ = resize_and_pad_2d(
+                m_result,
+                target_size=target_size,
+                order=0,
+            )
+            org_masks.append(padded_mask)
+
+    return anomalies, anomalies_roi, org_masks
