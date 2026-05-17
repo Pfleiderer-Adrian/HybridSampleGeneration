@@ -381,6 +381,11 @@ class Config:
     use_multires_skips: bool = True
     recon_weight: float = 100.0
     beta_kl: float = 1.0
+    beta_kl_start: float = 0.0
+    beta_kl_max: float = 0.03
+    beta_kl_warmup_start: int = 20
+    beta_kl_warmup_epochs: int = 30
+    free_bits: float = 0.0
 
     # --- continuous-intensity reconstruction (Option B) ---
     # Default: SmoothL1 (Huber) is typically more robust for MRI intensities than BCE.
@@ -426,6 +431,7 @@ class ResNetVAE2D(nn.Module):
         """
         super().__init__()
         self.cfg = cfg
+        self.in_channels = cfg.in_channels
 
         # 2D encoder outputs a latent feature map h
         self.encoder = ResNetEncoder2D(
@@ -608,13 +614,27 @@ class ResNetVAE2D(nn.Module):
         else:
             recon_loss = recon_per_pixel.mean()
         # KL divergence term (mean over batch)
-        kl = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
+        kl_per_dim = 0.5 * (mu.pow(2) + logvar.exp() - 1.0 - logvar)
+        kl_raw = kl_per_dim.sum(dim=1).mean()
+
+        free_bits = float(getattr(self.cfg, "free_bits", 0.0) or 0.0)
+        if free_bits > 0.0:
+            # clamp each latent dim's KL to at least free_bits
+            kl_used = kl_per_dim.clamp(min=free_bits).sum(dim=1).mean()
+        else:
+            kl_used = kl_raw
 
         recon_weighted = self.cfg.recon_weight * recon_loss
-        kl_weighted = self.cfg.beta_kl * kl
+        kl_weighted = self.cfg.beta_kl * kl_used
 
         total = recon_weighted + kl_weighted
-        return {"total": total, "recon": recon_loss, "kl": kl, "recon_weighted": recon_weighted, "kl_weighted": kl_weighted}
+        return {"total": total,
+                "recon": recon_loss,
+                "kl": kl_used,
+                "kl_raw": kl_raw,
+                "recon_weighted": recon_weighted,
+                "kl_weighted": kl_weighted
+        }
 
     def _extract_x(self, batch) -> torch.Tensor:
         """
@@ -712,7 +732,7 @@ class ResNetVAE2D(nn.Module):
             # Switch model into train/eval mode
             model.train(training)
             # Accumulators for averaged metrics
-            run = {"total": 0.0, "recon": 0.0, "kl": 0.0, "recon_weighted": 0.0, "kl_weighted": 0.0}
+            run = {"total": 0.0, "recon": 0.0, "kl": 0.0, "kl_raw":0.0, "recon_weighted": 0.0, "kl_weighted": 0.0}
             n = 0
 
             # Progress bar over batches
