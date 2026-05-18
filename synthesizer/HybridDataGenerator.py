@@ -241,7 +241,8 @@ class HybridDataGenerator:
                 return_filename=True,
                 load_to_ram=True,
                 dtype=torch.float32,
-                numpy_mode=False
+                numpy_mode=False,
+                skip_missing_masks=True,
             )
         else:
             self._anomaly_dataset = AnomalyDataset(

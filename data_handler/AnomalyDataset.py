@@ -91,6 +91,7 @@ class AnomalyDataset(Dataset):
         load_to_ram: bool = False,
         mmap_mode: Optional[str] = None,
         numpy_mode: bool = False,
+        skip_missing_masks: bool = False,
     ) -> None:
         """
         Initialize the dataset and discover `.npy` files.
@@ -126,6 +127,9 @@ class AnomalyDataset(Dataset):
             NOTE: If load_to_ram=True, mmap_mode is ignored (set to None).
         numpy_mode:
             If True, __getitem__ returns numpy arrays instead of torch tensors.
+        skip_missing_masks:
+            If True and mask folders are configured, samples without matching
+            mask files are omitted from the dataset.
         """
         # Resolve folder path
         self.folder = Path(folder).expanduser().resolve()
@@ -151,12 +155,15 @@ class AnomalyDataset(Dataset):
         self.extensions = tuple(e.lower() for e in extensions)
         self.sort = sort
         self.load_to_ram = load_to_ram
+        self.skip_missing_masks = skip_missing_masks
 
         # mmap_mode is only relevant when we DO NOT preload into RAM
         self.mmap_mode = None if load_to_ram else mmap_mode
 
         # Collect all .npy files into a list
         self._paths: List[str] = self._collect_paths()
+        if self.org_mask_folder is not None and self.skip_missing_masks:
+            self._paths = self._filter_paths_with_existing_masks(self._paths)
 
         # Fast lookup tables:
         # - basename -> [indices]
@@ -244,6 +251,36 @@ class AnomalyDataset(Dataset):
             )
 
         return paths
+
+    def _filter_paths_with_existing_masks(self, paths: List[str]) -> List[str]:
+        """
+        Keep only anomaly files with matching org/tgt mask files.
+        (masks can be missing for anomalies that were filtered out by e.g. min_anomaly_percentage)
+        """
+        filtered_paths = []
+        skipped = 0
+        same_mask_folders = (self.org_mask_folder == self.tgt_mask_folder)
+
+        for p in paths:
+            base = os.path.basename(p)
+            org_mask_path = os.path.join(self.org_mask_folder, base)
+            tgt_mask_path = org_mask_path if same_mask_folders else os.path.join(self.tgt_mask_folder, base)
+
+            if not os.path.exists(org_mask_path) or not os.path.exists(tgt_mask_path):
+                skipped += 1
+                continue
+
+            filtered_paths.append(p)
+
+        if skipped:
+            print(f"[AnomalyDataset] Skipped {skipped} anomaly file(s) without matching mask files.")
+
+        if not filtered_paths:
+            raise FileNotFoundError(
+                f"No anomaly files with matching mask files found in: {self.folder}"
+            )
+
+        return filtered_paths
 
     def __len__(self) -> int:
         """
