@@ -21,7 +21,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from synthesizer.mask_augmentation import to_one_hot
+from synthesizer.mask_augmentation import to_one_hot_3D
 
 
 # -------------------------
@@ -550,8 +550,8 @@ class ConvNeXtVAE3D_multiclass(nn.Module):
         """Forward pass through encoder (x and org_mask) -> bottleneck -> decoder with SPADE using tgt_mask."""
         if tgt_mask is None:
             tgt_mask = org_mask
-        org_mask = to_one_hot(org_mask, self.cfg.mask_channels)
-        tgt_mask = to_one_hot(tgt_mask, self.cfg.mask_channels)
+        org_mask = to_one_hot_3D(org_mask, self.cfg.mask_channels)
+        tgt_mask = to_one_hot_3D(tgt_mask, self.cfg.mask_channels)
         if x.ndim != 5 or org_mask.ndim != 5 or tgt_mask.ndim != 5:
             raise ValueError(f"Expected (B,C,D,H,W), got {tuple(x.shape)}")
         if x.shape[1] != self.in_channels:
@@ -565,8 +565,12 @@ class ConvNeXtVAE3D_multiclass(nn.Module):
         # Pad so D/H/W divisible by 2**n_levels
         multiple = 2 ** self.cfg.n_levels
         x_pad, pad = _pad_to_multiple_3d(x, multiple)
-        org_mask_pad, _ = _pad_to_multiple_3d(org_mask, multiple)
-        tgt_mask_pad, _ = _pad_to_multiple_3d(tgt_mask, multiple)
+        if sum(pad) > 0:
+            org_mask_pad = F.pad(org_mask, pad, mode="constant", value=0.0)
+            tgt_mask_pad = F.pad(tgt_mask, pad, mode="constant", value=0.0)
+        else:
+            org_mask_pad = org_mask
+            tgt_mask_pad = tgt_mask
 
         # Encode -> (latent feature map, skips)
         enc_in = torch.cat([x_pad, org_mask_pad], dim=1)    # concat x and org_mask for encoder input
@@ -798,16 +802,20 @@ class ConvNeXtVAE3D_multiclass(nn.Module):
         x = x.to(device)
         
         # to device and then one-hot
-        org_mask = to_one_hot(org_mask.to(device), self.cfg.mask_channels)
-        tgt_mask = to_one_hot(tgt_mask.to(device), self.cfg.mask_channels)
+        org_mask = to_one_hot_3D(org_mask.to(device), self.cfg.mask_channels)
+        tgt_mask = to_one_hot_3D(tgt_mask.to(device), self.cfg.mask_channels)
 
         with torch.no_grad():
             # --- same preprocessing as forward() ---
             ref_dhw = tuple(x.shape[-3:])
             multiple = 2 ** self.cfg.n_levels
             x_pad, pad = _pad_to_multiple_3d(x, multiple)
-            org_mask_pad, _ = _pad_to_multiple_3d(org_mask, multiple)
-            tgt_mask_pad, _ = _pad_to_multiple_3d(tgt_mask, multiple)
+            if sum(pad) > 0:
+                org_mask_pad = F.pad(org_mask, pad, mode="constant", value=0.0)
+                tgt_mask_pad = F.pad(tgt_mask, pad, mode="constant", value=0.0)
+            else:
+                org_mask_pad = org_mask
+                tgt_mask_pad = tgt_mask
 
             enc_in = torch.cat([x_pad, org_mask_pad], dim=1)
             # Encode once
