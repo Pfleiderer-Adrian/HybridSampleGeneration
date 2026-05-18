@@ -611,7 +611,11 @@ class HybridDataGenerator:
 
         for anomaly_basename, fusion_position in anomalies:
 
-            synth_anomaly_image = self._synth_anomaly_dataset.load_numpy_by_basename(anomaly_basename)
+            try:
+                synth_anomaly_image = self._synth_anomaly_dataset.load_numpy_by_basename(anomaly_basename)
+            except (KeyError, FileNotFoundError):
+                print(f"[Warning] Skipped fusing {anomaly_basename} because the anomaly file does not exist.")
+                continue
 
             anomaly_meta = self._config.syn_anomaly_transformations.get(anomaly_basename, {})
 

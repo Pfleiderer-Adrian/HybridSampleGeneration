@@ -859,6 +859,7 @@ class ConvNeXtVAE3D_multiclass(nn.Module):
 
             if single:
                 recon = recon.squeeze(0)  # (n,C,D,H,W)
+                recon = recon.squeeze(0)
 
         if return_torch:
             return recon
