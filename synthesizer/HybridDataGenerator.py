@@ -328,7 +328,7 @@ class HybridDataGenerator:
                     if syn_anomaly_sample.shape != img.shape:
                         raise ValueError(f"Shape mismatch: {syn_anomaly_sample.shape} vs {img.shape}")
 
-                    if self._config.random_offset:  # TODO: check ob random offset ok bei multiclass??? Masken müssen zu anomalien passen!!!
+                    if self._config.random_offset:
                         _background_threshold = self._config.background_threshold
                         if _background_threshold is None:
                             _background_threshold = np.min(syn_anomaly_sample) + 0.01
@@ -368,20 +368,30 @@ class HybridDataGenerator:
             
             for batch in tqdm(self._anomaly_dataset):
                 if self._config.multiclass:
-                    img, org_mask, tgt_mask, basename = batch
-                    
-                    syn_anomaly_sample = self._model.generate_synth_sample(
-                        sample=img, 
-                        original_mask=org_mask, 
-                        target_mask=tgt_mask, 
-                        clamp_01=self._config.clamp01_output
-                    )
+                    if getattr(self._config, "prior_sampling", False):
+                        syn_anomaly_sample = self._model.generate_synth_sample_prior(
+                            target_mask=tgt_mask,
+                            clamp_01=self._config.clamp01_output, 
+                            out_hw=self._config.anomaly_size[1:]
+                        )
+                    else:
+                        syn_anomaly_sample = self._model.generate_synth_sample(
+                            sample=img, 
+                            original_mask=org_mask, 
+                            target_mask=tgt_mask, 
+                            clamp_01=self._config.clamp01_output
+                        )
                 else:
-                    img, basename = batch
-                    syn_anomaly_sample = self._model.generate_synth_sample(
-                        sample=img, 
-                        clamp_01=self._config.clamp01_output
-                    )
+                    if getattr(self._config, "prior_sampling", False):
+                        syn_anomaly_sample = self._model.generate_synth_sample_prior(
+                            clamp_01=self._config.clamp01_output, 
+                            out_hw=self._config.anomaly_size[1:]
+                        )
+                    else:
+                        syn_anomaly_sample = self._model.generate_synth_sample(
+                            sample=img, 
+                            clamp_01=self._config.clamp01_output
+                        )
                     
                 save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(save_folder, basename)), overwrite=True)
 
