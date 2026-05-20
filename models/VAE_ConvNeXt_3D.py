@@ -785,6 +785,91 @@ class ConvNeXtVAE3D(nn.Module):
             self.train()
 
         return self
+    
+    def generate_synth_sample_prior(
+        self,
+        *,
+        out_dhw: tuple[int, int, int] | None = None,
+        s: float = 0.5,
+        device: str | torch.device = "cuda" if torch.cuda.is_available() else "cpu",
+        clamp_01: bool = True,
+        return_torch: bool = False,
+    ) -> np.ndarray | torch.Tensor:
+        """
+        Generate ONE synthetic 3D sample via *prior sampling* (no input sample required).
+
+        Samples:
+            z ~ N(0, I)  (scaled by s), then decode to 3D volume space.
+
+        Parameters:
+        - out_dhw: output (D, H, W). If None, tries cfg.sample_dhw or cfg.image_dhw, else defaults to (64, 64, 64).
+        - s: prior temperature / diversity strength (1.0 is standard; <1.0 more conservative; >1.0 more diverse).
+        - clamp_01: clamp outputs to [0,1].
+        - return_torch: return torch.Tensor instead of np.ndarray.
+
+        Output:
+        - (C, D, H, W)
+        """
+        if s < 0:
+            raise ValueError(f"s must be >= 0, got {s}")
+
+        # pick output size
+        if out_dhw is None:
+            out_dhw = getattr(self.cfg, "sample_dhw", None) or getattr(self.cfg, "image_dhw", None) or (64, 64, 64)
+        if not (isinstance(out_dhw, (tuple, list)) and len(out_dhw) == 3):
+            raise ValueError(f"out_dhw must be (D, H, W), got {out_dhw}")
+        
+        D, H, W = int(out_dhw[0]), int(out_dhw[1]), int(out_dhw[2])
+        if D <= 0 or H <= 0 or W <= 0:
+            raise ValueError(f"out_dhw must be positive, got {out_dhw}")
+
+        device = torch.device(device)
+        model = self.to(device)
+        model.eval()
+
+        # Ensure decoder doesn't expect encoder skips (we have none for pure prior sampling)
+        try:
+            model.decoder.set_skips(None)
+        except Exception:
+            pass
+
+        # Compute latent spatial size (assuming 2x downsample per level)
+        down = 2 ** int(self.cfg.n_levels)
+
+        # Pad to be divisible by down (so latent grid is integer)
+        pad_d = (down - (D % down)) % down
+        pad_h = (down - (H % down)) % down
+        pad_w = (down - (W % down)) % down
+        
+        D_pad, H_pad, W_pad = D + pad_d, H + pad_h, W + pad_w
+        latent_dhw = (D_pad // down, H_pad // down, W_pad // down)
+
+        # Determine latent vector dim for fc_decode (matches your fc_mu/fc_logvar output)
+        z_dim = int(getattr(self.cfg, "bottleneck_dim", 256))
+
+        with torch.no_grad():
+            model._ensure_fcs(latent_dhw, device)
+
+            # Prior sampling: z ~ N(0, I)
+            if s == 0.0:
+                z = torch.zeros((1, z_dim), device=device)
+            else:
+                z = torch.randn((1, z_dim), device=device) * float(s)
+
+            # Map z -> decoder feature map and decode
+            h_dec = model.fc_decode(z).reshape(1, int(self.cfg.z_channels), *latent_dhw)
+            recon = model.decoder(h_dec)  # (1, C, D_pad, H_pad, W_pad) typically
+
+            # Crop back to requested size and drop batch dim
+            recon = recon[..., :D, :H, :W].squeeze(0)
+
+            if clamp_01:
+                recon = recon.clamp(0.0, 1.0)
+
+        if return_torch:
+            return recon
+
+        return recon.detach().cpu().numpy().astype(np.float32, copy=False)
 
 
 if __name__ == "__main__":
