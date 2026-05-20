@@ -286,10 +286,6 @@ def crop_and_center_anomaly_2d(
         list[np.ndarray]
         ROI crops around anomaly centroid, shape (C, h', w') (variable).
 
-    org_masks:
-        list[np.ndarray] if config.multiclass, else None
-        Segmentation (multiclass) crops around anomaly centroid, shape (C, tH, tW).
-
     Notes
     -----
     - `seg` is treated as anomaly mask; any value > 0 counts as anomaly.
@@ -298,14 +294,14 @@ def crop_and_center_anomaly_2d(
     target_size = _spatial_target_size(target_size)
 
     if seg is None or np.all(seg == 0):
-        return None, None, None
+        return None, None
 
     if img.ndim != 3:
         raise ValueError(f"img must be 3D (C,H,W). Got {img.shape}")
     if seg.ndim != 3:
         raise ValueError(f"seg must be 3D (C,H,W). Got {seg.shape}")
-    if img.shape != seg.shape:
-        raise ValueError(f"img and seg must have same shape. Got img={img.shape}, seg={seg.shape}")
+    #if img.shape != seg.shape:
+    #    raise ValueError(f"img and seg must have same shape. Got img={img.shape}, seg={seg.shape}")
 
     C, H, W = img.shape
     shape = img.shape
@@ -317,7 +313,6 @@ def crop_and_center_anomaly_2d(
 
     anomalies = []
     anomalies_roi = []
-    org_masks = [] if config.multiclass else None
 
     min_region_pixels = int(config.min_anomaly_percentage * (target_size[0] * target_size[1]))
 
@@ -345,7 +340,8 @@ def crop_and_center_anomaly_2d(
         #ch, cw = hsl[0]+((hsl[1]-hsl[0])/2), wsl[0]+((wsl[1]-wsl[0])/2)
         centroid_voxel = (ch, cw)
         centroid_norm = (ch / (H - 1), cw / (W - 1))
-        # centroid_norm = (centroid_voxel[0] / H, centroid_voxel[1] / W)
+#        centroid_norm = (centroid_voxel[0] / H, centroid_voxel[1] / W)
+
 
         padded_arr, scale_factor = resize_and_pad_2d(
             result,
@@ -357,8 +353,7 @@ def crop_and_center_anomaly_2d(
         )
         scale_factor = tuple(round(float(ele), 4) for ele in scale_factor)
 
-        # TODO: Platzhalter für meta_data label? checken ob man das in eine Liste machen kann (alle klassen in der maske)
-        label_tmp = float(np.max(seg[:, hsl, wsl]).round(0))
+        label_tmp = float(np.max(seg).round(0))
 
         meta_data = {
             "label": label_tmp,
@@ -375,18 +370,7 @@ def crop_and_center_anomaly_2d(
             size_spatial = config.fixed_roi_size
         
         anomalies_roi.append(crop_square_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False))
+
         anomalies.append((padded_arr, meta_data))
 
-        if config.multiclass:
-            # cutout like in img
-            m_result = seg[:, hsl, wsl]
-
-            # order=0 for nearest neighbor; same centered resize/pad as img
-            padded_mask, _ = resize_and_pad_2d(
-                m_result,
-                target_size=target_size,
-                order=0,
-            )
-            org_masks.append(padded_mask)
-
-    return anomalies, anomalies_roi, org_masks
+    return anomalies, anomalies_roi

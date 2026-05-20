@@ -240,12 +240,6 @@ def add_bg_noise_floor(img, sigma_rel=0.003, eps=1e-8):
     img[mask] = bg + noise[mask]
     return img
 
-import numpy as np
-import copy
-from scipy.ndimage import label, find_objects, center_of_mass
-# Angenommen, diese existieren in deinem Modul:
-# from utils import _spatial_target_size, add_bg_noise_floor, resize_and_pad_3d, _normalize_anomaly, crop_cube_clip
-
 def crop_and_center_anomaly_3d(
     img,
     seg,
@@ -266,7 +260,7 @@ def crop_and_center_anomaly_3d(
       2) Connected-component labeling -> individual anomaly regions
       3) For each region above min_region_voxels:
          - crop the region from img
-         - compute centroid
+         - compute centroid (center of mass)
          - resize+pad the region crop to target_size
          - compute ROI crop around centroid (region size + margin)
          - store meta_data (label, scale_factor, centroid, original shape)
@@ -313,13 +307,9 @@ def crop_and_center_anomaly_3d(
         list[np.ndarray]
         ROI crops around anomaly centroid, shape (C, d', h', w') (variable).
 
-    org_masks:
-        list[np.ndarray] if config.multiclass, else None
-        Segmentation (multiclass) crops around anomaly centroid, shape (C, tD, tH, tW).
-
     Notes
     -----
-    - If seg is None or completely empty, the function returns None, None, None.
+    - If seg is None or completely empty, the function returns None in the original code.
 
     Raises
     ------
@@ -328,7 +318,7 @@ def crop_and_center_anomaly_3d(
     """
     target_size = _spatial_target_size(target_size)
     if seg is None or np.all(seg == 0):
-        return None, None, None
+        return None, None
 
     if img.ndim != 4:
         raise ValueError(f"img must be (C,D,H,W). Got {img.shape}")
@@ -347,7 +337,6 @@ def crop_and_center_anomaly_3d(
 
     anomalies = []
     anomalies_roi = []
-    org_masks = [] if config.multiclass else None
 
     min_region_voxels = int(config.min_anomaly_percentage * (target_size[0] * target_size[1] * target_size[2]))
     for ridx, region in enumerate(regions, start=1):
@@ -372,11 +361,6 @@ def crop_and_center_anomaly_3d(
         centroid_voxel = (int(round(cd)), int(round(ch)), int(round(cw)))
         centroid_norm = (centroid_voxel[0] / D, centroid_voxel[1] / H, centroid_voxel[2] / W)
 
-        # save rng to use same resize_and_pad for mask
-        rng_state = None
-        if random_offset and rng is not None:
-            rng_state = copy.deepcopy(rng.bit_generator.state)
-
         padded_arr, scale_factor = resize_and_pad_3d(
             result,
             target_size=target_size,
@@ -387,7 +371,6 @@ def crop_and_center_anomaly_3d(
         )
         scale_factor = tuple(round(float(ele), 4) for ele in scale_factor)
 
-        # TODO: Platzhalter für meta_data label? checken ob man das in eine Liste machen kann (alle klassen in der maske)
         label_tmp = float(np.max(seg).round(0))
 
         meta_data = {
@@ -405,23 +388,7 @@ def crop_and_center_anomaly_3d(
             size_spatial = config.fixed_roi_size
 
         anomalies_roi.append(crop_cube_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False))
+        
         anomalies.append((padded_arr, meta_data))
 
-        if config.multiclass:
-            # cutout like in img
-            m_result = seg[:, dsl, hsl, wsl]
-            
-            if rng_state is not None:
-                rng.bit_generator.state = rng_state
-                
-            # order=0 for nearest neighbor; same rng like for img
-            padded_mask, _ = resize_and_pad_3d(
-                m_result,
-                target_size=target_size,
-                order=0,
-                random_offset=random_offset,
-                rng=rng,
-            )
-            org_masks.append(padded_mask)
-
-    return anomalies, anomalies_roi, org_masks
+    return anomalies, anomalies_roi
