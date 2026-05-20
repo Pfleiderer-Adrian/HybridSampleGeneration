@@ -87,7 +87,7 @@ class Configuration:
         self.add_bg_noise = True
 
         self.multiclass = "multiclass" in self.model_name
-        self.mask_channels = None # number of anomaly classes (background class not encluded)
+        self.num_anomaly_classes = None # number of anomaly classes (background class not encluded)
 
         # synthesizer parameter
         self.prior_sampling = False
@@ -274,17 +274,6 @@ class Configuration:
         if isinstance(config, Mapping):
             return dict(config)
         raise TypeError("Model config must be a dataclass instance or mapping.")
-
-    def sync_model_mask_channels(self):
-        """
-        Copy the mask channel count (number of anomaly classes) into the model search space.
-        """
-        if not self.multiclass:
-            return
-        if self.mask_channels is None:
-            raise ValueError("mask_channels must be set before creating a multiclass model.")
-        for bounds in ("min", "max"):
-            self.model_params[bounds]["mask_channels"] = int(self.mask_channels)
 
     # save config as JSON
     def save_config_file(self, json_path=None, overwrite=False):

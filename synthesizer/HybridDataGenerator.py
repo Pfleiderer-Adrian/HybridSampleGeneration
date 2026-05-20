@@ -117,17 +117,16 @@ class HybridDataGenerator:
         os.makedirs(save_folder_roi, exist_ok=True)
         os.makedirs(save_folder, exist_ok=True)
 
-        if self._config.multiclass:
-            if save_folder_org_mask is None:
-                save_folder_org_mask = os.path.join(self._config.study_folder, "org_masks")
-            if save_folder_tgt_mask is None:
-                save_folder_tgt_mask = os.path.join(self._config.study_folder, "tgt_masks")
-            if os.path.exists(save_folder_org_mask):    
-                shutil.rmtree(save_folder_org_mask)
-            if os.path.exists(save_folder_tgt_mask):
-                shutil.rmtree(save_folder_tgt_mask)
-            os.makedirs(save_folder_org_mask, exist_ok=True)
-            os.makedirs(save_folder_tgt_mask, exist_ok=True)
+        if save_folder_org_mask is None:
+            save_folder_org_mask = os.path.join(self._config.study_folder, "org_masks")
+        if save_folder_tgt_mask is None:
+            save_folder_tgt_mask = os.path.join(self._config.study_folder, "tgt_masks")
+        if os.path.exists(save_folder_org_mask):    
+            shutil.rmtree(save_folder_org_mask)
+        if os.path.exists(save_folder_tgt_mask):
+            shutil.rmtree(save_folder_tgt_mask)
+        os.makedirs(save_folder_org_mask, exist_ok=True)
+        os.makedirs(save_folder_tgt_mask, exist_ok=True)
         
         for img, seg, basename in sample_dataloader:
             # check if sample has no anomaly
@@ -157,7 +156,7 @@ class HybridDataGenerator:
                 raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
             
             tgt_masks = []
-            if self._config.multiclass and org_masks is not None:
+            if org_masks is not None:
                 for org_mask in org_masks:
                     tgt_mask = augment_mask(org_mask)
                     tgt_masks.append(tgt_mask)
@@ -174,15 +173,14 @@ class HybridDataGenerator:
                 save_numpy_as_npy(roi_sample, os.path.join(save_folder_roi, basename+"_"+str(i)+".npy"), overwrite=True)
                 i = i + 1
             i = 0    
-            if self._config.multiclass:
-                # save org mask for Encoder input (and Decoder in training)
-                for org_mask in org_masks:
-                    save_numpy_as_npy(org_mask, os.path.join(save_folder_org_mask, basename+"_"+str(i)+".npy"), overwrite=True)
-                    i = i + 1
-                i = 0
-                # save tgt mask for Decoder (only for inception)
-                for tgt_mask in tgt_masks:
-                    save_numpy_as_npy(tgt_mask, os.path.join(save_folder_tgt_mask, basename+"_"+str(i)+".npy"), overwrite=True)
+            # save org mask
+            for org_mask in org_masks:
+                save_numpy_as_npy(org_mask, os.path.join(save_folder_org_mask, basename+"_"+str(i)+".npy"), overwrite=True)
+                i = i + 1
+            i = 0
+            # save tgt mask
+            for tgt_mask in tgt_masks:
+                save_numpy_as_npy(tgt_mask, os.path.join(save_folder_tgt_mask, basename+"_"+str(i)+".npy"), overwrite=True)
         self._config.save_anomaly_transformations()
         self.load_anomalies(anomaly_folder=save_folder) 
 
@@ -221,18 +219,18 @@ class HybridDataGenerator:
                 org_mask_folder = os.path.join(self._config.study_folder, "org_masks")
             if tgt_mask_folder is None:
                 tgt_mask_folder = os.path.join(self._config.study_folder, "tgt_masks")
-            # calc mask_channels if necessary    
-            if self._config.mask_channels is None:
+            # calc num_anomaly_classes if necessary    
+            if self._config.num_anomaly_classes is None:
                 mask_dir = Path(org_mask_folder)
                 max_class_val = 0
-                # classes must be integers 0,1,2,...,mask_channels (with background class 0)
+                # classes must be integers 0,1,2,...,num_anomaly_classes (with background class 0)
                 for mask_path in mask_dir.glob("*.npy"):
                     mask = np.load(mask_path, allow_pickle=False, mmap_mode='r')
                     max_val_in_file = np.max(mask)
                     if max_val_in_file > max_class_val:
                         max_class_val = max_val_in_file
-                self._config.mask_channels = int(max_class_val)
-            self._config.sync_model_mask_channels()
+                self._config.num_anomaly_classes = int(max_class_val)
+            self._config.set_model_param("num_anomaly_classes", self._config.num_anomaly_classes)
 
             self._anomaly_dataset = AnomalyDataset(
                 anomaly_folder,
@@ -370,13 +368,20 @@ class HybridDataGenerator:
                 
                 while best < self._config.feedback_threshold:
                     if self._config.multiclass:
-                        # TODO: hier noch prior einbauen?
-                        syn_anomaly_sample = self._model.generate_synth_sample(
+                        if getattr(self._config, "prior_sampling", False):
+                            syn_anomaly_sample = self._model.generate_synth_sample_prior(
                             sample=img, 
                             original_mask=org_mask, 
                             target_mask=tgt_mask, 
                             clamp_01=self._config.clamp01_output
                         )
+                        else: 
+                            syn_anomaly_sample = self._model.generate_synth_sample(
+                                sample=img, 
+                                original_mask=org_mask, 
+                                target_mask=tgt_mask, 
+                                clamp_01=self._config.clamp01_output
+                            )
                     else:
                         if getattr(self._config, "prior_sampling", False):
                             syn_anomaly_sample = self._model.generate_synth_sample_prior(

@@ -5,7 +5,6 @@ from models.VAE_ResNet_2D import ResNetVAE2D, Config as ResNetVAE2D_Config
 from models.VAE_ResNet_3D import ResNetVAE3D, Config as ResNetVAE3D_Config
 
 def model_loader(model_name, params):
-    params = dict(params)
     model = None
     if model_name == "VAE_ConvNeXt_3D_multiclass":
         model = ConvNeXtVAE3D_multiclass(ConvNeXtVAE3D_multiclass_Config(**params))

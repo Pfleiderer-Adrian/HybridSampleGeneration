@@ -94,7 +94,7 @@ def get_model_configuration(model_name, in_channels, debug=False):
         if model_name == "VAE_ConvNeXt_3D_multiclass":
             _VAE3D_min_params = asdict(VAE_ConvNeXt_3D_multiclass.Config(
                 in_channels=in_channels,
-                mask_channels=None,
+                num_anomaly_classes=None,
                 n_res_blocks=5,
                 n_spade_blocks=2,
                 n_levels=5,
@@ -115,7 +115,7 @@ def get_model_configuration(model_name, in_channels, debug=False):
                 use_transpose_conv=False))
             _VAE3D_max_params = asdict(VAE_ConvNeXt_3D_multiclass.Config(
                 in_channels=in_channels,
-                mask_channels=None,
+                num_anomaly_classes=None,
                 n_res_blocks=6,
                 n_spade_blocks=2,
                 n_levels=6,

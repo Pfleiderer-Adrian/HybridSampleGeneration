@@ -173,7 +173,7 @@ class ConvNeXtSPADEBlock3D(nn.Module):
     def __init__(
         self,
         channels: int,
-        mask_channels: int,
+        num_anomaly_classes: int,
         mlp_ratio: float = 4.0,
         drop_path: float = 0.0,
     ):
@@ -188,7 +188,7 @@ class ConvNeXtSPADEBlock3D(nn.Module):
             bias=True,
         )
 
-        self.spade = SPADE3D(norm_nc=channels, label_nc=mask_channels)
+        self.spade = SPADE3D(norm_nc=channels, label_nc=num_anomaly_classes)
 
         hidden = int(channels * mlp_ratio)
         self.pwconv1 = nn.Conv3d(channels, hidden, kernel_size=1, bias=True)
@@ -302,7 +302,7 @@ class ConvNeXtSPADEUNetDecoder3D(nn.Module):
         n_spade_blocks: int,
         n_levels: int,
         z_channels: int,
-        mask_channels: int,
+        num_anomaly_classes: int,
         use_multires_skips: bool = True,  # kept for API compatibility (not used)
         leak: float = 0.2,  # kept for API compatibility
         use_transpose_conv: bool = True,
@@ -356,7 +356,7 @@ class ConvNeXtSPADEUNetDecoder3D(nn.Module):
             for j in range(n_res_blocks):
                 if j < num_spade:
                     # first num_spade blocks use SPADE
-                    stage.append(ConvNeXtSPADEBlock3D(channels=ch, mask_channels=mask_channels, mlp_ratio=4.0))
+                    stage.append(ConvNeXtSPADEBlock3D(channels=ch, num_anomaly_classes=num_anomaly_classes, mlp_ratio=4.0))
                 else:
                     # normal convnext blocks
                     stage.append(ConvNeXtBlock3D(channels=ch, mlp_ratio=4.0, gn_groups=gn_groups))
@@ -458,7 +458,7 @@ class Config:
       - `use_transpose_conv` is still honored.
     """
     in_channels: int = None
-    mask_channels: int = None
+    num_anomaly_classes: int = None
     n_res_blocks: int = 8
     n_spade_blocks: int = 2 # how many of the res blocks should use spade? for every upscale?
     n_levels: int = 4
@@ -490,13 +490,13 @@ class ConvNeXtVAE3D_multiclass(nn.Module):
 
     def __init__(self, cfg: Config):
         super().__init__()
-        if cfg.mask_channels is None:
-            raise ValueError("Config.mask_channels must be set for ConvNeXtVAE3D_multiclass.")
+        if cfg.num_anomaly_classes is None:
+            raise ValueError("Config.num_anomaly_classes must be set for ConvNeXtVAE3D_multiclass.")
         self.cfg = cfg
         self.in_channels = cfg.in_channels
 
         # encoder gets real mask as additional input (concatenated)
-        enc_in_channels = cfg.in_channels + cfg.mask_channels   
+        enc_in_channels = cfg.in_channels + cfg.num_anomaly_classes   
 
         # Encoder returns (h, skips)
         self.encoder = ConvNeXtUNetEncoder3D(
@@ -514,7 +514,7 @@ class ConvNeXtVAE3D_multiclass(nn.Module):
             n_levels=cfg.n_levels,
             n_spade_blocks=cfg.n_spade_blocks,
             z_channels=cfg.z_channels,
-            mask_channels=cfg.mask_channels,
+            num_anomaly_classes=cfg.num_anomaly_classes,
             use_multires_skips=cfg.use_multires_skips,
             use_transpose_conv=cfg.use_transpose_conv,
             skip_dropout_p=getattr(cfg, 'skip_dropout_p', 0.0),
@@ -550,8 +550,8 @@ class ConvNeXtVAE3D_multiclass(nn.Module):
         """Forward pass through encoder (x and org_mask) -> bottleneck -> decoder with SPADE using tgt_mask."""
         if tgt_mask is None:
             tgt_mask = org_mask
-        org_mask = to_one_hot_3D(org_mask, self.cfg.mask_channels)
-        tgt_mask = to_one_hot_3D(tgt_mask, self.cfg.mask_channels)
+        org_mask = to_one_hot_3D(org_mask, self.cfg.num_anomaly_classes)
+        tgt_mask = to_one_hot_3D(tgt_mask, self.cfg.num_anomaly_classes)
         if x.ndim != 5 or org_mask.ndim != 5 or tgt_mask.ndim != 5:
             raise ValueError(f"Expected (B,C,D,H,W), got {tuple(x.shape)}")
         if x.shape[1] != self.in_channels:
@@ -802,8 +802,8 @@ class ConvNeXtVAE3D_multiclass(nn.Module):
         x = x.to(device)
         
         # to device and then one-hot
-        org_mask = to_one_hot_3D(org_mask.to(device), self.cfg.mask_channels)
-        tgt_mask = to_one_hot_3D(tgt_mask.to(device), self.cfg.mask_channels)
+        org_mask = to_one_hot_3D(org_mask.to(device), self.cfg.num_anomaly_classes)
+        tgt_mask = to_one_hot_3D(tgt_mask.to(device), self.cfg.num_anomaly_classes)
 
         with torch.no_grad():
             # --- same preprocessing as forward() ---
@@ -904,9 +904,107 @@ class ConvNeXtVAE3D_multiclass(nn.Module):
 
         return self
     
+    def generate_synth_sample_prior(
+        self,
+        target_mask: Union[np.ndarray, torch.Tensor],
+        *,
+        s: float = 1.0,
+        device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
+        clamp_01: bool = True,
+        return_torch: bool = False,
+    ) -> Union[np.ndarray, torch.Tensor]:
+        """
+        Generate synthetic 3D samples via *prior sampling* conditioned on a target mask.
+        (No input image required).
+
+        Samples:
+            z ~ N(0, I) (scaled by s), then decode to 3D volume space conditioned on target_mask.
+
+        Parameters:
+        - target_mask: (C_mask, D, H, W) or (B, C_mask, D, H, W). Defines the classes and output spatial size.
+        - s: prior temperature / diversity strength (1.0 is standard; <1.0 more conservative).
+        - clamp_01: clamp outputs to [0,1].
+        - return_torch: return torch.Tensor instead of np.ndarray.
+
+        Output:
+        - (C, D, H, W) if input was 4D
+        - (B, C, D, H, W) if input was 5D
+        """
+        if s < 0:
+            raise ValueError(f"s must be >= 0, got {s}")
+
+        device = torch.device(device)
+        model = self.to(device)
+        model.eval()
+
+        tgt_mask = torch.as_tensor(target_mask).float()
+        single = False
+
+        if tgt_mask.ndim == 4:
+            tgt_mask = tgt_mask.unsqueeze(0)  # (1, C_mask, D, H, W)
+            single = True
+        elif tgt_mask.ndim == 5:
+            pass
+        else:
+            raise ValueError(f"Expected target_mask (C,D,H,W) or (B,C,D,H,W), got {tuple(tgt_mask.shape)}")
+
+        tgt_mask = tgt_mask.to(device)
+
+        with torch.no_grad():
+            ref_dhw = tuple(tgt_mask.shape[-3:])
+            multiple = 2 ** self.cfg.n_levels
+            
+            # Pad the target mask so spatial dims are divisible by the downsampling factor
+            tgt_mask_pad, pad = _pad_to_multiple_3d(tgt_mask, multiple)
+
+            # Calculate latent dimensions based on the padded mask
+            latent_dhw = (
+                tgt_mask_pad.shape[2] // multiple,
+                tgt_mask_pad.shape[3] // multiple,
+                tgt_mask_pad.shape[4] // multiple
+            )
+            
+            model._ensure_fcs(latent_dhw, device)
+
+            B = tgt_mask.shape[0]
+            z_dim = int(getattr(self.cfg, "bottleneck_dim", 256))
+
+            # Prior sampling: z ~ N(0, I)
+            if s == 0.0:
+                z = torch.zeros((B, z_dim), device=device)
+            else:
+                z = torch.randn((B, z_dim), device=device) * float(s)
+
+            # Map z -> decoder feature map
+            h_dec = model.fc_decode(z).reshape(B, int(self.cfg.z_channels), *latent_dhw)
+
+            # Ensure decoder doesn't expect encoder skips (we have none for pure prior sampling)
+            try:
+                model.decoder.set_skips(None)
+            except Exception:
+                pass
+
+            # Decode conditioned on the target mask
+            recon = model.decoder(h_dec, tgt_mask_pad)
+            
+            # Crop back to exact requested size
+            recon = _crop_like_3d(recon, ref_dhw)
+
+            if clamp_01:
+                recon = recon.clamp(0.0, 1.0)
+
+            # Squeeze batch dimension if input lacked it
+            if single:
+                recon = recon.squeeze(0)
+
+        if return_torch:
+            return recon
+
+        return recon.detach().cpu().numpy().astype(np.float32, copy=False)
+    
 if __name__ == "__main__":
     # Quick sanity check
-    cfg = Config(in_channels=1, mask_channels=4, n_res_blocks=2, n_levels=4, z_channels=64, bottleneck_dim=64)  # 4 classes one-hot encoded
+    cfg = Config(in_channels=1, num_anomaly_classes=4, n_res_blocks=2, n_levels=4, z_channels=64, bottleneck_dim=64)  # 4 classes one-hot encoded
     model = ConvNeXtVAE3D_multiclass(cfg=cfg)
     
     x = torch.randn(1, 1, 64, 64, 64)

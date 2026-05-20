@@ -5,7 +5,7 @@ import torch.nn.functional as F
 def augment_mask(mask: np.ndarray):
     return mask
 
-def to_one_hot_3D(mask: torch.Tensor, mask_channels: int) -> torch.Tensor:
+def to_one_hot_3D(mask: torch.Tensor, num_anomaly_classes: int) -> torch.Tensor:
     """Converts 3D/4D/5D integer masks to 5D one-hot float tensors of shape (B, C, D, H, W)."""
     
     # already 5D and one hot encoded (more than one Channel)
@@ -25,7 +25,7 @@ def to_one_hot_3D(mask: torch.Tensor, mask_channels: int) -> torch.Tensor:
         
     mask = mask.long()
     
-    num_classes = mask_channels + 1
+    num_classes = num_anomaly_classes + 1
     # (B, D, H, W) -> (B, D, H, W, num_classes)
     mask_oh = F.one_hot(mask, num_classes=num_classes)
     
