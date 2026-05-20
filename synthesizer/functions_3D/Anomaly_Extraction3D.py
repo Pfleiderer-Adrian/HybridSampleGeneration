@@ -307,8 +307,8 @@ def crop_and_center_anomaly_3d(
         list[np.ndarray]
         ROI crops around anomaly centroid, shape (C, d', h', w') (variable).
     org_masks:
-        list[np.ndarray] if config.multiclass, else None
-        Segmentation (multiclass) crops around anomaly centroid, shape (C, tD, tH, tW).
+        list[np.ndarray]
+        Segmentation crops around anomaly centroid, shape (C, tD, tH, tW).
 
     Notes
     -----
@@ -321,7 +321,7 @@ def crop_and_center_anomaly_3d(
     """
     target_size = _spatial_target_size(target_size)
     if seg is None or np.all(seg == 0):
-        return None, None
+        return None, None, None
 
     if img.ndim != 4:
         raise ValueError(f"img must be (C,D,H,W). Got {img.shape}")
@@ -340,7 +340,7 @@ def crop_and_center_anomaly_3d(
 
     anomalies = []
     anomalies_roi = []
-    org_masks = [] if config.multiclass else None
+    org_masks = []
 
     min_region_voxels = int(config.min_anomaly_percentage * (target_size[0] * target_size[1] * target_size[2]))
     for ridx, region in enumerate(regions, start=1):
@@ -395,16 +395,16 @@ def crop_and_center_anomaly_3d(
         
         anomalies.append((padded_arr, meta_data))
 
-        if config.multiclass:
-            # cutout like in img
-            m_result = seg[:, dsl, hsl, wsl]
+        # cutout like in img
+        m_result = seg[:, dsl, hsl, wsl]
+        m_result = np.where(region_mask, m_result, 0)
 
-            # order=0 for nearest neighbor
-            padded_mask, _ = resize_and_pad_3d(
-                m_result,
-                target_size=target_size,
-                order=0,
-            )
-            org_masks.append(padded_mask)
+        # order=0 for nearest neighbor
+        padded_mask, _ = resize_and_pad_3d(
+            m_result,
+            target_size=target_size,
+            order=0,
+        )
+        org_masks.append(padded_mask)
 
     return anomalies, anomalies_roi, org_masks

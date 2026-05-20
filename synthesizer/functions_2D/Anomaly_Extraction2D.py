@@ -287,8 +287,8 @@ def crop_and_center_anomaly_2d(
         list[np.ndarray]
         ROI crops around anomaly centroid, shape (C, h', w') (variable).
     org_masks:
-        list[np.ndarray] if config.multiclass, else None
-        Segmentation (multiclass) crops around anomaly centroid, shape (C, tH, tW).
+        list[np.ndarray]
+        Segmentation crops around anomaly centroid, shape (C, tH, tW).
     """
     target_size = _spatial_target_size(target_size)
 
@@ -312,7 +312,7 @@ def crop_and_center_anomaly_2d(
 
     anomalies = []
     anomalies_roi = []
-    org_masks = [] if config.multiclass else None
+    org_masks = []
 
     min_region_pixels = int(config.min_anomaly_percentage * (target_size[0] * target_size[1]))
 
@@ -373,16 +373,16 @@ def crop_and_center_anomaly_2d(
 
         anomalies.append((padded_arr, meta_data))
 
-        if config.multiclass:
-            # Cutout aus der originalen Maske (analog zum Image-Cutout)
-            m_result = seg[:, hsl, wsl]
+        # cutout like in img
+        m_result = seg[:, hsl, wsl]
+        m_result = np.where(region_mask, m_result, 0)
 
-            # order=0 sorgt für Nearest-Neighbor, damit Klassen sauber bleiben
-            padded_mask, _ = resize_and_pad_2d(
-                m_result,
-                target_size=target_size,
-                order=0,
-            )
-            org_masks.append(padded_mask)
+        # order=0 for nearest neighbor
+        padded_mask, _ = resize_and_pad_2d(
+            m_result,
+            target_size=target_size,
+            order=0,
+        )
+        org_masks.append(padded_mask)
 
     return anomalies, anomalies_roi, org_masks
