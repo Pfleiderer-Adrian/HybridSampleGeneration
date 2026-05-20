@@ -119,7 +119,7 @@ class HybridDataGenerator:
                 continue
 
             if img.ndim == 3:
-                anomalies, anomalies_roi, anomalies_seg = crop_and_center_anomaly_2d(
+                anomalies, anomalies_roi = crop_and_center_anomaly_2d(
                     img,
                     seg,
                     self._config,
@@ -128,7 +128,7 @@ class HybridDataGenerator:
                     normalization_eps=self._config.normalization_eps,
                 )
             elif img.ndim == 4:
-                anomalies, anomalies_roi, anomalies_seg = crop_and_center_anomaly_3d(
+                anomalies, anomalies_roi = crop_and_center_anomaly_3d(
                     img,
                     seg,
                     self._config,
