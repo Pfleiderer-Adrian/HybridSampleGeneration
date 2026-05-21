@@ -186,7 +186,7 @@ class HybridDataGenerator:
 
     def load_anomalies(self, anomaly_folder=None, org_mask_folder=None, tgt_mask_folder=None):
         """
-        Load previously extracted anomaly cutouts into an AnomalyDataset3D and
+        Load previously extracted anomaly cutouts into an AnomalyDataset and
         load their transformation meta-data from config.
 
         Inputs
@@ -214,11 +214,14 @@ class HybridDataGenerator:
         if anomaly_folder is None:
             anomaly_folder = os.path.join(self._config.study_folder, "anomaly_data")
         
+        if org_mask_folder is None:
+            org_mask_folder = os.path.join(self._config.study_folder, "org_masks")
+        if tgt_mask_folder is None:
+            tgt_mask_folder = os.path.join(self._config.study_folder, "tgt_masks")
+        os.makedirs(org_mask_folder, exist_ok=True)
+        os.makedirs(tgt_mask_folder, exist_ok=True)
+        
         if self._config.multiclass:
-            if org_mask_folder is None:
-                org_mask_folder = os.path.join(self._config.study_folder, "org_masks")
-            if tgt_mask_folder is None:
-                tgt_mask_folder = os.path.join(self._config.study_folder, "tgt_masks")
             # calc num_anomaly_classes if necessary    
             if self._config.num_anomaly_classes is None:
                 mask_dir = Path(org_mask_folder)
@@ -232,23 +235,17 @@ class HybridDataGenerator:
                 self._config.num_anomaly_classes = int(max_class_val)
             self._config.set_model_param("num_anomaly_classes", self._config.num_anomaly_classes)
 
-            self._anomaly_dataset = AnomalyDataset(
-                anomaly_folder,
-                org_mask_folder,
-                tgt_mask_folder,
-                return_filename=True,
-                load_to_ram=True,
-                dtype=torch.float32,
-                numpy_mode=False,
-                skip_missing_masks=True,
-            )
-        else:
-            self._anomaly_dataset = AnomalyDataset(
-                anomaly_folder,
-                return_filename=True,
-                load_to_ram=True,
-                dtype=torch.float32,
-            )
+        self._anomaly_dataset = AnomalyDataset(
+            folder=anomaly_folder,
+            org_mask_folder=org_mask_folder,
+            tgt_mask_folder=tgt_mask_folder,
+            conditional=self._config.multiclass,    # TODO: change to conditional flag?
+            return_filename=True,
+            load_to_ram=True,
+            dtype=torch.float32,
+            numpy_mode=False,
+            skip_missing_masks=self._config.multiclass,
+        )
         self._config.load_anomaly_transformations()
 
     def train_generator(self, no_of_trails):
@@ -485,9 +482,17 @@ class HybridDataGenerator:
         if transformation_file is None:
             transformation_file = os.path.join(self._config.study_folder, "anomaly_transformations.json")
 
+        org_mask_folder = os.path.join(self._config.study_folder, "org_masks")
+        tgt_mask_folder = os.path.join(self._config.study_folder, "tgt_masks")
+        os.makedirs(org_mask_folder, exist_ok=True)
+        os.makedirs(tgt_mask_folder, exist_ok=True)
+
         self._config.load_anomaly_transformations(transformation_file)
         self._synth_anomaly_dataset = AnomalyDataset(
-            synth_anomaly_folder,  
+            folder=synth_anomaly_folder,
+            org_mask_folder=org_mask_folder,
+            tgt_mask_folder=tgt_mask_folder,
+            conditional=False,
             return_filename=True,
             load_to_ram=True,
             dtype=torch.float32,
@@ -528,8 +533,17 @@ class HybridDataGenerator:
             roi_folder = os.path.join(self._config.study_folder, "anomaly_roi_data")
         if csv_file_path is None:
             csv_file_path = os.path.join(self._config.study_folder, "matching_dict.csv")
+            
+        org_mask_folder = os.path.join(self._config.study_folder, "org_masks")
+        tgt_mask_folder = os.path.join(self._config.study_folder, "tgt_masks")
+        os.makedirs(org_mask_folder, exist_ok=True)
+        os.makedirs(tgt_mask_folder, exist_ok=True)
+
         _roi_dataset = AnomalyDataset(
-            roi_folder,
+            folder=roi_folder,
+            org_mask_folder=org_mask_folder,
+            tgt_mask_folder=tgt_mask_folder,
+            conditional=False,
             return_filename=True,
             load_to_ram=True,
             dtype=torch.float32,

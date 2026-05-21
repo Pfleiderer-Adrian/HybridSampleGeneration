@@ -79,9 +79,10 @@ class AnomalyDataset(Dataset):
     def __init__(
         self,
         folder: Union[str, os.PathLike],
-        org_mask_folder: Optional[Union[str, os.PathLike]] = None,
-        tgt_mask_folder: Optional[Union[str, os.PathLike]] = None,
+        org_mask_folder: Union[str, os.PathLike],
+        tgt_mask_folder: Union[str, os.PathLike],
         *,
+        conditional: bool = False,
         return_filename: bool = True,
         dtype: torch.dtype = torch.float32,
         transform: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
@@ -101,11 +102,12 @@ class AnomalyDataset(Dataset):
         folder:
             Path to a directory containing `.npy` files.
         org_mask_folder:
-            Optional path to a directory containing the original masks as `.npy` files. (multiclass)
+            Path to a directory containing the original masks as `.npy` files.
         tgt_mask_folder:
-            Optional path to a directory containing the target masks as `.npy` files. (multiclass)
-            If org_mask_folder is None, tgt_mask_folder has no effect.
-            If org_mask_folder is not None but tgt_mask_folder is None: tgt_mask_folder = org_mask_folder.
+            Path to a directory containing the target masks as `.npy` files.
+        conditional:
+            If True, original and target masks are loaded and returned alongside
+            the input data.
         return_filename:
             If True, __getitem__ returns the filename at the end of the tuple.
         dtype:
@@ -128,23 +130,23 @@ class AnomalyDataset(Dataset):
         numpy_mode:
             If True, __getitem__ returns numpy arrays instead of torch tensors.
         skip_missing_masks:
-            If True and mask folders are configured, samples without matching
-            mask files are omitted from the dataset.
+            If True and conditional=True, samples without matching mask files 
+            are omitted from the dataset.
         """
-        # Resolve folder path
+        # Resolve folder paths
         self.folder = Path(folder).expanduser().resolve()
         if not self.folder.is_dir():
             raise FileNotFoundError(str(self.folder))
 
-        self.org_mask_folder = None
-        self.tgt_mask_folder = None
-        if org_mask_folder is not None:
-            self.org_mask_folder = Path(org_mask_folder).expanduser().resolve()
-            if not self.org_mask_folder.is_dir():
-                raise FileNotFoundError(f"Mask folder not found: {self.org_mask_folder}")
-            if tgt_mask_folder is None: 
-                tgt_mask_folder = org_mask_folder
-            self.tgt_mask_folder = Path(tgt_mask_folder).expanduser().resolve()
+        self.org_mask_folder = Path(org_mask_folder).expanduser().resolve()
+        if not self.org_mask_folder.is_dir():
+            raise FileNotFoundError(f"org_mask_folder not found: {self.org_mask_folder}")
+            
+        self.tgt_mask_folder = Path(tgt_mask_folder).expanduser().resolve()
+        if not self.tgt_mask_folder.is_dir():
+            raise FileNotFoundError(f"tgt_mask_folder not found: {self.tgt_mask_folder}")
+
+        self.conditional = conditional
 
         # Store configuration flags
         self.numpy_mode = numpy_mode
@@ -162,7 +164,7 @@ class AnomalyDataset(Dataset):
 
         # Collect all .npy files into a list
         self._paths: List[str] = self._collect_paths()
-        if self.org_mask_folder is not None and self.skip_missing_masks:
+        if self.conditional and self.skip_missing_masks:
             self._paths = self._filter_paths_with_existing_masks(self._paths)
 
         # Fast lookup tables:
@@ -186,7 +188,7 @@ class AnomalyDataset(Dataset):
         if self.load_to_ram:
             self._ram_arrays = []
             
-            if self.org_mask_folder:
+            if self.conditional:
                 self._ram_org_masks = []
                 self._ram_tgt_masks = []
                 same_mask_folders = (self.org_mask_folder == self.tgt_mask_folder)
@@ -195,8 +197,8 @@ class AnomalyDataset(Dataset):
                 # allow_pickle=False for safety; loads full array into memory
                 self._ram_arrays.append(np.load(p, allow_pickle=False))
                 
-                # Load masks if folder is provided
-                if self.org_mask_folder:
+                # Load masks if conditional is True
+                if self.conditional:
                     org_mask_path = os.path.join(self.org_mask_folder, os.path.basename(p))
                     if not os.path.exists(org_mask_path):
                         raise FileNotFoundError(f"Expected org_mask file missing: {org_mask_path}")
@@ -383,12 +385,12 @@ class AnomalyDataset(Dataset):
         if self.transform is not None:
             x = self.transform(x)
 
-        if self.org_mask_folder is None:    # no multiclass
+        if not self.conditional:
             if self.return_filename:
                 return x, fname
             return x
 
-        # multiclass -> loads masks
+        # conditional -> loads masks
         if self._ram_org_masks is not None:
             org_mask_np = self._ram_org_masks[idx]
             tgt_mask_np = self._ram_tgt_masks[idx]
