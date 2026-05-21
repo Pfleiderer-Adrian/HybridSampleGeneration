@@ -350,6 +350,7 @@ class HybridDataGenerator:
             shutil.rmtree(save_folder)
         os.makedirs(save_folder, exist_ok=True)
 
+        # use feedback system to generate similar anomalies
         if self._config.use_feedback:
             self._anomaly_dataset.numpy_mode = True
             bad_anomalies = []
