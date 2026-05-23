@@ -6,6 +6,7 @@ MODEL_CONFIG_CLASSES = {
     "VAE_ResNet_3D": VAE_ResNet_3D.Config,
     "VAE_ResNet_2D": VAE_ResNet_2D.Config,
     "VAE_ConvNeXt_3D": VAE_ConvNeXt_3D.Config,
+    "VAE_ConvNeXt_3D_multiclass": VAE_ConvNeXt_3D_multiclass.Config,
     "VAE_ConvNeXt_2D": VAE_ConvNeXt_2D.Config,
 }
 
