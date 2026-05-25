@@ -43,9 +43,49 @@ class OutlierGUI:
         self.current_index = 0
         self.current_slice = 0
 
+        self._setup_responsive_sizes()
+
         self.build_ui()
         self.update_filter()
         self.root.focus_set()
+    
+    def _setup_responsive_sizes(self):
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+
+        base_width = 1920
+        base_height = 1080
+        tk_scale = 1.0
+        try:
+            tk_scale = float(self.root.tk.call('tk', 'scaling'))
+        except Exception:
+            tk_scale = 1.0
+
+        scale_x = screen_width / (base_width * max(1.0, tk_scale))
+        scale_y = screen_height / (base_height * max(1.0, tk_scale))
+        scale = min(scale_x, scale_y)
+        scale = max(0.7, min(1.5, scale))
+
+        self.font_label_bold = ('Arial', max(9, int(10 * scale)), 'bold')
+        self.font_label = ('Arial', max(8, int(10 * scale)))
+        self.font_button = ('Arial', max(8, int(10 * scale)))
+        self.font_small = ('Arial', max(7, int(8 * scale)), 'italic')
+        self.font_info = ('Arial', max(8, int(10 * scale)))
+
+        self.info_text_height = max(8, int(10 * scale))
+        self.info_text_width = max(25, int(30 * scale))
+    
+    def _on_canvas_resize(self, event):
+        if hasattr(self, 'axs'):
+            fig_width = self.fig.get_figwidth()
+            scale = max(0.8, min(1.5, fig_width / 12.0))
+            
+            for ax in self.axs:
+                for label in ax.get_xticklabels() + ax.get_yticklabels():
+                    label.set_fontsize(max(8, int(10 * scale)))
+                ax.title.set_fontsize(max(10, int(12 * scale)))
+            
+            self.fig.canvas.draw_idle()
 
     def on_closing(self):
         plt.close('all')
@@ -132,68 +172,154 @@ class OutlierGUI:
         return metric_map
 
     def build_ui(self):
-        control_frame = tk.Frame(self.root)
-        control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
+        main_container = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
+        main_container.pack(fill=tk.BOTH, expand=True)
 
-        tk.Label(control_frame, text="Filter & Sort by:", font=('Arial', 10, 'bold')).pack(anchor="w")
+        left_frame = tk.Frame(main_container)
+        main_container.add(left_frame, weight=1)
+
+        scrollbar = tk.Scrollbar(left_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        canvas = tk.Canvas(left_frame, yscrollcommand=scrollbar.set, bg=self.root.cget("bg"))
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=canvas.yview)
+        
+
+        control_frame = tk.Frame(canvas, bg=self.root.cget("bg"))
+        canvas_window = canvas.create_window((0, 0), window=control_frame, anchor="nw")
+        
+        # Update scroll region when frame changes
+        def on_frame_configure(event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            canvas.itemconfig(canvas_window, width=canvas.winfo_width())
+        
+        control_frame.bind("<Configure>", on_frame_configure)
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(canvas_window, width=e.width))
+        
+        # Mouse wheel scrolling (left panel only, supports Windows and Linux)
+        def _mousewheel_units(event):
+            if getattr(event, "delta", 0):
+                delta = event.delta
+                if abs(delta) >= 120:
+                    return int(-1 * (delta / 120))
+                return -1 if delta > 0 else 1
+            if getattr(event, "num", None) == 4:
+                return -1
+            if getattr(event, "num", None) == 5:
+                return 1
+            return 0
+
+        def _is_descendant(widget, ancestor):
+            while widget is not None:
+                if widget == ancestor:
+                    return True
+                widget = widget.master
+            return False
+
+        def on_mousewheel(event):
+            widget = self.root.winfo_containing(event.x_root, event.y_root)
+            if widget is None:
+                widget = getattr(event, "widget", None)
+            if widget is None or not _is_descendant(widget, left_frame):
+                return
+            widget_class = widget.winfo_class() if widget is not None else ""
+            if widget_class in ("Treeview", "TTreeview", "Text"):
+                return
+            units = _mousewheel_units(event)
+            if units:
+                canvas.yview_scroll(units, "units")
+                return "break"
+
+        self.root.bind("<MouseWheel>", on_mousewheel, add="+")
+        self.root.bind("<Button-4>", on_mousewheel, add="+")
+        self.root.bind("<Button-5>", on_mousewheel, add="+")
+
+        # Filter section
+        tk.Label(control_frame, text="Filter & Sort by:", font=self.font_label_bold, bg=self.root.cget("bg")).pack(anchor="w", padx=5, pady=(5, 0))
         self.metric_vars = {}
         for metric in sorted(self.metric_map.keys()):
             var = tk.BooleanVar(value=False)
-            cb = tk.Checkbutton(control_frame, text=metric, variable=var, command=self.update_filter)
-            cb.pack(anchor="w")
+            cb = tk.Checkbutton(control_frame, text=metric, variable=var, command=self.update_filter, font=self.font_label, bg=self.root.cget("bg"))
+            cb.pack(anchor="w", padx=10)
             self.metric_vars[metric] = var
 
-        tk.Label(control_frame, text="Outlier Threshold (Top %):", font=('Arial', 10, 'bold')).pack(anchor="w", pady=(10, 0))
+        tk.Label(control_frame, text="Outlier Threshold (Top %):", font=self.font_label_bold, bg=self.root.cget("bg")).pack(anchor="w", padx=5, pady=(10, 0))
         self.outlier_slider = tk.Scale(control_frame, from_=0, to=10, resolution=.1, orient=tk.HORIZONTAL, 
-                                       command=lambda _: self.update_filter())
+                                       command=lambda _: self.update_filter(), font=self.font_label, bg=self.root.cget("bg"))
         self.outlier_slider.set(1)
-        self.outlier_slider.pack(fill=tk.X, pady=(0, 5))
+        self.outlier_slider.pack(fill=tk.X, padx=5, pady=(0, 5))
 
-        self.list_frame = tk.Frame(control_frame)
-        self.list_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        tk.Label(control_frame, text="Controls / Anomalies:", font=self.font_label_bold, bg=self.root.cget("bg")).pack(anchor="w", padx=5, pady=(10, 0))
+        self.list_frame = tk.Frame(control_frame, height=150, bg=self.root.cget("bg"))
+        self.list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        self.scrollbar = tk.Scrollbar(self.list_frame)
-        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.scrollbar_tree = tk.Scrollbar(self.list_frame)
+        self.scrollbar_tree.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.tree = ttk.Treeview(self.list_frame, yscrollcommand=self.scrollbar.set, selectmode="browse")
-        self.tree.heading("#0", text="Controls / Anomalies", anchor="w")
+        self.tree = ttk.Treeview(self.list_frame, yscrollcommand=self.scrollbar_tree.set, selectmode="browse", height=8)
+        self.tree.heading("#0", text="Items", anchor="w")
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.scrollbar.config(command=self.tree.yview)
+        self.scrollbar_tree.config(command=self.tree.yview)
         self.tree.bind('<<TreeviewSelect>>', self.on_treeview_select)
 
-        contrast_header_frame = tk.Frame(control_frame)
-        contrast_header_frame.pack(fill=tk.X, pady=(10, 0))
-        tk.Label(contrast_header_frame, text="Contrast:", font=('Arial', 10, 'bold')).pack(side=tk.LEFT)
-        tk.Button(contrast_header_frame, text="reset", command=self.reset_contrast, font=('Arial', 8, 'italic'),
+        contrast_header_frame = tk.Frame(control_frame, bg=self.root.cget("bg"))
+        contrast_header_frame.pack(fill=tk.X, padx=5, pady=(10, 0))
+        tk.Label(contrast_header_frame, text="Contrast:", font=self.font_label_bold, bg=self.root.cget("bg")).pack(side=tk.LEFT)
+        tk.Button(contrast_header_frame, text="reset", command=self.reset_contrast, font=self.font_small,
                   relief=tk.FLAT, padx=2, pady=0, cursor="hand2").pack(side=tk.LEFT, padx=5)
 
         self.contrast_slider = tk.Scale(control_frame, from_=0.1, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, 
-                                        command=lambda _: self.update_display())
+                                        command=lambda _: self.update_display(), font=self.font_label, bg=self.root.cget("bg"))
         self.contrast_slider.set(1.0)
-        self.contrast_slider.pack(fill=tk.X, pady=(0, 10))
+        self.contrast_slider.pack(fill=tk.X, padx=5, pady=(0, 10))
 
-        tk.Button(control_frame, text="Prev Sample (←)", command=self.prev_sample).pack(fill=tk.X, pady=2)
-        tk.Button(control_frame, text="Next Sample (→)", command=self.next_sample).pack(fill=tk.X, pady=2)
-        tk.Button(control_frame, text="Slice - (↓)", command=self.prev_slice).pack(fill=tk.X, pady=2)
-        tk.Button(control_frame, text="Slice + (↑)", command=self.next_slice).pack(fill=tk.X, pady=2)
+        button_frame = tk.Frame(control_frame, bg=self.root.cget("bg"))
+        button_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        tk.Button(button_frame, text="Prev (←)", command=self.prev_sample, font=self.font_button).pack(fill=tk.X, pady=1)
+        tk.Button(button_frame, text="Next (→)", command=self.next_sample, font=self.font_button).pack(fill=tk.X, pady=1)
+        tk.Button(button_frame, text="Slice - (↓)", command=self.prev_slice, font=self.font_button).pack(fill=tk.X, pady=1)
+        tk.Button(button_frame, text="Slice + (↑)", command=self.next_slice, font=self.font_button).pack(fill=tk.X, pady=1)
 
-        self.info_text = tk.Text(control_frame, height=10, width=30, bg=self.root.cget("bg"), relief=tk.FLAT, font=("Arial", 10))
-        self.info_text.pack(pady=10, fill=tk.BOTH, expand=True, anchor="w")
-        self.info_text.tag_configure("active", foreground="black", font=("Arial", 10, "bold"))
-        self.info_text.tag_configure("inactive", foreground="gray")
-        self.info_text.tag_configure("header", font=("Arial", 10, "italic"))
+        # Info text display with scrollbar
+        tk.Label(control_frame, text="Info:", font=self.font_label_bold, bg=self.root.cget("bg")).pack(anchor="w", padx=5, pady=(10, 0))
+        info_frame = tk.Frame(control_frame, bg=self.root.cget("bg"))
+        info_frame.pack(padx=5, pady=5, fill=tk.BOTH, expand=True)
+        
+        info_scrollbar = tk.Scrollbar(info_frame)
+        info_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.info_text = tk.Text(info_frame, height=8, width=self.info_text_width, 
+                                 bg="white", relief=tk.SUNKEN, font=self.font_info, wrap=tk.WORD,
+                                 yscrollcommand=info_scrollbar.set)
+        self.info_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        info_scrollbar.config(command=self.info_text.yview)
+        
+        self.info_text.tag_configure("active", foreground="black", font=(self.font_info[0], self.font_info[1], "bold"))
+        self.info_text.tag_configure("inactive", foreground="gray", font=self.font_info)
+        self.info_text.tag_configure("header", font=(self.font_info[0], self.font_info[1], "italic"))
 
-        button_frame = tk.Frame(control_frame)
-        button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(5, 0))
-        self.del_btn = tk.Button(button_frame, text="DELETE", command=self.delete_current_sample,
-                                 bg="#ffcccc", font=('Arial', 10, 'bold'), pady=5)
-        self.del_btn.pack(side=tk.TOP, fill=tk.X, pady=(2, 0))
+        # Delete button at bottom
+        delete_frame = tk.Frame(control_frame, bg=self.root.cget("bg"))
+        delete_frame.pack(fill=tk.X, padx=5, pady=5)
+        self.del_btn = tk.Button(delete_frame, text="DELETE SAMPLE", command=self.delete_current_sample,
+                                 bg="#ffcccc", font=self.font_button, pady=3)
+        self.del_btn.pack(fill=tk.X)
 
-        self.fig, self.axs = plt.subplots(2, 2, figsize=(15, 5), constrained_layout=True)
+        # Right side: matplotlib canvas - smaller size for better balance
+        self.fig, self.axs = plt.subplots(2, 2, figsize=(6, 5), constrained_layout=True, dpi=100)
+        self.fig.set_constrained_layout_pads(w_pad=0.05, h_pad=0.05, hspace=0.05, wspace=0.05)
         self.axs = self.axs.flatten()
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.root)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=main_container)
         self.canvas_widget = self.canvas.get_tk_widget()
-        self.canvas_widget.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        main_container.add(self.canvas_widget, weight=4)
+        
+        # Connect resize event for responsive figure scaling
+        self.canvas.mpl_connect('resize_event', self._on_canvas_resize)
+        
+        # Store the last loaded image data for modal view
+        self.current_displayed_images = [None] * 4
 
         self.canvas_widget.bind("<MouseWheel>", self.on_mouse_wheel)
         self.canvas_widget.bind("<Button-4>", self.on_mouse_wheel)
@@ -342,9 +468,12 @@ class OutlierGUI:
             self.update_display()
 
     def on_mouse_wheel(self, event):
-        if event.num == 4 or event.delta > 0:
+        delta = getattr(event, "delta", 0) or 0
+        num = getattr(event, "num", None)
+
+        if num == 4 or delta > 0:
             self.next_slice()
-        elif event.num == 5 or event.delta < 0:
+        elif num == 5 or delta < 0:
             self.prev_slice()
 
     def _remove_if_exists(self, path):
@@ -501,7 +630,7 @@ class OutlierGUI:
         
         if item[0] == "control":
             control = item[1]
-            self.fig.suptitle(f"Control: {control}", fontsize=14, fontweight='bold', y=.995)
+            self.fig.suptitle(f"Control: {control}", fontsize=12, fontweight='bold')
             
             ghs_path = self._get_fallback_path(self.ghs_dir, control)
             ghs_seg_path = self._get_fallback_path(self.ghs_seg_dir, control)
@@ -514,7 +643,7 @@ class OutlierGUI:
             ]
         else:
             _, control, anomaly = item
-            self.fig.suptitle(f"{anomaly} in {control}", fontsize=14, fontweight='bold', y=.995)
+            self.fig.suptitle(f"{anomaly} in {control}", fontsize=12, fontweight='bold')
 
             paths = [
                 (os.path.join(self.synth_anomaly_dir, anomaly), "synth_anomaly_data"),
@@ -533,7 +662,7 @@ class OutlierGUI:
                     curr_slice = min(self.current_slice, arr.shape[1] - 1)
                     img = arr[:, curr_slice, :, :]
                     img = np.transpose(img, (1, 2, 0))
-                    display_title = f"{title}\nSlice {curr_slice}"
+                    display_title = title
                 elif arr.ndim == 3:
                     img = np.transpose(arr, (1, 2, 0))
                     display_title = title
@@ -552,7 +681,7 @@ class OutlierGUI:
                 continue
             
             if img is None:
-                self.axs[i].set_title(f"{title}\nNOT FOUND", fontsize=9)
+                self.axs[i].set_title(f"{title}\nNOT FOUND", fontsize=7, pad=5)
                 continue
 
             img_float = img.astype(np.float32)
@@ -560,7 +689,7 @@ class OutlierGUI:
             img_norm = (img_float - i_min) / (i_max - i_min) if i_max > i_min else img_float - i_min
             img_display = np.clip(img_norm * contrast, 0, 1)
 
-            self.axs[i].set_title(title, fontsize=10, pad=10)
+            self.axs[i].set_title(title, fontsize=10, pad=12)
             
             if img_display.ndim == 3 and img_display.shape[-1] == 1:
                 self.axs[i].imshow(img_display[:, :, 0], cmap="gray", vmin=0, vmax=1, aspect='equal')
@@ -571,26 +700,31 @@ class OutlierGUI:
 
         self.info_text.config(state=tk.NORMAL)
         self.info_text.delete('1.0', tk.END)
-        self.info_text.insert(tk.END, f"Selected: {self.current_index+1} / {len(self.flat_list)}\n\n", "header")
+        self.info_text.insert(tk.END, f"Selected: {self.current_index+1} / {len(self.flat_list)}\n", "header")
+        self.info_text.insert(tk.END, "=" * 30 + "\n\n", "header")
         
         active = [m for m, v in self.metric_vars.items() if v.get()]
         
         if item[0] == "control":
-            self.info_text.insert(tk.END, f"Anomalies in this control: {len(self.filtered_hierarchy.get(item[1], []))}\n", "active")
+            self.info_text.insert(tk.END, f"Anomalies: {len(self.filtered_hierarchy.get(item[1], []))}\n\n", "active")
         else:
             control, anomaly = item[1], item[2]
+            self.info_text.insert(tk.END, f"Control:\n{control}\n\n", "active")
+            self.info_text.insert(tk.END, f"Anomaly:\n{anomaly}\n\n", "active")
+            self.info_text.insert(tk.END, "Metrics:\n", "header")
+            self.info_text.insert(tk.END, "-" * 20 + "\n", "header")
+            
             for m in sorted(self.metric_map.keys()):
                 if control in self.metric_map[m] and anomaly in self.metric_map[m][control]:
                     val = self.metric_map[m][control][anomaly]
-                    line = f"{m}: {val:.4f}\n"
+                    line = f"{m}:\n  {val:.4f}\n\n"
                     self.info_text.insert(tk.END, line, "active" if m in active else "inactive")
-                
+
         self.info_text.config(state=tk.DISABLED)
         self.canvas.draw()
 
 def run_outlier_gui(config):
     root = tk.Tk()
-    root.tk.call('tk', 'scaling', 2.0)
     app = OutlierGUI(root, config)
     root.mainloop()
 
