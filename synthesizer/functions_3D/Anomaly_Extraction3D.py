@@ -240,12 +240,14 @@ def add_bg_noise_floor(img, sigma_rel=0.003, eps=1e-8):
     img[mask] = bg + noise[mask]
     return img
 
+import numpy as np
+
+
 def crop_and_center_anomaly_3d(
     img,
     seg,
     config,
     target_size,
-    separated_anomaly=True,
     *,
     normalization=None,
     normalization_eps=1e-8,
@@ -257,7 +259,7 @@ def crop_and_center_anomaly_3d(
 
     Pipeline:
       1) Collapse seg across channel axis -> binary 3D mask (D,H,W)
-      2) Connected-component labeling -> individual anomaly regions
+      2) Connected-component labeling -> individual anomaly regions (if separated_anomaly=True in config)
       3) For each region above min_region_voxels:
          - crop the region from img
          - compute centroid (center of mass)
@@ -276,8 +278,6 @@ def crop_and_center_anomaly_3d(
           - >0 = anomaly (any positive value is treated as anomaly)
     target_size:
         Either (tD, tH, tW) or (C, tD, tH, tW). Only spatial dims are used.
-    separated_anomaly:
-        not implemented -> next updates
     min_region_voxels:
         Minimum voxel count for a connected component to be kept.
         If <= 0, defaults to 5% of target volume (0.05 * tD * tH * tW).
@@ -335,18 +335,26 @@ def crop_and_center_anomaly_3d(
 
     binary3d = np.any(seg > 0, axis=0).astype(np.uint8)  # (D,H,W)
 
-    labeled, num = label(binary3d)
-    regions = find_objects(labeled)
+    if config.separated_anomaly:
+        labeled, num = label(binary3d)
+        regions = [r for r in find_objects(labeled) if r is not None]
+    else:
+        # whole mask as one region
+        labeled = binary3d
+        
+        d_indices, h_indices, w_indices = np.where(binary3d > 0)
+        dsl = slice(int(np.min(d_indices)), int(np.max(d_indices)) + 1)
+        hsl = slice(int(np.min(h_indices)), int(np.max(h_indices)) + 1)
+        wsl = slice(int(np.min(w_indices)), int(np.max(w_indices)) + 1)
+        regions = [(dsl, hsl, wsl)]
 
     anomalies = []
     anomalies_roi = []
     org_masks = []
 
     min_region_voxels = int(config.min_anomaly_percentage * (target_size[0] * target_size[1] * target_size[2]))
-    for ridx, region in enumerate(regions, start=1):
-        if region is None:
-            continue
 
+    for ridx, region in enumerate(regions, start=1):
         dsl, hsl, wsl = region
         region_mask = (labeled[region] == ridx)
         voxels = int(region_mask.sum())
@@ -361,7 +369,11 @@ def crop_and_center_anomaly_3d(
         if config.add_bg_noise:
             result = add_bg_noise_floor(result)
 
-        cd, ch, cw = center_of_mass(binary3d, labeled, ridx)
+        # geometric middle like in 2D
+        cd = (dsl.start + dsl.stop - 1) / 2
+        ch = (hsl.start + hsl.stop - 1) / 2
+        cw = (wsl.start + wsl.stop - 1) / 2
+        
         centroid_voxel = (int(round(cd)), int(round(ch)), int(round(cw)))
         centroid_norm = (centroid_voxel[0] / D, centroid_voxel[1] / H, centroid_voxel[2] / W)
 

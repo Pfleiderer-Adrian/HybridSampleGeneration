@@ -227,7 +227,6 @@ def crop_and_center_anomaly_2d(
     seg,
     config,
     target_size,
-    separated_anomaly=True,
     *,
     normalization=None,
     normalization_eps=1e-8,
@@ -240,7 +239,7 @@ def crop_and_center_anomaly_2d(
 
     Pipeline:
       1) Collapse seg across channel axis -> binary 2D mask (H,W)
-      2) Connected-component labeling -> individual anomaly regions
+      2) Connected-component labeling -> individual anomaly regions (if separated_anomaly=True in config)
       3) For each region above min_region_pixels:
          - crop the region from img
          - compute centroid (center of mass)
@@ -256,8 +255,6 @@ def crop_and_center_anomaly_2d(
         np.ndarray (C, H, W)  (segmentation / anomaly mask)
     target_size:
         Target spatial size (tH, tW) or (C,tH,tW)
-    separated_anomaly:
-        Currently kept for API-compatibility with 3D version.
     min_region_pixels:
         Minimum number of pixels for a connected component to be kept.
         If <=0, defaults to 5% of the target crop area.
@@ -307,8 +304,17 @@ def crop_and_center_anomaly_2d(
 
     binary2d = np.any(seg > 0, axis=0).astype(np.uint8)  # (H,W)
 
-    labeled, num = label(binary2d)
-    regions = find_objects(labeled)
+    if config.separated_anomaly:
+        labeled, num = label(binary2d)
+        regions = [r for r in find_objects(labeled) if r is not None]
+    else:
+        # whole mask as one region
+        labeled = binary2d
+        
+        h_indices, w_indices = np.where(binary2d > 0)
+        hsl = slice(int(np.min(h_indices)), int(np.max(h_indices)) + 1)
+        wsl = slice(int(np.min(w_indices)), int(np.max(w_indices)) + 1)
+        regions = [(hsl, wsl)]
 
     anomalies = []
     anomalies_roi = []
@@ -317,8 +323,6 @@ def crop_and_center_anomaly_2d(
     min_region_pixels = int(config.min_anomaly_percentage * (target_size[0] * target_size[1]))
 
     for ridx, region in enumerate(regions, start=1):
-        if region is None:
-            continue
 
         hsl, wsl = region
         region_mask = (labeled[region] == ridx)
