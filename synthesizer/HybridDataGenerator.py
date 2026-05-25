@@ -181,6 +181,7 @@ class HybridDataGenerator:
             # save tgt mask
             for tgt_mask in tgt_masks:
                 save_numpy_as_npy(tgt_mask, os.path.join(save_folder_tgt_mask, basename+"_"+str(i)+".npy"), overwrite=True)
+                i = i + 1
         self._config.save_anomaly_transformations()
         self.load_anomalies(anomaly_folder=save_folder) 
 
