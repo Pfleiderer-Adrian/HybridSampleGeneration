@@ -6,6 +6,21 @@ from scipy.ndimage import binary_fill_holes
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_square_clip
 
 
+def _inverse_extraction_scale(scale_factor, ndim):
+    """Return the spatial zoom that restores an extraction resize."""
+    if np.isscalar(scale_factor):
+        sf = np.full(ndim, float(scale_factor), dtype=np.float32)
+    else:
+        sf = np.asarray(scale_factor, dtype=np.float32).reshape(-1)
+        if sf.size != ndim:
+            raise ValueError(f"scale_factor must have len {ndim}. Got {scale_factor!r}")
+
+    if np.any(sf <= 0):
+        raise ValueError(f"scale_factor values must be > 0. Got {scale_factor!r}")
+
+    return tuple(float(1.0 / value) for value in sf)
+
+
 def _denormalize_anomaly(anom, normalization_meta):
     if not normalization_meta:
         return anom
@@ -41,7 +56,7 @@ def fusion2d(
     High-level steps (2D adaptation of fusion3d):
       1) Remove anomaly background via thresholding.
       2) Trim anomaly padding (crop to foreground bounding box).
-      3) Zoom anomaly (spatial only) by `scale_factor`.
+      3) Restore anomaly size by zooming spatially with inverse `scale_factor`.
       4) Compute the insertion box in control coords using `position_factor`.
       5) Normalize anomaly intensities locally to match control region (per channel).
       6) Create an alpha mask (edge-aware distance-transform mask).
@@ -139,12 +154,9 @@ def fusion2d(
     # If no foreground exists, `anom` remains unchanged. (You may optionally early-return.)
 
     # ------------------------------------------------------------
-    # 4) Zoom anomaly spatially (keep channel axis unchanged)
+    # 4) Restore anomaly footprint from extraction scale (keep channel axis unchanged)
     # ------------------------------------------------------------
-    if np.isscalar(scale_factor):
-        sf = (float(scale_factor),) * 2
-    else:
-        sf = tuple(float(v) for v in scale_factor)  # (scale_H, scale_W)
+    sf = _inverse_extraction_scale(scale_factor, ndim=2)
 
     # Zoom factors: (C unchanged, spatial scaled)
     anom = zoom(anom, (1.0, sf[0], sf[1]), order=1)
