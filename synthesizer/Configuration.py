@@ -160,13 +160,8 @@ class Configuration:
 
         self.model_params = get_model_configuration(model_name, anomaly_size[0], debug=False)
 
-        # fixed roi size - can also be set to None for variable roi size
-        if len(anomaly_size) == 3:
-            self.fixed_roi_size = (64,64)
-        elif len(anomaly_size) == 4:
-            self.fixed_roi_size = (64,64,64)
-        else:
-            self.fixed_roi_size = None
+        # fixed roi size - use None for variable roi size
+        self.fixed_roi_size = None
 
         # evaluation parameter
         # (optional) absolute thresholds
