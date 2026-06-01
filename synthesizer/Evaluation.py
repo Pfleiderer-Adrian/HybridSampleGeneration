@@ -286,6 +286,10 @@ def save_difference_histograms(differences_dict, save_path):
     """
     creates one hist for every metric in differenes_dict and saves it to save_path as png.
     """
+    if not differences_dict:
+        print(f"No histogram data for {save_path}. Skipping.")
+        return
+
     num_features = len(differences_dict)
     
     cols = 2
@@ -323,6 +327,24 @@ def save_difference_histograms(differences_dict, save_path):
         plt.show()
     
     plt.close(fig)
+
+
+def save_result_histograms(results, save_path):
+    if results is None:
+        print(f"No evaluation results for {save_path}. Skipping histogram.")
+        return
+    save_difference_histograms(results.get("all_diffs"), save_path)
+
+
+def collect_outlier_groups(*results):
+    groups = []
+    for result in results:
+        if result is None:
+            continue
+        outliers = result.get("outliers")
+        if outliers is not None:
+            groups.append(outliers)
+    return groups
 
 
 def get_overlapping_samples(outliers_data):
@@ -587,13 +609,13 @@ def evaluation_pipeline(sample_dataloader, config):
     glcm_cutout_results = run_feature_calculator(anomaly_dir, synth_anomaly_dir, get_glcm_feature_diffs, config, cutout=True)
     glcm_cutout_hist_path = os.path.join(eval_results_folder, "glcm_cutout_difference_histograms.png")
     analyze_results(glcm_cutout_results)
-    save_difference_histograms(glcm_cutout_results["all_diffs"], glcm_cutout_hist_path)
+    save_result_histograms(glcm_cutout_results, glcm_cutout_hist_path)
 
     print("\n- Computing volume features on cutouts -")
     volume_cutout_results = run_feature_calculator(anomaly_dir, synth_anomaly_dir, get_volume_feature_diffs, config, cutout=True)
     volume_cutout_hist_path = os.path.join(eval_results_folder, "volume_cutout_difference_histograms.png")
     analyze_results(volume_cutout_results)
-    save_difference_histograms(volume_cutout_results["all_diffs"], volume_cutout_hist_path)
+    save_result_histograms(volume_cutout_results, volume_cutout_hist_path)
 
     print("\n--- Compare ROIs ---")
 
@@ -604,13 +626,16 @@ def evaluation_pipeline(sample_dataloader, config):
     glcm_roi_results = run_feature_calculator(roi_dir, synth_roi_dir, get_glcm_roi_feature_diffs, config, cutout=False)
     glcm_roi_hist_path = os.path.join(eval_results_folder, "glcm_roi_difference_histograms.png")
     analyze_results(glcm_roi_results)
-    save_difference_histograms(glcm_roi_results["all_diffs"], glcm_roi_hist_path)
+    save_result_histograms(glcm_roi_results, glcm_roi_hist_path)
 
 
     print("\n--- Examining Outliers ---")
-    overlaps_list = [glcm_cutout_results["outliers"], volume_cutout_results["outliers"], glcm_roi_results["outliers"]]
-    print_overlap_summary(overlaps_list)
+    overlaps_list = collect_outlier_groups(glcm_cutout_results, volume_cutout_results, glcm_roi_results)
+    if not overlaps_list:
+        print("No evaluation result groups available for outlier analysis.")
+        return
 
+    print_overlap_summary(overlaps_list)
     auto_remove_outliers(overlaps_list, config)
 
 def auto_remove_outliers(overlaps_list, config):

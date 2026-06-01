@@ -29,16 +29,11 @@ class _TrainingTransformDataset(Dataset):
     def __getitem__(self, idx):
         item = self.dataset[idx]
         if isinstance(item, tuple) and item:
-            return (self.transform(item[0]), *item[1:])
+            return self.transform.transform_sample(item)
         if isinstance(item, list) and item:
-            return [self.transform(item[0]), *item[1:]]
+            return list(self.transform.transform_sample(tuple(item)))
         if isinstance(item, dict):
-            item = dict(item)
-            for key in ("x", "image", "inputs"):
-                if key in item:
-                    item[key] = self.transform(item[key])
-                    return item
-            return item
+            return self.transform.transform_sample(item)
         return self.transform(item)
 
 
@@ -65,19 +60,67 @@ class _RandomSpatialOffset:
         if not isinstance(x, torch.Tensor):
             x = torch.as_tensor(x)
 
-        if x.ndim not in (3, 4):
+        shifts = self._sample_shifts(x)
+        if shifts is None:
             return x
+
+        return self._apply_shift(x, shifts, fill_value=torch.amin(x))
+
+    # gets whole item (masks too if multiclass)
+    def transform_sample(self, item):
+        if isinstance(item, dict):
+            return self._transform_dict_sample(item)
+        if not item:
+            return item
+
+        x = item[0]
+        if not isinstance(x, torch.Tensor):
+            x = torch.as_tensor(x)
+
+        shifts = self._sample_shifts(x)
+        if shifts is None:
+            return item
+
+        shifted = [self._apply_shift(x, shifts, fill_value=torch.amin(x))]
+        for value in item[1:]:
+            shifted.append(self._maybe_apply_shift(value, shifts))
+        return tuple(shifted)
+
+    def _transform_dict_sample(self, item):
+        item = dict(item)
+        x_key = next((key for key in ("x", "image", "inputs") if key in item), None)
+        if x_key is None:
+            return item
+
+        x = item[x_key]
+        if not isinstance(x, torch.Tensor):
+            x = torch.as_tensor(x)
+
+        shifts = self._sample_shifts(x)
+        if shifts is None:
+            return item
+
+        item[x_key] = self._apply_shift(x, shifts, fill_value=torch.amin(x))
+        for key in ("org_mask", "mask", "tgt_mask", "target_mask"):
+            if key in item:
+                item[key] = self._maybe_apply_shift(item[key], shifts)
+        return item
+
+    # get exact offset
+    def _sample_shifts(self, x):
+        if x.ndim not in (3, 4):
+            return None
 
         x_min = torch.amin(x)
         x_max = torch.amax(x)
         dynamic_range = x_max - x_min
         if not bool(torch.isfinite(dynamic_range)) or float(dynamic_range) <= 0.0:
-            return x
+            return None
 
         threshold = x_min + dynamic_range * self.foreground_threshold_rel
         foreground = torch.any(x > threshold, dim=0)
         if not bool(torch.any(foreground)):
-            return x
+            return None
 
         coords = torch.nonzero(foreground, as_tuple=False)
         spatial_min = coords.min(dim=0).values.tolist()
@@ -96,14 +139,31 @@ class _RandomSpatialOffset:
                 shifts.append(int(torch.randint(min_shift, max_shift + 1, ()).item()))
 
         if not any(shifts):
-            return x
+            return None
 
+        return shifts
+
+    def _maybe_apply_shift(self, value, shifts):
+        if not isinstance(value, torch.Tensor):
+            return value    # only shift torch.Tensor
+
+        spatial_ndim = len(shifts)
+        if value.ndim == spatial_ndim:
+            return self._apply_shift(value, shifts, fill_value=0, has_channel_dim=False)
+        if value.ndim == spatial_ndim + 1:
+            return self._apply_shift(value, shifts, fill_value=0, has_channel_dim=True)
+        return value
+
+    def _apply_shift(self, x, shifts, *, fill_value, has_channel_dim=True):
         shifted = torch.empty_like(x)
-        shifted.fill_(x_min)
+        if isinstance(fill_value, torch.Tensor):
+            fill_value = fill_value.item()
+        shifted.fill_(fill_value)
 
-        src_slices = [slice(None)]
-        dst_slices = [slice(None)]
-        for shift, size in zip(shifts, x.shape[1:]):
+        src_slices = [slice(None)] if has_channel_dim else []
+        dst_slices = [slice(None)] if has_channel_dim else []
+        spatial_shape = x.shape[1:] if has_channel_dim else x.shape
+        for shift, size in zip(shifts, spatial_shape):
             if shift >= 0:
                 src_slices.append(slice(0, size - shift))
                 dst_slices.append(slice(shift, size))

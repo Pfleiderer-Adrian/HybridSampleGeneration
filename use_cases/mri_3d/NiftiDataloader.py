@@ -147,10 +147,8 @@ class NiftiDataloader:
         """
         Create a dataloader-like iterable over NIfTI images and segmentations.
 
-        Matching rule (kept exactly as before):
-        - For each image filename `ip_b`, compute:
-          expected_seg_name = ip_b[:-20] + "segmentation.nii.gz"
-          and match it against files inside `seg_dir`.
+        Matching rule:
+        - Images and segmentations are paired by identical filenames.
         - Union over:
           (seg, img) pairs + seg-only + img-only
         - __iter__ yields only complete pairs (both exist).
@@ -173,20 +171,17 @@ class NiftiDataloader:
         img_paths.sort()
         seg_paths.sort()
 
-        # Map: erwarteter seg_path -> img_path
-        img_by_expected_seg = {}
+        # Map identical segmentation basename -> image path.
+        img_by_seg_name = {}
         for ip in img_paths:
-            ip_b = os.path.basename(ip)
-            expected_seg_name = ip_b[:-20] + "segmentation.nii.gz"
-            expected_seg_path = os.path.join(seg_dir, expected_seg_name)
-            img_by_expected_seg[expected_seg_path] = ip
+            img_by_seg_name[os.path.basename(ip)] = ip
 
         union: List[Tuple[Optional[str], Optional[str]]] = []
         matched_imgs = set()
 
         # segs (und zugehörige imgs falls vorhanden)
         for sp in seg_paths:
-            ip = img_by_expected_seg.get(sp)
+            ip = img_by_seg_name.get(os.path.basename(sp))
             if ip is not None:
                 union.append((sp, ip))
                 matched_imgs.add(ip)
