@@ -5,8 +5,8 @@ This repository implements a hybrid sample generation pipeline for imaging data 
 The implementation is based on the IEEE paper: https://doi.org/10.1109/AMLDS63918.2025.11159383
 .
 
-It extracts real anomaly cutouts from labeled volumes, trains a **ResNet-VAE**, generates
-**synthetic anomaly cutouts**, matches them to control samples via ROI template matching, and finally
+It extracts real anomaly cutouts from labeled images/volumes, trains a **VAE Model**, generates
+**synthetic anomaly cutouts**, matches them to control samples (images w/o anomalies) via ROI template matching, and finally
 **fuses** synthetic anomalies into control images/volumes to produce hybrid data **and** a corresponding
 segmentation mask.
 
@@ -105,21 +105,9 @@ Each iteration must yield:
   Pair control samples and synthetic anomalies for fusion and save the results in matching_dict.csv: control, [(anomaly, fusion_position), ...]
 
   Choose one of four possible matching_routines:
-  - fixed_from_extraction_anomaly_fusion: 
-      Iterates through every control sample and attempts to find a specific set of synthetic ROIs pre-assigned to it.
-      Uses a naming convention (control_filename + index) to identify and load matching ROI files.
-      Retrieves the exact fusion positions (centroids) from the metadata.
-      Continues to load and append ROIs for a single control sample until no further matching filenames are found.
-      Bypasses overlap checks and similarity scores, assuming the pre-extracted anomalies are already valid for the target control.
-
-  - fixed_from_extraction_control_fusion:
-      Iterates through every control sample and pairs it with exactly one ROI from the dataloader in a sequential 1:1 relationship.
-      Retrieves the exact fusion positions (centroids) from the metadata.
-      If the ROI dataloader is exhausted and anomaly_duplicates is enabled, the routine restarts from the beginning of the ROI list to continue pairing.
-      If the ROI dataloader is exhausted and anomaly_duplicates is disabled, the process stops entirely.
-      Bypasses similarity scores, assuming the pre-extracted anomalies are already valid for the target control.
 
   - local: (pairing not optimal, but fast)
+      `Fusion synthetic anomaly into a random control sample, finds best position within the sample.`
       Iterates through every control sample and attempts to find a specified number of ROI matches (depending on fusions_per_control and max_fusions_per_control_deviation).
       Always only checks the next ROI from the dataloader (until enough matches were found).
       Uses template matching to find the position with the highest similarity score for a given ROI within the control sample.
@@ -130,6 +118,7 @@ Each iteration must yield:
       If the target number of matches cannot be reached, it issues a warning and moves to the next control sample.
 
   - global: (optimal pairing, but slow)
+      `Fusion synthetic anomaly into the best control sample within the dataset + finds best position within the sample.`
       Iterates through every control sample and attempts to find a specified number of ROI matches (depending on fusions_per_control and max_fusions_per_control_deviation).
       Performs template matching for all available ROIs against the current control sample to find the best possible positions for every ROI and save info in all_matches list.
       ROIs matched with the same control sample can not spatially overlap.
@@ -138,6 +127,22 @@ Each iteration must yield:
       If no more matches are possible for the current control and anomaly_duplicates is enabled, also check excluded_roi_samples and select those with highest similarity.
       If all available ROIs have been excluded and anomaly_duplicates is enabled, the exclusion list is cleared to allow a full restart of the ROI pool.
       If the target number of matches cannot be reached, it issues a warning and moves to the next control sample.
+
+  - fixed_from_extraction_control_fusion: (if images/dataset are aligned and homogeneous)
+      `Fusion synthetic anomaly into a random control sample at extraction position.`
+      Iterates through every control sample and pairs it with exactly one ROI from the dataloader in a sequential 1:1 relationship.
+      Retrieves the exact fusion positions (centroids) from the metadata.
+      If the ROI dataloader is exhausted and anomaly_duplicates is enabled, the routine restarts from the beginning of the ROI list to continue pairing.
+      If the ROI dataloader is exhausted and anomaly_duplicates is disabled, the process stops entirely.
+      Bypasses similarity scores, assuming the pre-extracted anomalies are already valid for the target control.
+
+  - fixed_from_extraction_anomaly_fusion: (if no control samples exists)
+      `Fusion synthetic anomaly into the original anomaly sample directly over the extracted real anomaly.`
+      Iterates through every control sample and attempts to find a specific set of synthetic ROIs pre-assigned to it.
+      Uses a naming convention (control_filename + index) to identify and load matching ROI files.
+      Retrieves the exact fusion positions (centroids) from the metadata.
+      Continues to load and append ROIs for a single control sample until no further matching filenames are found.
+      Bypasses overlap checks and similarity scores, assuming the pre-extracted anomalies are already valid for the target control.
 
   Matching Summary:
     After the matching process, the system provides a summary to evaluate the efficiency of the chosen routine and parameters:
