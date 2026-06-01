@@ -240,9 +240,6 @@ def add_bg_noise_floor(img, sigma_rel=0.003, eps=1e-8):
     img[mask] = bg + noise[mask]
     return img
 
-import numpy as np
-
-
 def crop_and_center_anomaly_3d(
     img,
     seg,
