@@ -16,10 +16,12 @@ from tkinter import messagebox
 from tkinter import ttk
 
 class OutlierGUI:
-    def __init__(self, root, config):
+    def __init__(self, root, config, embedded: bool = False):
         self.root = root
-        self.root.title("Outlier Viewer")
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.embedded = embedded
+        if not self.embedded:
+            self.root.title("Outlier Viewer")
+            self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         self.config = config
 
@@ -30,6 +32,7 @@ class OutlierGUI:
         
         self.ghs_dir = os.path.join(config.study_folder, "generated_hybrid_samples", "images_npy")
         self.ghs_seg_dir = os.path.join(config.study_folder, "generated_hybrid_samples", "segmentations_npy")
+        self.anomaly_transformations = _load_anomaly_transformations(config.study_folder)
 
         self.metric_stats = {}
         
@@ -49,9 +52,9 @@ class OutlierGUI:
 
     def on_closing(self):
         plt.close('all')
-        self.root.quit()
-        self.root.destroy()
-        os._exit(0)
+        if not self.embedded:
+            self.root.quit()
+            self.root.destroy()
 
     def build_metric_sample_map(self):
         metric_map = defaultdict(lambda: defaultdict(dict))
@@ -172,12 +175,12 @@ class OutlierGUI:
         self.contrast_slider.set(1.0)
         self.contrast_slider.pack(fill=tk.X, pady=(0, 10))
 
-        tk.Button(control_frame, text="Prev Sample (←)", command=self.prev_sample).pack(fill=tk.X, pady=2)
-        tk.Button(control_frame, text="Next Sample (→)", command=self.next_sample).pack(fill=tk.X, pady=2)
-        tk.Button(control_frame, text="Slice - (↓)", command=self.prev_slice).pack(fill=tk.X, pady=2)
-        tk.Button(control_frame, text="Slice + (↑)", command=self.next_slice).pack(fill=tk.X, pady=2)
+        tk.Button(control_frame, text="Prev Sample (<-)", command=self.prev_sample).pack(fill=tk.X, pady=2)
+        tk.Button(control_frame, text="Next Sample (->)", command=self.next_sample).pack(fill=tk.X, pady=2)
+        tk.Button(control_frame, text="Slice - (Down)", command=self.prev_slice).pack(fill=tk.X, pady=2)
+        tk.Button(control_frame, text="Slice + (Up)", command=self.next_slice).pack(fill=tk.X, pady=2)
 
-        self.info_text = tk.Text(control_frame, height=10, width=30, bg=self.root.cget("bg"), relief=tk.FLAT, font=("Arial", 10))
+        self.info_text = tk.Text(control_frame, height=10, width=30, bg=control_frame.cget("bg"), relief=tk.FLAT, font=("Arial", 10))
         self.info_text.pack(pady=10, fill=tk.BOTH, expand=True, anchor="w")
         self.info_text.tag_configure("active", foreground="black", font=("Arial", 10, "bold"))
         self.info_text.tag_configure("inactive", foreground="gray")
@@ -507,58 +510,77 @@ class OutlierGUI:
             ghs_seg_path = self._get_fallback_path(self.ghs_seg_dir, control)
             
             paths = [
-                (ghs_path, "Generated Hybrid Sample"),
-                (ghs_seg_path, "Generated Hybrid Segmentation"),
-                (None, ""),
-                (None, "")
+                (ghs_path, "Generated Hybrid Sample", None, None),
+                (ghs_seg_path, "Generated Hybrid Segmentation", None, None),
+                (None, "", None, None),
+                (None, "", None, None)
             ]
         else:
             _, control, anomaly = item
             self.fig.suptitle(f"{anomaly} in {control}", fontsize=14, fontweight='bold', y=.995)
 
+            anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, anomaly)
+            synth_roi_path = os.path.join(self.synth_roi_dir, control, anomaly)
+            real_roi_path = os.path.join(self.anomaly_roi_dir, anomaly)
             paths = [
-                (os.path.join(self.synth_anomaly_dir, anomaly), "synth_anomaly_data"),
-                (os.path.join(self.synth_roi_dir, control, anomaly), "synth_roi_data"),
-                (os.path.join(self.anomaly_dir, anomaly), "anomaly_data"),
-                (os.path.join(self.anomaly_roi_dir, anomaly), "anomaly_roi_data")
+                (os.path.join(self.synth_anomaly_dir, anomaly), "synth_anomaly_data", anomaly_meta, None),
+                (synth_roi_path, "synth_roi_data", None, None),
+                (os.path.join(self.anomaly_dir, anomaly), "anomaly_data", anomaly_meta, real_roi_path),
+                (real_roi_path, "anomaly_roi_data", None, None)
             ]
 
         loaded_data = []
         max_slices = 0
-        for p, title in paths:
+        for p, title, meta, window_path in paths:
             if p and os.path.exists(p):
-                arr = np.load(p)
-                if arr.ndim == 4:
-                    max_slices = max(max_slices, arr.shape[1])
-                    curr_slice = min(self.current_slice, arr.shape[1] - 1)
-                    img = arr[:, curr_slice, :, :]
-                    img = np.transpose(img, (1, 2, 0))
-                    display_title = f"{title}\nSlice {curr_slice}"
-                elif arr.ndim == 3:
-                    img = np.transpose(arr, (1, 2, 0))
-                    display_title = title
-                else:
-                    img = arr
-                    display_title = title
-                loaded_data.append((img, display_title))
+                try:
+                    arr = np.load(p)
+                    arr, denormalized = _denormalize_array_for_display(arr, meta)
+                    window_arr = arr
+                    if denormalized and window_path and os.path.exists(window_path):
+                        window_arr = np.load(window_path)
+                    if arr.ndim == 4:
+                        max_slices = max(max_slices, arr.shape[1])
+                        curr_slice = min(self.current_slice, arr.shape[1] - 1)
+                        img = arr[:, curr_slice, :, :]
+                        img = np.transpose(img, (1, 2, 0))
+                        display_title = f"{title}\nSlice {curr_slice}"
+                    elif arr.ndim == 3:
+                        img = np.transpose(arr, (1, 2, 0))
+                        display_title = title
+                    else:
+                        img = arr
+                        display_title = title
+                    loaded_data.append((img, display_title, p, None, window_arr))
+                except Exception as exc:
+                    loaded_data.append((None, title, p, str(exc), None))
             else:
-                loaded_data.append((None, title))
+                loaded_data.append((None, title, p, None, None))
 
         if self.current_slice >= max_slices and max_slices > 0:
             self.current_slice = max_slices - 1
 
-        for i, (img, title) in enumerate(loaded_data):
+        for i, (img, title, path, error, window_arr) in enumerate(loaded_data):
             if not title:
                 continue
             
             if img is None:
-                self.axs[i].set_title(f"{title}\nNOT FOUND", fontsize=9)
+                if error:
+                    self.axs[i].text(
+                        0.5, 0.5, f"Could not load:\n{path}\n\n{error}",
+                        ha="center", va="center", transform=self.axs[i].transAxes,
+                        fontsize=8, wrap=True,
+                    )
+                else:
+                    self.axs[i].text(
+                        0.5, 0.5, f"Not found:\n{path}",
+                        ha="center", va="center", transform=self.axs[i].transAxes,
+                        fontsize=8, wrap=True,
+                    )
+                self.axs[i].set_title(title, fontsize=9)
                 continue
 
-            img_float = img.astype(np.float32)
-            i_min, i_max = np.min(img_float), np.max(img_float)
-            img_norm = (img_float - i_min) / (i_max - i_min) if i_max > i_min else img_float - i_min
-            img_display = np.clip(img_norm * contrast, 0, 1)
+            img_display = _normalize_for_display(img, window_arr if window_arr is not None else img, contrast)
 
             self.axs[i].set_title(title, fontsize=10, pad=10)
             
@@ -684,6 +706,53 @@ def _load_array(path: str) -> np.ndarray:
             return z[keys[0]]
         return z
     return np.load(path)
+
+
+def _load_anomaly_transformations(study_folder: str) -> Dict[str, dict]:
+    path = os.path.join(study_folder, "anomaly_transformations.json")
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _get_anomaly_meta(transformations: Dict[str, dict], filename: str) -> Optional[dict]:
+    base = os.path.basename(str(filename or ""))
+    stem, _ = os.path.splitext(base)
+    for key in (base, stem, stem + ".npy"):
+        meta = transformations.get(key)
+        if isinstance(meta, dict):
+            return meta
+    return None
+
+
+def _denormalize_array_for_display(arr: np.ndarray, meta: Optional[dict]) -> Tuple[np.ndarray, bool]:
+    if not meta:
+        return arr, False
+
+    norm_type = meta.get("norm_type")
+    if norm_type == "zscore":
+        mean = meta.get("norm_mean")
+        std = meta.get("norm_std")
+        if mean is None or std is None:
+            return arr, False
+        return arr.astype(np.float32, copy=False) * float(std) + float(mean), True
+
+    if norm_type == "zscore_median":
+        median = meta.get("norm_median")
+        mad = meta.get("norm_mad")
+        if median is None or mad is None:
+            return arr, False
+        return arr.astype(np.float32, copy=False) * float(mad) + float(median), True
+
+    if norm_type is None:
+        return arr, True
+
+    return arr, False
 
 
 def _robust_window_params(arr: np.ndarray) -> Tuple[float, float]:
@@ -1100,11 +1169,590 @@ def visualize_four_folders(
         window_title="4-Array Set Viewer",
     )
 
+
+def _list_npy_files(folder: str) -> List[str]:
+    if not os.path.isdir(folder):
+        return []
+    return sorted(
+        name for name in os.listdir(folder)
+        if os.path.isfile(os.path.join(folder, name)) and name.lower().endswith(".npy")
+    )
+
+
+def _generated_hybrid_images_dir(study_folder: str) -> str:
+    plural = os.path.join(study_folder, "generated_hybrid_samples", "images_npy")
+    singular = os.path.join(study_folder, "generated_hybrid_sample", "images_npy")
+    if os.path.isdir(plural) or not os.path.isdir(singular):
+        return plural
+    return singular
+
+
+def _add_unique(items: List[str], value: str):
+    if value and value not in items:
+        items.append(value)
+
+
+def _name_candidates(filename: str, extensions: Sequence[str] = (".npy",)) -> List[str]:
+    base = os.path.basename(str(filename or ""))
+    stem, ext = os.path.splitext(base)
+    candidates: List[str] = []
+    _add_unique(candidates, base)
+    if stem:
+        for extension in extensions:
+            extension = extension if extension.startswith(".") else "." + extension
+            _add_unique(candidates, stem + extension)
+        _add_unique(candidates, stem)
+        for extension in (".png", ".jpg", ".jpeg", ".tif", ".tiff"):
+            _add_unique(candidates, stem + extension)
+    return candidates
+
+
+def _resolve_file_by_name(folder: str, filename: str, extensions: Sequence[str] = (".npy",)) -> Tuple[Optional[str], str]:
+    base = os.path.basename(str(filename or ""))
+    stem, ext = os.path.splitext(base)
+    expected_name = base if ext else stem + (extensions[0] if extensions else "")
+    expected = os.path.join(folder, expected_name)
+
+    if not os.path.isdir(folder):
+        return None, expected
+
+    for candidate in _name_candidates(filename, extensions):
+        path = os.path.join(folder, candidate)
+        if os.path.isfile(path):
+            return path, expected
+
+    target_stem = stem or os.path.splitext(expected_name)[0]
+    for name in _list_npy_files(folder):
+        if os.path.splitext(name)[0] == target_stem:
+            return os.path.join(folder, name), expected
+    return None, expected
+
+
+def _resolve_dir_by_name(folder: str, dirname: str) -> Tuple[Optional[str], str]:
+    base = os.path.basename(str(dirname or ""))
+    expected = os.path.join(folder, base)
+    if not os.path.isdir(folder):
+        return None, expected
+
+    for candidate in _name_candidates(base, extensions=(".npy",)):
+        path = os.path.join(folder, candidate)
+        if os.path.isdir(path):
+            return path, expected
+
+    target_stem = os.path.splitext(base)[0]
+    for name in sorted(os.listdir(folder)):
+        path = os.path.join(folder, name)
+        if os.path.isdir(path) and os.path.splitext(name)[0] == target_stem:
+            return path, expected
+    return None, expected
+
+
+def _is_channel_axis(length: int) -> bool:
+    return 1 <= int(length) <= 8
+
+
+def _chw_to_image(frame: np.ndarray, channel: int = 0) -> np.ndarray:
+    frame = np.asarray(frame)
+    if frame.ndim == 2:
+        return frame
+    channels = int(frame.shape[0])
+    if channels in (3, 4):
+        return np.moveaxis(frame[:3], 0, -1)
+    channel = max(0, min(int(channel), channels - 1))
+    return frame[channel]
+
+
+def _hwc_to_image(frame: np.ndarray, channel: int = 0) -> np.ndarray:
+    frame = np.asarray(frame)
+    channels = int(frame.shape[-1])
+    if channels in (3, 4):
+        return frame[..., :3]
+    channel = max(0, min(int(channel), channels - 1))
+    return frame[..., channel]
+
+
+def _display_plane(arr: np.ndarray, slice_index: int = 0, channel: int = 0) -> Tuple[np.ndarray, int, int, str]:
+    arr = np.asarray(arr)
+    slice_index = max(0, int(slice_index))
+
+    if arr.ndim == 4:
+        if _is_channel_axis(arr.shape[0]):
+            depth = int(arr.shape[1])
+            used = min(slice_index, max(depth - 1, 0))
+            return _chw_to_image(arr[:, used, :, :], channel), depth, used, "C,D,H,W"
+        if _is_channel_axis(arr.shape[-1]):
+            depth = int(arr.shape[0])
+            used = min(slice_index, max(depth - 1, 0))
+            return _hwc_to_image(arr[used], channel), depth, used, "D,H,W,C"
+        raise ValueError(f"Unsupported 4D shape {arr.shape}; expected channel-first or channel-last data.")
+
+    if arr.ndim == 3:
+        if _is_channel_axis(arr.shape[0]) and arr.shape[1] > 8 and arr.shape[2] > 8:
+            return _chw_to_image(arr, channel), 1, 0, "C,H,W"
+        if _is_channel_axis(arr.shape[-1]) and arr.shape[0] > 8 and arr.shape[1] > 8:
+            return _hwc_to_image(arr, channel), 1, 0, "H,W,C"
+        depth = int(arr.shape[0])
+        used = min(slice_index, max(depth - 1, 0))
+        return arr[used], depth, used, "D,H,W"
+
+    if arr.ndim == 2:
+        return arr, 1, 0, "H,W"
+
+    raise ValueError(f"Unsupported shape {arr.shape}; expected 2D, 3D, or 4D array.")
+
+
+def _normalize_for_display(image: np.ndarray, reference: np.ndarray, contrast: float) -> np.ndarray:
+    center, half0 = _robust_window_params(np.asarray(reference))
+    vmin, vmax = _window_limits(center, half0, contrast)
+    denom = (vmax - vmin) if vmax != vmin else 1.0
+    out = (np.asarray(image, dtype=np.float32) - vmin) / denom
+    out = np.nan_to_num(out, nan=0.0, posinf=1.0, neginf=0.0)
+    return np.clip(out, 0.0, 1.0)
+
+
+def _draw_placeholder(ax, title: str, detail: str):
+    ax.clear()
+    ax.axis("off")
+    ax.imshow(np.full((12, 12), 0.94, dtype=np.float32), cmap="gray", vmin=0, vmax=1)
+    ax.set_title(title, fontsize=10, pad=8)
+    ax.text(
+        0.5, 0.5, detail,
+        ha="center", va="center", transform=ax.transAxes,
+        fontsize=8, color="#444444", wrap=True,
+    )
+
+
+def _render_array_panel(ax, item: Dict[str, Optional[str]], slice_index: int, contrast: float,
+                        channel: int = 0, cmap: str = "gray") -> int:
+    title = str(item.get("title") or "")
+    path = item.get("path")
+    expected_path = item.get("expected_path") or path or ""
+
+    if not path or not os.path.isfile(path):
+        _draw_placeholder(ax, title, f"Not found:\n{expected_path}")
+        return 1
+
+    try:
+        arr = _load_array(path)
+        arr, denormalized = _denormalize_array_for_display(arr, item.get("meta"))
+        window_reference = arr
+        window_path = item.get("window_path")
+        if denormalized and window_path and os.path.isfile(window_path):
+            window_reference = _load_array(window_path)
+        image, depth, used_slice, mode = _display_plane(arr, slice_index=slice_index, channel=channel)
+        image = _normalize_for_display(image, window_reference, contrast)
+    except Exception as exc:
+        _draw_placeholder(ax, title, f"Could not load:\n{path}\n\n{exc}")
+        return 1
+
+    ax.clear()
+    ax.axis("off")
+    if image.ndim == 3 and image.shape[-1] == 1:
+        ax.imshow(image[:, :, 0], cmap=cmap, vmin=0, vmax=1, aspect="equal")
+    elif image.ndim == 3:
+        ax.imshow(image, aspect="equal")
+    else:
+        ax.imshow(image, cmap=cmap, vmin=0, vmax=1, aspect="equal")
+
+    slice_info = f" | slice {used_slice}/{depth - 1}" if depth > 1 else ""
+    ax.set_title(
+        f"{title}\n{os.path.basename(path)} | shape={tuple(arr.shape)} | {mode}{slice_info}",
+        fontsize=9,
+        pad=8,
+    )
+    return max(int(depth), 1)
+
+
+class _ArrayTabBase(ttk.Frame):
+    def __init__(self, master, config, channel: int = 0, cmap: str = "gray"):
+        super().__init__(master)
+        self.config = config
+        self.study_folder = config.study_folder
+        self.anomaly_transformations = _load_anomaly_transformations(self.study_folder)
+        self.channel = int(channel)
+        self.cmap = cmap
+        self.slice_var = tk.DoubleVar(value=0)
+        self.contrast_var = tk.DoubleVar(value=1.0)
+        self.status_var = tk.StringVar(value="")
+        self._updating_controls = False
+
+    def _build_controls(self, parent):
+        ttk.Label(parent, text="Slice").pack(anchor="w", pady=(12, 0))
+        self.slice_scale = ttk.Scale(parent, from_=0, to=0, variable=self.slice_var, command=self._on_slice_changed)
+        self.slice_scale.pack(fill=tk.X)
+        self.slice_label = ttk.Label(parent, text="0 / 0")
+        self.slice_label.pack(anchor="w")
+
+        ttk.Label(parent, text="Contrast").pack(anchor="w", pady=(12, 0))
+        self.contrast_scale = ttk.Scale(
+            parent, from_=0.2, to=5.0, variable=self.contrast_var, command=self._on_contrast_changed
+        )
+        self.contrast_scale.pack(fill=tk.X)
+        ttk.Label(parent, textvariable=self.status_var, wraplength=260, foreground="#555555").pack(
+            anchor="w", fill=tk.X, pady=(12, 0)
+        )
+
+    def _on_slice_changed(self, _value=None):
+        if not self._updating_controls:
+            self.render()
+
+    def _on_contrast_changed(self, _value=None):
+        if not self._updating_controls:
+            self.render()
+
+    def _sync_slice_control(self, max_slices: int):
+        max_index = max(int(max_slices) - 1, 0)
+        current = max(0, min(int(round(self.slice_var.get())), max_index))
+        self._updating_controls = True
+        self.slice_scale.configure(to=max_index)
+        self.slice_var.set(current)
+        self.slice_label.configure(text=f"{current} / {max_index}")
+        if max_index == 0:
+            self.slice_scale.state(["disabled"])
+        else:
+            self.slice_scale.state(["!disabled"])
+        self._updating_controls = False
+
+    def _on_scroll(self, event):
+        step = 1 if getattr(event, "button", "") == "up" else -1
+        max_index = int(float(self.slice_scale.cget("to")))
+        new_value = max(0, min(int(round(self.slice_var.get())) + step, max_index))
+        if new_value != int(round(self.slice_var.get())):
+            self.slice_var.set(new_value)
+            self.render()
+
+    def render(self):
+        raise NotImplementedError
+
+
+class AnomalyGenerationTab(_ArrayTabBase):
+    def __init__(self, master, config, channel: int = 0, cmap: str = "gray"):
+        super().__init__(master, config, channel=channel, cmap=cmap)
+        self.anomaly_dir = os.path.join(self.study_folder, "anomaly_data")
+        self.anomaly_roi_dir = os.path.join(self.study_folder, "anomaly_roi_data")
+        self.synth_anomaly_dir = os.path.join(self.study_folder, "synth_anomaly_data")
+        self.synth_anomaly_mask_dir = os.path.join(self.study_folder, "synth_anomaly_mask_data")
+        self.files: List[str] = []
+        self.current_filename: Optional[str] = None
+        self._build_ui()
+        self.refresh_files()
+
+    def _build_ui(self):
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        side = ttk.Frame(self, padding=8)
+        side.grid(row=0, column=0, sticky="ns")
+        ttk.Label(side, text="anomaly_data", font=("Arial", 10, "bold")).pack(anchor="w")
+        ttk.Label(side, text=self.anomaly_dir, wraplength=260).pack(anchor="w", fill=tk.X)
+
+        list_frame = ttk.Frame(side)
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+        self.file_list = tk.Listbox(list_frame, width=34, height=22, exportselection=False)
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.file_list.yview)
+        self.file_list.configure(yscrollcommand=scrollbar.set)
+        self.file_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.file_list.bind("<<ListboxSelect>>", self._on_file_selected)
+
+        ttk.Button(side, text="Refresh", command=self.refresh_files).pack(fill=tk.X, pady=(8, 0))
+        self._build_controls(side)
+
+        content = ttk.Frame(self, padding=(4, 8, 8, 8))
+        content.grid(row=0, column=1, sticky="nsew")
+        content.rowconfigure(0, weight=1)
+        content.columnconfigure(0, weight=1)
+
+        self.fig, self.axs = plt.subplots(2, 2, figsize=(12, 8), constrained_layout=True)
+        self.axs = self.axs.flatten()
+        self.canvas = FigureCanvasTkAgg(self.fig, master=content)
+        self.canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
+        self.canvas.mpl_connect("scroll_event", self._on_scroll)
+
+    def refresh_files(self):
+        self.files = _list_npy_files(self.anomaly_dir)
+        self.file_list.delete(0, tk.END)
+        for name in self.files:
+            self.file_list.insert(tk.END, name)
+
+        if self.files:
+            self.file_list.selection_set(0)
+            self.current_filename = self.files[0]
+            self.status_var.set(f"{len(self.files)} files")
+        else:
+            self.current_filename = None
+            self.status_var.set(f"No .npy files found in: {self.anomaly_dir}")
+        self.render()
+
+    def _on_file_selected(self, _event=None):
+        selection = self.file_list.curselection()
+        if not selection:
+            return
+        self.current_filename = self.files[selection[0]]
+        self.slice_var.set(0)
+        self.render()
+
+    def render(self):
+        selected = self.current_filename
+        if selected is None:
+            items = [
+                {"title": "Extracted anomaly", "path": None, "expected_path": self.anomaly_dir},
+                {"title": "Extracted ROI", "path": None, "expected_path": self.anomaly_roi_dir},
+                {"title": "Generated anomaly", "path": None, "expected_path": self.synth_anomaly_dir},
+                {"title": "Future mask", "path": None, "expected_path": self.synth_anomaly_mask_dir},
+            ]
+            self.fig.suptitle("anomaly generation", fontsize=13, fontweight="bold")
+        else:
+            anomaly_path, anomaly_expected = _resolve_file_by_name(self.anomaly_dir, selected)
+            roi_path, roi_expected = _resolve_file_by_name(self.anomaly_roi_dir, selected)
+            synth_path, synth_expected = _resolve_file_by_name(self.synth_anomaly_dir, selected)
+            mask_path, mask_expected = _resolve_file_by_name(self.synth_anomaly_mask_dir, selected)
+            anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, selected)
+            items = [
+                {
+                    "title": "Extracted anomaly",
+                    "path": anomaly_path,
+                    "expected_path": anomaly_expected,
+                    "meta": anomaly_meta,
+                    "window_path": roi_path,
+                },
+                {"title": "Extracted ROI", "path": roi_path, "expected_path": roi_expected},
+                {
+                    "title": "Generated anomaly",
+                    "path": synth_path,
+                    "expected_path": synth_expected,
+                    "meta": anomaly_meta,
+                },
+                {"title": "Future mask", "path": mask_path, "expected_path": mask_expected},
+            ]
+            self.fig.suptitle(f"anomaly generation: {selected}", fontsize=13, fontweight="bold")
+
+        max_slices = 1
+        for ax, item in zip(self.axs, items):
+            max_slices = max(
+                max_slices,
+                _render_array_panel(
+                    ax, item, int(round(self.slice_var.get())), float(self.contrast_var.get()),
+                    channel=self.channel, cmap=self.cmap,
+                ),
+            )
+        self._sync_slice_control(max_slices)
+        self.canvas.draw_idle()
+
+
+class FusedAnomalyTab(_ArrayTabBase):
+    def __init__(self, master, config, channel: int = 0, cmap: str = "gray"):
+        super().__init__(master, config, channel=channel, cmap=cmap)
+        self.hybrid_images_dir = _generated_hybrid_images_dir(self.study_folder)
+        self.synth_roi_dir = os.path.join(self.study_folder, "synth_roi_data")
+        self.anomaly_dir = os.path.join(self.study_folder, "anomaly_data")
+        self.files: List[str] = []
+        self.roi_files: List[str] = []
+        self.current_filename: Optional[str] = None
+        self.current_roi_dir: Optional[str] = None
+        self.expected_roi_dir: str = os.path.join(self.synth_roi_dir, "")
+        self.roi_var = tk.StringVar(value="")
+        self._build_ui()
+        self.refresh_files()
+
+    def _build_ui(self):
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        side = ttk.Frame(self, padding=8)
+        side.grid(row=0, column=0, sticky="ns")
+        ttk.Label(side, text="images_npy", font=("Arial", 10, "bold")).pack(anchor="w")
+        ttk.Label(side, text=self.hybrid_images_dir, wraplength=260).pack(anchor="w", fill=tk.X)
+
+        list_frame = ttk.Frame(side)
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+        self.file_list = tk.Listbox(list_frame, width=34, height=18, exportselection=False)
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.file_list.yview)
+        self.file_list.configure(yscrollcommand=scrollbar.set)
+        self.file_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.file_list.bind("<<ListboxSelect>>", self._on_file_selected)
+
+        ttk.Button(side, text="Refresh", command=self.refresh_files).pack(fill=tk.X, pady=(8, 0))
+        self._build_controls(side)
+
+        content = ttk.Frame(self, padding=(4, 8, 8, 8))
+        content.grid(row=0, column=1, sticky="nsew")
+        content.rowconfigure(0, weight=2)
+        content.rowconfigure(2, weight=1)
+        content.columnconfigure(0, weight=1)
+
+        self.fig_hybrid, self.ax_hybrid = plt.subplots(1, 1, figsize=(12, 4.8), constrained_layout=True)
+        self.hybrid_canvas = FigureCanvasTkAgg(self.fig_hybrid, master=content)
+        self.hybrid_canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
+        self.hybrid_canvas.mpl_connect("scroll_event", self._on_scroll)
+
+        roi_bar = ttk.Frame(content, padding=(0, 6, 0, 6))
+        roi_bar.grid(row=1, column=0, sticky="ew")
+        ttk.Label(roi_bar, text="ROI").pack(side=tk.LEFT)
+        self.roi_combo = ttk.Combobox(roi_bar, textvariable=self.roi_var, state="readonly", width=48)
+        self.roi_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
+        self.roi_combo.bind("<<ComboboxSelected>>", self._on_roi_selected)
+
+        self.fig_bottom, bottom_axs = plt.subplots(1, 2, figsize=(12, 4), constrained_layout=True)
+        self.ax_roi, self.ax_anomaly = bottom_axs
+        self.bottom_canvas = FigureCanvasTkAgg(self.fig_bottom, master=content)
+        self.bottom_canvas.get_tk_widget().grid(row=2, column=0, sticky="nsew")
+        self.bottom_canvas.mpl_connect("scroll_event", self._on_scroll)
+
+    def refresh_files(self):
+        self.files = _list_npy_files(self.hybrid_images_dir)
+        self.file_list.delete(0, tk.END)
+        for name in self.files:
+            self.file_list.insert(tk.END, name)
+
+        if self.files:
+            self.file_list.selection_set(0)
+            self.current_filename = self.files[0]
+            self.status_var.set(f"{len(self.files)} files")
+        else:
+            self.current_filename = None
+            self.status_var.set(f"No .npy files found in: {self.hybrid_images_dir}")
+        self._refresh_roi_files()
+        self.render()
+
+    def _on_file_selected(self, _event=None):
+        selection = self.file_list.curselection()
+        if not selection:
+            return
+        self.current_filename = self.files[selection[0]]
+        self.slice_var.set(0)
+        self._refresh_roi_files()
+        self.render()
+
+    def _on_roi_selected(self, _event=None):
+        self.slice_var.set(0)
+        self.render()
+
+    def _refresh_roi_files(self):
+        selected = self.current_filename
+        if selected is None:
+            self.current_roi_dir = None
+            self.expected_roi_dir = self.synth_roi_dir
+            self.roi_files = []
+        else:
+            self.current_roi_dir, self.expected_roi_dir = _resolve_dir_by_name(self.synth_roi_dir, selected)
+            self.roi_files = _list_npy_files(self.current_roi_dir) if self.current_roi_dir else []
+
+        self.roi_combo.configure(values=self.roi_files)
+        if self.roi_files:
+            self.roi_var.set(self.roi_files[0])
+            self.roi_combo.state(["!disabled"])
+        else:
+            self.roi_var.set("")
+            self.roi_combo.state(["disabled"])
+
+    def render(self):
+        selected = self.current_filename
+        roi_name = self.roi_var.get()
+
+        if selected is None:
+            items = [
+                {"title": "Hybrid sample", "path": None, "expected_path": self.hybrid_images_dir},
+                {"title": "Selected synthetic ROI", "path": None, "expected_path": self.synth_roi_dir},
+                {"title": "Matched anomaly", "path": None, "expected_path": self.anomaly_dir},
+            ]
+            self.fig_hybrid.suptitle("fused anomaly", fontsize=13, fontweight="bold")
+            self.fig_bottom.suptitle("")
+        else:
+            hybrid_path, hybrid_expected = _resolve_file_by_name(self.hybrid_images_dir, selected)
+
+            if roi_name and self.current_roi_dir:
+                roi_path = os.path.join(self.current_roi_dir, roi_name)
+                roi_expected = os.path.join(self.expected_roi_dir, roi_name)
+                anomaly_path, anomaly_expected = _resolve_file_by_name(self.anomaly_dir, roi_name)
+                anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, roi_name)
+            else:
+                roi_path = None
+                roi_expected = self.expected_roi_dir
+                anomaly_path = None
+                anomaly_expected = os.path.join(self.anomaly_dir, "<selected_roi>.npy")
+                anomaly_meta = None
+
+            items = [
+                {"title": "Hybrid sample", "path": hybrid_path, "expected_path": hybrid_expected},
+                {"title": "Selected synthetic ROI", "path": roi_path, "expected_path": roi_expected},
+                {
+                    "title": "Matched anomaly",
+                    "path": anomaly_path,
+                    "expected_path": anomaly_expected,
+                    "meta": anomaly_meta,
+                    "window_path": roi_path,
+                },
+            ]
+            roi_suffix = f" | ROI: {roi_name}" if roi_name else " | no ROI found"
+            self.fig_hybrid.suptitle(f"fused anomaly: {selected}", fontsize=13, fontweight="bold")
+            self.fig_bottom.suptitle(roi_suffix.lstrip(" | "), fontsize=11)
+
+        max_slices = 1
+        for ax, item in zip((self.ax_hybrid, self.ax_roi, self.ax_anomaly), items):
+            max_slices = max(
+                max_slices,
+                _render_array_panel(
+                    ax, item, int(round(self.slice_var.get())), float(self.contrast_var.get()),
+                    channel=self.channel, cmap=self.cmap,
+                ),
+            )
+        self._sync_slice_control(max_slices)
+        self.hybrid_canvas.draw_idle()
+        self.bottom_canvas.draw_idle()
+
+
+class HybridDataGeneratorVisualizer:
+    def __init__(self, root, config, channel: int = 0, cmap: str = "gray"):
+        self.root = root
+        self.config = config
+        self.root.title("HybridDataGenerator Visualizer")
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+
+        self.anomaly_tab = AnomalyGenerationTab(self.notebook, config, channel=channel, cmap=cmap)
+        self.notebook.add(self.anomaly_tab, text="anomaly generation")
+
+        self.fused_tab = FusedAnomalyTab(self.notebook, config, channel=channel, cmap=cmap)
+        self.notebook.add(self.fused_tab, text="fused anomaly")
+
+        self.evaluation_tab = ttk.Frame(self.notebook)
+        evaluation_results_dir = os.path.join(config.study_folder, "evaluation_results")
+        if os.path.isdir(evaluation_results_dir):
+            self.evaluation_gui = OutlierGUI(self.evaluation_tab, config, embedded=True)
+            self.notebook.add(self.evaluation_tab, text="evaluation")
+        else:
+            self.notebook.add(self.evaluation_tab, text="evaluation", state="disabled")
+
+    def on_closing(self):
+        plt.close("all")
+        self.root.quit()
+        self.root.destroy()
+
+
+def run_hybrid_visualizer(config, channel: int = 0, cmap: str = "gray"):
+    root = tk.Tk()
+    root.tk.call("tk", "scaling", 2.0)
+    HybridDataGeneratorVisualizer(root, config, channel=channel, cmap=cmap)
+    root.mainloop()
+
+
+def run_hybrid_visualizer_for_folder(study_folder: str, channel: int = 0, cmap: str = "gray"):
+    class FolderConfig:
+        pass
+
+    config = FolderConfig()
+    config.study_folder = study_folder
+    run_hybrid_visualizer(config, channel=channel, cmap=cmap)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Visualize 4 matched arrays from 4 folders side-by-side. "
-            "Supports (C,D,H,W) and (C,H,W). If C==3 => RGB, if C!=3 => grayscale channel. The 4th view is loaded from the fixed subfolder 'generated_hybrid_samples'."
+            "Visualize HybridDataGenerator outputs in three tabs: anomaly generation, fused anomaly, and evaluation."
         )
     )
     parser.add_argument("folder", help="Result Folder")
@@ -1120,21 +1768,8 @@ def main():
 
     args = parser.parse_args()
 
-    anomaly_folder = os.path.join(args.folder, "anomaly_data")
-    roi_folder = os.path.join(args.folder, "anomaly_roi_data")
-    synth_folder = os.path.join(args.folder, "synth_anomaly_data")
-    fusion_folder = os.path.join(args.folder, os.path.join("generated_hybrid_samples", "images_npy"))
-
-    visualize_four_folders(
-        roi_folder,
-        anomaly_folder,
-        synth_folder,
-        fusion_folder,
-        channel=args.channel,
-        cmap=args.cmap,
-        backend_preference=args.backend,
-        exts=args.exts,
-    )
+    _select_gui_backend(prefer=args.backend)
+    run_hybrid_visualizer_for_folder(args.folder, channel=args.channel, cmap=args.cmap)
 
 
 if __name__ == "__main__":
