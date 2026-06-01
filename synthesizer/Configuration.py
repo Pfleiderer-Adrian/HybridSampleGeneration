@@ -88,7 +88,7 @@ class Configuration:
 
 
         # synthesizer parameter
-        self.prior_sampling = True
+        self.prior_sampling = False
         self.min_anomaly_percentage = 0.05
         self.min_pad = (20, 20, 20)    # just use first two values for 2d
         self.pad_ratio = (0.5, 0.5, 0.5)
@@ -100,7 +100,7 @@ class Configuration:
         self.background_threshold = None
 
         # feedback system
-        self.use_feedback = True
+        self.use_feedback = False
         self.feedback_threshold = 0.8
         self.threshold_relaxation_factor = 0.9
 
