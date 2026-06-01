@@ -20,7 +20,7 @@ from synthesizer.functions_3D.Fusion3D import fusion3d
 from synthesizer.Matching import center_foreground_com, combine_binary_masks, create_matching_dictionary, crop_border, ssim_01, template_matching
 from synthesizer.Trainer import optimize
 from synthesizer.Evaluation import evaluation_pipeline
-from data_handler.Visualizer import run_outlier_gui
+from data_handler.Visualizer import run_hybrid_visualizer
 
 
 class HybridDataGenerator:
@@ -582,5 +582,5 @@ class HybridDataGenerator:
         evaluation_pipeline(sample_dataloader, self._config)
 
     def visualize_evaluation_results(self):
-        self._log_step("Evaluation 2/2: Starting visualization of evaluation results.")
-        run_outlier_gui(self._config)
+        self._log_step("Evaluation 2/2: Starting HybridDataGenerator visualizer.")
+        run_hybrid_visualizer(self._config)
