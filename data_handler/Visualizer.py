@@ -1,4 +1,4 @@
-import argparse 
+import argparse
 import os
 import json
 import csv
@@ -14,6 +14,30 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
+
+
+def _mousewheel_units(event) -> int:
+    """Normalize Tk mouse wheel events across Windows, macOS, and Linux."""
+    if getattr(event, "delta", 0):
+        delta = event.delta
+        if abs(delta) >= 120:
+            return int(-1 * (delta / 120))
+        return -1 if delta > 0 else 1
+    if getattr(event, "num", None) == 4:
+        return -1
+    if getattr(event, "num", None) == 5:
+        return 1
+    return 0
+
+
+def _is_descendant(widget, ancestor) -> bool:
+    """Return True when widget is inside ancestor in the Tk widget tree."""
+    while widget is not None:
+        if widget == ancestor:
+            return True
+        widget = widget.master
+    return False
+
 
 class OutlierGUI:
     def __init__(self, root, config, embedded: bool = False):
@@ -89,6 +113,20 @@ class OutlierGUI:
                 ax.title.set_fontsize(max(10, int(12 * scale)))
             
             self.fig.canvas.draw_idle()
+
+    def _background_color(self):
+        for widget in (self.root, getattr(self.root, "master", None)):
+            if widget is None:
+                continue
+            for option in ("bg", "background"):
+                try:
+                    return widget.cget(option)
+                except tk.TclError:
+                    pass
+        try:
+            return ttk.Style(self.root).lookup("TFrame", "background") or "#f0f0f0"
+        except Exception:
+            return "#f0f0f0"
 
     def on_closing(self):
         plt.close('all')
@@ -175,6 +213,7 @@ class OutlierGUI:
         return metric_map
 
     def build_ui(self):
+        bg = self._background_color()
         main_container = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
         main_container.pack(fill=tk.BOTH, expand=True)
 
@@ -184,12 +223,12 @@ class OutlierGUI:
         scrollbar = tk.Scrollbar(left_frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        canvas = tk.Canvas(left_frame, yscrollcommand=scrollbar.set, bg=self.root.cget("bg"))
+        canvas = tk.Canvas(left_frame, yscrollcommand=scrollbar.set, bg=bg)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=canvas.yview)
         
 
-        control_frame = tk.Frame(canvas, bg=self.root.cget("bg"))
+        control_frame = tk.Frame(canvas, bg=bg)
         canvas_window = canvas.create_window((0, 0), window=control_frame, anchor="nw")
         
         # Update scroll region when frame changes
@@ -200,26 +239,7 @@ class OutlierGUI:
         control_frame.bind("<Configure>", on_frame_configure)
         canvas.bind("<Configure>", lambda e: canvas.itemconfig(canvas_window, width=e.width))
         
-        # Mouse wheel scrolling (left panel only, supports Windows and Linux)
-        def _mousewheel_units(event):
-            if getattr(event, "delta", 0):
-                delta = event.delta
-                if abs(delta) >= 120:
-                    return int(-1 * (delta / 120))
-                return -1 if delta > 0 else 1
-            if getattr(event, "num", None) == 4:
-                return -1
-            if getattr(event, "num", None) == 5:
-                return 1
-            return 0
-
-        def _is_descendant(widget, ancestor):
-            while widget is not None:
-                if widget == ancestor:
-                    return True
-                widget = widget.master
-            return False
-
+        # Mouse wheel scrolling stays scoped to the left control panel.
         def on_mousewheel(event):
             widget = self.root.winfo_containing(event.x_root, event.y_root)
             if widget is None:
@@ -239,22 +259,22 @@ class OutlierGUI:
         self.root.bind("<Button-5>", on_mousewheel, add="+")
 
         # Filter section
-        tk.Label(control_frame, text="Filter & Sort by:", font=self.font_label_bold, bg=self.root.cget("bg")).pack(anchor="w", padx=5, pady=(5, 0))
+        tk.Label(control_frame, text="Filter & Sort by:", font=self.font_label_bold, bg=bg).pack(anchor="w", padx=5, pady=(5, 0))
         self.metric_vars = {}
         for metric in sorted(self.metric_map.keys()):
             var = tk.BooleanVar(value=False)
-            cb = tk.Checkbutton(control_frame, text=metric, variable=var, command=self.update_filter, font=self.font_label, bg=self.root.cget("bg"))
+            cb = tk.Checkbutton(control_frame, text=metric, variable=var, command=self.update_filter, font=self.font_label, bg=bg)
             cb.pack(anchor="w", padx=10)
             self.metric_vars[metric] = var
 
-        tk.Label(control_frame, text="Outlier Threshold (Top %):", font=self.font_label_bold, bg=self.root.cget("bg")).pack(anchor="w", padx=5, pady=(10, 0))
+        tk.Label(control_frame, text="Outlier Threshold (Top %):", font=self.font_label_bold, bg=bg).pack(anchor="w", padx=5, pady=(10, 0))
         self.outlier_slider = tk.Scale(control_frame, from_=0, to=10, resolution=.1, orient=tk.HORIZONTAL, 
-                                       command=lambda _: self.update_filter(), font=self.font_label, bg=self.root.cget("bg"))
+                                       command=lambda _: self.update_filter(), font=self.font_label, bg=bg)
         self.outlier_slider.set(1)
         self.outlier_slider.pack(fill=tk.X, padx=5, pady=(0, 5))
 
-        tk.Label(control_frame, text="Controls / Anomalies:", font=self.font_label_bold, bg=self.root.cget("bg")).pack(anchor="w", padx=5, pady=(10, 0))
-        self.list_frame = tk.Frame(control_frame, height=150, bg=self.root.cget("bg"))
+        tk.Label(control_frame, text="Controls / Anomalies:", font=self.font_label_bold, bg=bg).pack(anchor="w", padx=5, pady=(10, 0))
+        self.list_frame = tk.Frame(control_frame, height=150, bg=bg)
         self.list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         self.scrollbar_tree = tk.Scrollbar(self.list_frame)
@@ -266,14 +286,14 @@ class OutlierGUI:
         self.scrollbar_tree.config(command=self.tree.yview)
         self.tree.bind('<<TreeviewSelect>>', self.on_treeview_select)
 
-        contrast_header_frame = tk.Frame(control_frame, bg=self.root.cget("bg"))
+        contrast_header_frame = tk.Frame(control_frame, bg=bg)
         contrast_header_frame.pack(fill=tk.X, padx=5, pady=(10, 0))
-        tk.Label(contrast_header_frame, text="Contrast:", font=self.font_label_bold, bg=self.root.cget("bg")).pack(side=tk.LEFT)
+        tk.Label(contrast_header_frame, text="Contrast:", font=self.font_label_bold, bg=bg).pack(side=tk.LEFT)
         tk.Button(contrast_header_frame, text="reset", command=self.reset_contrast, font=self.font_small,
                   relief=tk.FLAT, padx=2, pady=0, cursor="hand2").pack(side=tk.LEFT, padx=5)
 
         self.contrast_slider = tk.Scale(control_frame, from_=0.1, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, 
-                                        command=lambda _: self.update_display(), font=self.font_label, bg=self.root.cget("bg"))
+                                        command=lambda _: self.update_display(), font=self.font_label, bg=bg)
         self.contrast_slider.set(1.0)
         self.contrast_slider.pack(fill=tk.X, pady=(0, 10))
 
@@ -303,9 +323,6 @@ class OutlierGUI:
         # Connect resize event for responsive figure scaling
         self.canvas.mpl_connect('resize_event', self._on_canvas_resize)
         
-        # Store the last loaded image data for modal view
-        self.current_displayed_images = [None] * 4
-
         self.canvas_widget.bind("<MouseWheel>", self.on_mouse_wheel)
         self.canvas_widget.bind("<Button-4>", self.on_mouse_wheel)
         self.canvas_widget.bind("<Button-5>", self.on_mouse_wheel)
@@ -650,18 +667,11 @@ class OutlierGUI:
                     window_arr = arr
                     if denormalized and window_path and os.path.exists(window_path):
                         window_arr = np.load(window_path)
-                    if arr.ndim == 4:
-                        max_slices = max(max_slices, arr.shape[1])
-                        curr_slice = min(self.current_slice, arr.shape[1] - 1)
-                        img = arr[:, curr_slice, :, :]
-                        img = np.transpose(img, (1, 2, 0))
-                        display_title = f"{title}\nSlice {curr_slice}"
-                    elif arr.ndim == 3:
-                        img = np.transpose(arr, (1, 2, 0))
-                        display_title = title
-                    else:
-                        img = arr
-                        display_title = title
+                    img, depth, curr_slice, _mode = _display_plane(
+                        arr, slice_index=self.current_slice, channel=0
+                    )
+                    max_slices = max(max_slices, depth)
+                    display_title = f"{title}\nSlice {curr_slice}" if depth > 1 else title
                     loaded_data.append((img, display_title, p, None, window_arr))
                 except Exception as exc:
                     loaded_data.append((None, title, p, str(exc), None))
@@ -1295,9 +1305,30 @@ def _list_npy_files(folder: str) -> List[str]:
     )
 
 
+def _build_file_list(parent, height: int, on_select):
+    """Create the shared file list used by the array visualizer tabs."""
+    list_frame = ttk.Frame(parent)
+    list_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+    file_list = tk.Listbox(list_frame, width=34, height=height, exportselection=False)
+    scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=file_list.yview)
+    file_list.configure(yscrollcommand=scrollbar.set)
+    file_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    file_list.bind("<<ListboxSelect>>", on_select)
+    return file_list
+
+
 def _generated_hybrid_images_dir(study_folder: str) -> str:
     plural = os.path.join(study_folder, "generated_hybrid_samples", "images_npy")
     singular = os.path.join(study_folder, "generated_hybrid_sample", "images_npy")
+    if os.path.isdir(plural) or not os.path.isdir(singular):
+        return plural
+    return singular
+
+
+def _generated_hybrid_segmentations_dir(study_folder: str) -> str:
+    plural = os.path.join(study_folder, "generated_hybrid_samples", "segmentations_npy")
+    singular = os.path.join(study_folder, "generated_hybrid_sample", "segmentations_npy")
     if os.path.isdir(plural) or not os.path.isdir(singular):
         return plural
     return singular
@@ -1438,7 +1469,27 @@ def _draw_placeholder(ax, title: str, detail: str):
     )
 
 
-def _render_array_panel(ax, item: Dict[str, Optional[str]], slice_index: int, contrast: float,
+def _array_item(
+    title: str,
+    path: Optional[str],
+    expected_path: Optional[str] = None,
+    meta: Optional[dict] = None,
+    window_path: Optional[str] = None,
+) -> Dict[str, object]:
+    """Build a display item while keeping optional metadata out of the common path."""
+    item: Dict[str, object] = {
+        "title": title,
+        "path": path,
+        "expected_path": expected_path if expected_path is not None else path,
+    }
+    if meta is not None:
+        item["meta"] = meta
+    if window_path is not None:
+        item["window_path"] = window_path
+    return item
+
+
+def _render_array_panel(ax, item: Dict[str, object], slice_index: int, contrast: float,
                         channel: int = 0, cmap: str = "gray") -> int:
     title = str(item.get("title") or "")
     path = item.get("path")
@@ -1508,6 +1559,36 @@ class _ArrayTabBase(ttk.Frame):
             anchor="w", fill=tk.X, pady=(12, 0)
         )
 
+    def _refresh_file_list(self, folder: str):
+        """Reload the primary .npy list and select the first available file."""
+        self.files = _list_npy_files(folder)
+        self.file_list.delete(0, tk.END)
+        for name in self.files:
+            self.file_list.insert(tk.END, name)
+
+        if self.files:
+            self.file_list.selection_set(0)
+            self.current_filename = self.files[0]
+            self.status_var.set(f"{len(self.files)} files")
+        else:
+            self.current_filename = None
+            self.status_var.set(f"No .npy files found in: {folder}")
+
+    def _render_items(self, axes, items: Sequence[Dict[str, object]]) -> int:
+        """Render a group of array panels and return the largest slice count."""
+        slice_index = int(round(self.slice_var.get()))
+        contrast = float(self.contrast_var.get())
+        max_slices = 1
+        for ax, item in zip(axes, items):
+            max_slices = max(
+                max_slices,
+                _render_array_panel(
+                    ax, item, slice_index, contrast,
+                    channel=self.channel, cmap=self.cmap,
+                ),
+            )
+        return max_slices
+
     def _on_slice_changed(self, _value=None):
         if not self._updating_controls:
             self.render()
@@ -1562,14 +1643,7 @@ class AnomalyGenerationTab(_ArrayTabBase):
         ttk.Label(side, text="anomaly_data", font=("Arial", 10, "bold")).pack(anchor="w")
         ttk.Label(side, text=self.anomaly_dir, wraplength=260).pack(anchor="w", fill=tk.X)
 
-        list_frame = ttk.Frame(side)
-        list_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
-        self.file_list = tk.Listbox(list_frame, width=34, height=22, exportselection=False)
-        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.file_list.yview)
-        self.file_list.configure(yscrollcommand=scrollbar.set)
-        self.file_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.file_list.bind("<<ListboxSelect>>", self._on_file_selected)
+        self.file_list = _build_file_list(side, height=22, on_select=self._on_file_selected)
 
         ttk.Button(side, text="Refresh", command=self.refresh_files).pack(fill=tk.X, pady=(8, 0))
         self._build_controls(side)
@@ -1586,18 +1660,7 @@ class AnomalyGenerationTab(_ArrayTabBase):
         self.canvas.mpl_connect("scroll_event", self._on_scroll)
 
     def refresh_files(self):
-        self.files = _list_npy_files(self.anomaly_dir)
-        self.file_list.delete(0, tk.END)
-        for name in self.files:
-            self.file_list.insert(tk.END, name)
-
-        if self.files:
-            self.file_list.selection_set(0)
-            self.current_filename = self.files[0]
-            self.status_var.set(f"{len(self.files)} files")
-        else:
-            self.current_filename = None
-            self.status_var.set(f"No .npy files found in: {self.anomaly_dir}")
+        self._refresh_file_list(self.anomaly_dir)
         self.render()
 
     def _on_file_selected(self, _event=None):
@@ -1612,10 +1675,10 @@ class AnomalyGenerationTab(_ArrayTabBase):
         selected = self.current_filename
         if selected is None:
             items = [
-                {"title": "Extracted anomaly", "path": None, "expected_path": self.anomaly_dir},
-                {"title": "Extracted ROI", "path": None, "expected_path": self.anomaly_roi_dir},
-                {"title": "Generated anomaly", "path": None, "expected_path": self.synth_anomaly_dir},
-                {"title": "Future mask", "path": None, "expected_path": self.synth_anomaly_mask_dir},
+                _array_item("Extracted anomaly", None, self.anomaly_dir),
+                _array_item("Extracted ROI", None, self.anomaly_roi_dir),
+                _array_item("Generated anomaly", None, self.synth_anomaly_dir),
+                _array_item("Future mask", None, self.synth_anomaly_mask_dir),
             ]
             self.fig.suptitle("anomaly generation", fontsize=13, fontweight="bold")
         else:
@@ -1625,33 +1688,17 @@ class AnomalyGenerationTab(_ArrayTabBase):
             mask_path, mask_expected = _resolve_file_by_name(self.synth_anomaly_mask_dir, selected)
             anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, selected)
             items = [
-                {
-                    "title": "Extracted anomaly",
-                    "path": anomaly_path,
-                    "expected_path": anomaly_expected,
-                    "meta": anomaly_meta,
-                    "window_path": roi_path,
-                },
-                {"title": "Extracted ROI", "path": roi_path, "expected_path": roi_expected},
-                {
-                    "title": "Generated anomaly",
-                    "path": synth_path,
-                    "expected_path": synth_expected,
-                    "meta": anomaly_meta,
-                },
-                {"title": "Future mask", "path": mask_path, "expected_path": mask_expected},
+                _array_item(
+                    "Extracted anomaly", anomaly_path, anomaly_expected,
+                    meta=anomaly_meta, window_path=roi_path,
+                ),
+                _array_item("Extracted ROI", roi_path, roi_expected),
+                _array_item("Generated anomaly", synth_path, synth_expected, meta=anomaly_meta),
+                _array_item("Future mask", mask_path, mask_expected),
             ]
             self.fig.suptitle(f"anomaly generation: {selected}", fontsize=13, fontweight="bold")
 
-        max_slices = 1
-        for ax, item in zip(self.axs, items):
-            max_slices = max(
-                max_slices,
-                _render_array_panel(
-                    ax, item, int(round(self.slice_var.get())), float(self.contrast_var.get()),
-                    channel=self.channel, cmap=self.cmap,
-                ),
-            )
+        max_slices = self._render_items(self.axs, items)
         self._sync_slice_control(max_slices)
         self.canvas.draw_idle()
 
@@ -1660,8 +1707,10 @@ class FusedAnomalyTab(_ArrayTabBase):
     def __init__(self, master, config, channel: int = 0, cmap: str = "gray"):
         super().__init__(master, config, channel=channel, cmap=cmap)
         self.hybrid_images_dir = _generated_hybrid_images_dir(self.study_folder)
+        self.hybrid_segmentations_dir = _generated_hybrid_segmentations_dir(self.study_folder)
         self.synth_roi_dir = os.path.join(self.study_folder, "synth_roi_data")
         self.anomaly_dir = os.path.join(self.study_folder, "anomaly_data")
+        self.anomaly_roi_dir = os.path.join(self.study_folder, "anomaly_roi_data")
         self.files: List[str] = []
         self.roi_files: List[str] = []
         self.current_filename: Optional[str] = None
@@ -1680,14 +1729,7 @@ class FusedAnomalyTab(_ArrayTabBase):
         ttk.Label(side, text="images_npy", font=("Arial", 10, "bold")).pack(anchor="w")
         ttk.Label(side, text=self.hybrid_images_dir, wraplength=260).pack(anchor="w", fill=tk.X)
 
-        list_frame = ttk.Frame(side)
-        list_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
-        self.file_list = tk.Listbox(list_frame, width=34, height=18, exportselection=False)
-        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.file_list.yview)
-        self.file_list.configure(yscrollcommand=scrollbar.set)
-        self.file_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.file_list.bind("<<ListboxSelect>>", self._on_file_selected)
+        self.file_list = _build_file_list(side, height=18, on_select=self._on_file_selected)
 
         ttk.Button(side, text="Refresh", command=self.refresh_files).pack(fill=tk.X, pady=(8, 0))
         self._build_controls(side)
@@ -1698,7 +1740,8 @@ class FusedAnomalyTab(_ArrayTabBase):
         content.rowconfigure(2, weight=1)
         content.columnconfigure(0, weight=1)
 
-        self.fig_hybrid, self.ax_hybrid = plt.subplots(1, 1, figsize=(12, 4.8), constrained_layout=True)
+        self.fig_hybrid, top_axs = plt.subplots(1, 2, figsize=(12, 4.8), constrained_layout=True)
+        self.ax_hybrid, self.ax_hybrid_mask = top_axs
         self.hybrid_canvas = FigureCanvasTkAgg(self.fig_hybrid, master=content)
         self.hybrid_canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
         self.hybrid_canvas.mpl_connect("scroll_event", self._on_scroll)
@@ -1717,18 +1760,7 @@ class FusedAnomalyTab(_ArrayTabBase):
         self.bottom_canvas.mpl_connect("scroll_event", self._on_scroll)
 
     def refresh_files(self):
-        self.files = _list_npy_files(self.hybrid_images_dir)
-        self.file_list.delete(0, tk.END)
-        for name in self.files:
-            self.file_list.insert(tk.END, name)
-
-        if self.files:
-            self.file_list.selection_set(0)
-            self.current_filename = self.files[0]
-            self.status_var.set(f"{len(self.files)} files")
-        else:
-            self.current_filename = None
-            self.status_var.set(f"No .npy files found in: {self.hybrid_images_dir}")
+        self._refresh_file_list(self.hybrid_images_dir)
         self._refresh_roi_files()
         self.render()
 
@@ -1768,52 +1800,53 @@ class FusedAnomalyTab(_ArrayTabBase):
         roi_name = self.roi_var.get()
 
         if selected is None:
-            items = [
-                {"title": "Hybrid sample", "path": None, "expected_path": self.hybrid_images_dir},
-                {"title": "Selected synthetic ROI", "path": None, "expected_path": self.synth_roi_dir},
-                {"title": "Matched anomaly", "path": None, "expected_path": self.anomaly_dir},
+            top_items = [
+                _array_item("Hybrid sample", None, self.hybrid_images_dir),
+                _array_item("Hybrid mask", None, self.hybrid_segmentations_dir),
+            ]
+            bottom_items = [
+                _array_item("Selected synthetic ROI", None, self.synth_roi_dir),
+                _array_item("Matched anomaly", None, self.anomaly_dir),
             ]
             self.fig_hybrid.suptitle("fused anomaly", fontsize=13, fontweight="bold")
             self.fig_bottom.suptitle("")
         else:
             hybrid_path, hybrid_expected = _resolve_file_by_name(self.hybrid_images_dir, selected)
+            hybrid_mask_path, hybrid_mask_expected = _resolve_file_by_name(self.hybrid_segmentations_dir, selected)
 
             if roi_name and self.current_roi_dir:
                 roi_path = os.path.join(self.current_roi_dir, roi_name)
                 roi_expected = os.path.join(self.expected_roi_dir, roi_name)
                 anomaly_path, anomaly_expected = _resolve_file_by_name(self.anomaly_dir, roi_name)
+                anomaly_roi_path, _anomaly_roi_expected = _resolve_file_by_name(self.anomaly_roi_dir, roi_name)
                 anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, roi_name)
             else:
                 roi_path = None
                 roi_expected = self.expected_roi_dir
                 anomaly_path = None
                 anomaly_expected = os.path.join(self.anomaly_dir, "<selected_roi>.npy")
+                anomaly_roi_path = None
                 anomaly_meta = None
 
-            items = [
-                {"title": "Hybrid sample", "path": hybrid_path, "expected_path": hybrid_expected},
-                {"title": "Selected synthetic ROI", "path": roi_path, "expected_path": roi_expected},
-                {
-                    "title": "Matched anomaly",
-                    "path": anomaly_path,
-                    "expected_path": anomaly_expected,
-                    "meta": anomaly_meta,
-                    "window_path": roi_path,
-                },
+            top_items = [
+                _array_item("Hybrid sample", hybrid_path, hybrid_expected),
+                _array_item("Hybrid mask", hybrid_mask_path, hybrid_mask_expected),
+            ]
+            bottom_items = [
+                _array_item("Selected synthetic ROI", roi_path, roi_expected),
+                _array_item(
+                    "Matched anomaly", anomaly_path, anomaly_expected,
+                    meta=anomaly_meta, window_path=anomaly_roi_path,
+                ),
             ]
             roi_suffix = f" | ROI: {roi_name}" if roi_name else " | no ROI found"
             self.fig_hybrid.suptitle(f"fused anomaly: {selected}", fontsize=13, fontweight="bold")
             self.fig_bottom.suptitle(roi_suffix.lstrip(" | "), fontsize=11)
 
-        max_slices = 1
-        for ax, item in zip((self.ax_hybrid, self.ax_roi, self.ax_anomaly), items):
-            max_slices = max(
-                max_slices,
-                _render_array_panel(
-                    ax, item, int(round(self.slice_var.get())), float(self.contrast_var.get()),
-                    channel=self.channel, cmap=self.cmap,
-                ),
-            )
+        max_slices = max(
+            self._render_items((self.ax_hybrid, self.ax_hybrid_mask), top_items),
+            self._render_items((self.ax_roi, self.ax_anomaly), bottom_items),
+        )
         self._sync_slice_control(max_slices)
         self.hybrid_canvas.draw_idle()
         self.bottom_canvas.draw_idle()
