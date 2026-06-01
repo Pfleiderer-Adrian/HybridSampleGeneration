@@ -72,12 +72,18 @@ class Viewer:
         self.cur_mask_path = None
 
         # Matplotlib
-        self.fig = plt.figure(figsize=(10, 7))
-        self.ax = self.fig.add_axes([0.05, 0.10, 0.80, 0.85])
-        self.ax.axis("off")
+        plt.rcParams['figure.autolayout'] = True
+        self.fig = plt.figure()
+        manager = self.fig.canvas.manager
+        if hasattr(manager, 'window'):
+            manager.window.state('zoomed')
+
+        self.fig.canvas.mpl_connect('resize_event', self.on_figure_resize)
+
+        self._setup_layout()
 
         # Create suptitle ONCE
-        self.suptitle_text = self.fig.suptitle("", fontsize=10)
+        self.suptitle_text = self.fig.suptitle("", fontsize=14)
 
         # Artists (reuse!)
         self.im_artist = None
@@ -85,26 +91,64 @@ class Viewer:
         self.legend_artist = None
 
         # UI
-        ax_back = self.fig.add_axes([0.88, 0.32, 0.10, 0.08])
-        self.btn_back = Button(ax_back, "Back")
-        self.btn_back.on_clicked(self.on_back)
-
-        ax_next = self.fig.add_axes([0.88, 0.22, 0.10, 0.08])
-        self.btn_next = Button(ax_next, "Next")
-        self.btn_next.on_clicked(self.on_next)
-
-        ax_del = self.fig.add_axes([0.88, 0.12, 0.10, 0.08])
-        self.btn_del = Button(ax_del, "Delete")
-        self.btn_del.on_clicked(self.on_delete)
-
-        ax_check = self.fig.add_axes([0.88, 0.45, 0.10, 0.10])
-        self.check = CheckButtons(ax_check, ["Overlay"], [self.overlay_on])
-        self.check.on_clicked(self.on_toggle)
+        self._create_buttons()
 
         self.fig.canvas.mpl_connect("key_press_event", self.on_key)
 
         self.load_current_sample()
         self.render_current_sample()
+    
+    def _setup_layout(self):
+        self.fig.clear()
+        
+        # Responsive margins (as fraction of figure)
+        left_margin = 0.05
+        right_margin = 0.12
+        bottom_margin = 0.05
+        top_margin = 0.05
+        
+        # Calculate axes size
+        ax_left = left_margin
+        ax_width = 1 - left_margin - right_margin
+        ax_bottom = bottom_margin
+        ax_height = 1 - bottom_margin - top_margin
+        
+        self.ax = self.fig.add_axes([ax_left, ax_bottom, ax_width, ax_height])
+        self.ax.axis("off")
+    
+    def _create_buttons(self):
+        """Create buttons with responsive positioning."""
+        button_area_left = 0.82
+        button_width = 0.15
+        button_height_fraction = 0.06
+
+        button_y_top = 0.85
+        button_y_spacing = 0.12
+        
+        # Checkbox for overlay (top)
+        ax_check = self.fig.add_axes([button_area_left, button_y_top - 0.08, button_width, 0.08])
+        self.check = CheckButtons(ax_check, ["Overlay"], [self.overlay_on])
+        self.check.on_clicked(self.on_toggle)
+        
+        # Navigation buttons (middle area)
+        y_pos = button_y_top - button_y_spacing
+        ax_back = self.fig.add_axes([button_area_left, y_pos, button_width, button_height_fraction])
+        self.btn_back = Button(ax_back, "Back")
+        self.btn_back.on_clicked(self.on_back)
+        
+        y_pos -= button_y_spacing
+        ax_next = self.fig.add_axes([button_area_left, y_pos, button_width, button_height_fraction])
+        self.btn_next = Button(ax_next, "Next")
+        self.btn_next.on_clicked(self.on_next)
+        
+        y_pos -= button_y_spacing
+        ax_del = self.fig.add_axes([button_area_left, y_pos, button_width, button_height_fraction])
+        self.btn_del = Button(ax_del, "Delete")
+        self.btn_del.on_clicked(self.on_delete)
+    
+    def on_figure_resize(self, event):
+        if hasattr(self, 'ax'):
+            self.render_current_sample()
 
     def _set_status(self, msg: str):
         self.suptitle_text.set_text(msg or "")
@@ -159,7 +203,13 @@ class Viewer:
         title = f"{self.idx+1}/{len(self.images)}  |  {img_fn}"
         if self.cur_mask_path is None:
             title += "  |  (NO MASK FOUND)"
-        self.ax.set_title(title, fontsize=12)
+
+        fig_width_inch = self.fig.get_figwidth()
+        dpi = self.fig.dpi
+        fig_width_pixels = fig_width_inch * dpi
+        title_fontsize = max(12, int(fig_width_pixels / 120))
+        
+        self.ax.set_title(title, fontsize=title_fontsize)
 
         # Image artist
         if self.im_artist is None:
@@ -184,17 +234,19 @@ class Viewer:
             labels = labels[labels != 0]
             if labels.size > 0:
                 txt = "Labels: " + ", ".join(map(str, labels.tolist()))
+                legend_fontsize = max(10, int(fig_width_pixels / 150))
                 if self.legend_artist is None:
                     self.legend_artist = self.ax.text(
                         0.01, 0.01, txt,
                         transform=self.ax.transAxes,
-                        fontsize=10,
+                        fontsize=legend_fontsize,
                         va="bottom",
                         ha="left",
                         bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.7, edgecolor="none"),
                     )
                 else:
                     self.legend_artist.set_text(txt)
+                    self.legend_artist.set_fontsize(legend_fontsize)
                     self.legend_artist.set_visible(True)
             else:
                 if self.legend_artist is not None:
