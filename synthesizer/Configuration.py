@@ -1,14 +1,12 @@
 import ast
 import csv
 import json
-from dataclasses import asdict, is_dataclass
-from collections.abc import Mapping
 
 import numpy as np
 import os
 import jsonpickle
 
-from models.model_configuration import get_model_configuration
+from models.model_configuration import ModelConfiguration, get_model_configuration
 from synthesizer.StudyPaths import StudyPaths
 
 # Allowed model choices (fixed set)
@@ -30,7 +28,6 @@ class Configuration:
     This object can be serialized/deserialized via jsonpickle.
     """
     _IMMUTABLE_FIELDS = {"model_name", "anomaly_size", "study_name", "save_path"}
-    _IMMUTABLE_MODEL_PARAMS = {"in_channels"}
 
     def __setattr__(self, name, value):
         if (
@@ -41,6 +38,8 @@ class Configuration:
             raise AttributeError(
                 f"{name} is fixed at Configuration initialization and cannot be changed afterwards."
             )
+        if name == "model_params":
+            value = ModelConfiguration.from_value(value)
         super().__setattr__(name, value)
 
     def __init__(self, study_name, model_name, anomaly_size, save_path=None) -> None:
@@ -202,91 +201,6 @@ class Configuration:
         ):
             self.paths = StudyPaths(study_folder, self.study_name)
         return self.paths
-
-    # set hyperparameter space. need min and max config of model.py
-    def set_hyperparameter_space(self, min_config, max_config):
-        """
-        Override the hyperparameter search space used by Optuna.
-
-        Inputs
-        ------
-        min_config:
-            A model Config dataclass instance representing the minimum/baseline parameters.
-        max_config:
-            A model Config dataclass instance representing the maximum parameters.
-
-        Outputs
-        -------
-        None
-            Side effect: updates self.model_params to {"min": ..., "max": ...}.
-        """
-        self.model_params = {
-            "min": self._model_config_to_dict(min_config),
-            "max": self._model_config_to_dict(max_config),
-        }
-
-    def set_model_param(self, name, value):
-        """
-        Fix one model parameter to a concrete value for every Optuna trial.
-
-        Example:
-            config.set_model_param("z_channels", 64)
-        """
-        self._validate_model_param_name(name)
-        self.model_params["min"][name] = value
-        self.model_params["max"][name] = value
-
-    def set_model_params(self, params=None, **kwargs):
-        """
-        Fix multiple model parameters to concrete values.
-        """
-        params = {} if params is None else dict(params)
-        params.update(kwargs)
-        for name, value in params.items():
-            self.set_model_param(name, value)
-
-    def set_model_param_range(self, name, min_value, max_value):
-        """
-        Set one Optuna search range/categorical choice pair for a model parameter.
-
-        Equal min/max values make the parameter fixed. For strings and booleans,
-        different min/max values are treated as categorical choices.
-        """
-        self._validate_model_param_name(name)
-        self.model_params["min"][name] = min_value
-        self.model_params["max"][name] = max_value
-
-    def update_model_param_ranges(self, ranges=None, **kwargs):
-        """
-        Update multiple model parameter ranges.
-
-        Values must be (min_value, max_value) pairs:
-            config.update_model_param_ranges({"z_channels": (32, 64)})
-            config.update_model_param_ranges(beta_kl=(0.05, 0.2))
-        """
-        ranges = {} if ranges is None else dict(ranges)
-        ranges.update(kwargs)
-        for name, value_range in ranges.items():
-            if not isinstance(value_range, (tuple, list)) or len(value_range) != 2:
-                raise ValueError(f"Range for {name!r} must be a (min_value, max_value) pair.")
-            self.set_model_param_range(name, value_range[0], value_range[1])
-
-    def _validate_model_param_name(self, name):
-        valid_names = set(self.model_params.get("min", {})) | set(self.model_params.get("max", {}))
-        if name not in valid_names:
-            raise KeyError(f"Unknown model parameter {name!r}. Available parameters: {sorted(valid_names)}")
-        if name in self._IMMUTABLE_MODEL_PARAMS:
-            raise AttributeError(
-                f"Model parameter {name!r} is derived from anomaly_size and cannot be changed afterwards."
-            )
-
-    @staticmethod
-    def _model_config_to_dict(config):
-        if is_dataclass(config):
-            return asdict(config)
-        if isinstance(config, Mapping):
-            return dict(config)
-        raise TypeError("Model config must be a dataclass instance or mapping.")
 
     # save config as JSON
     def save_config_file(self, overwrite=False):
@@ -494,4 +408,6 @@ def load_config_file(json_path):
         The decoded Configuration instance.
     """
     with open(json_path, 'r', encoding='utf-8') as fi:
-        return jsonpickle.decode(fi.read())
+        config = jsonpickle.decode(fi.read())
+    config.model_params = ModelConfiguration.from_value(config.model_params)
+    return config

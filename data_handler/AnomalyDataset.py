@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+
+from synthesizer.StudyPaths import StudyPaths
 
 
 def save_numpy_as_npy(
@@ -63,24 +65,73 @@ def save_numpy_as_npy(
 
 class AnomalyDataset(Dataset):
     """
-    PyTorch Dataset that loads 3D samples stored as `.npy` files from a folder.
+    PyTorch Dataset that loads selected `.npy` artifacts for one study.
 
     Key behavior:
-    - The dataset is populated *only* from a folder (no manual add_sample/add_path).
+    - StudyPaths defines all artifact folders.
+    - Only artifacts listed in return_artifacts are loaded.
     - File format: `.npy` (not NIfTI).
-    - Optional: preload everything into RAM (load_to_ram=True).
+    - Optional: preload selected artifacts into RAM (load_to_ram=True).
 
     Return format:
-    - return_filename=False -> x
-    - return_filename=True  -> (x, fname)
-      where fname is the basename including extension (e.g., "sample_0.npy").
+    - {"img": img, "fname": fname, "ori_mask": ..., ...}
+
+    Supported artifact names:
+    - img
+    - fname
+    - ori_mask
+    - tgt_mask
+    - anomaly_roi
+    - synth_anomaly
+    - synth_roi
     """
+
+    ALLOWED_ARTIFACTS = (
+        "img",
+        "fname",
+        "ori_mask",
+        "tgt_mask",
+        "anomaly_roi",
+        "synth_anomaly",
+        "synth_roi",
+    )
+    LOADABLE_ARTIFACTS = tuple(a for a in ALLOWED_ARTIFACTS if a != "fname")
+    STUDY_PATH_ATTRIBUTES = {
+        "img": "anomaly_data",
+        "ori_mask": "anomaly_mask_data",
+        "tgt_mask": "anomaly_tgt_mask_data",
+        "anomaly_roi": "anomaly_roi_data",
+        "synth_anomaly": "synth_anomaly_data",
+        "synth_roi": "synth_roi_data",
+    }
+    ARTIFACT_ALIASES = {
+        "x": "img",
+        "image": "img",
+        "images": "img",
+        "anomaly": "img",
+        "anomaly_data": "img",
+        "org_mask": "ori_mask",
+        "orig_mask": "ori_mask",
+        "original_mask": "ori_mask",
+        "mask": "ori_mask",
+        "anomaly_mask": "ori_mask",
+        "anomaly_mask_data": "ori_mask",
+        "target_mask": "tgt_mask",
+        "anomaly_tgt_mask": "tgt_mask",
+        "anomaly_tgt_mask_data": "tgt_mask",
+        "anomaly_roi_data": "anomaly_roi",
+        "synthetic_anomaly": "synth_anomaly",
+        "synthetic_anomaly_data": "synth_anomaly",
+        "synth_anomaly_data": "synth_anomaly",
+        "synth_roi_data": "synth_roi",
+    }
 
     def __init__(
         self,
-        folder: Union[str, os.PathLike],
+        study_paths: StudyPaths,
         *,
-        return_filename: bool = True,
+        return_artifacts: Optional[Union[str, Sequence[str]]] = None,
+        index_artifact: Optional[str] = None,
         dtype: torch.dtype = torch.float32,
         transform: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
         recursive: bool = False,
@@ -95,24 +146,30 @@ class AnomalyDataset(Dataset):
 
         Inputs
         ------
-        folder:
-            Path to a directory containing `.npy` files.
-        return_filename:
-            If True, __getitem__ returns (x, filename). Otherwise returns x only.
+        study_paths:
+            StudyPaths-like object used for all artifact folders.
+        return_artifacts:
+            Multi-selection of artifacts to return. If set, __getitem__ returns
+            a dict with exactly these keys. If omitted, ("img", "fname") is used.
+        index_artifact:
+            Artifact used to define dataset length/order and fname. If omitted,
+            the first selected loadable artifact is used.
         dtype:
             Torch dtype used when converting numpy arrays into torch tensors.
             (Ignored if numpy_mode=True.)
         transform:
-            Optional transform applied to x after loading.
+            Optional transform applied to the img artifact after loading.
             NOTE: In numpy_mode=True, transform will receive a NumPy array (not a torch tensor).
         recursive:
             If True, search recursively (rglob). Otherwise only the top-level folder.
+            synth_roi is always scanned recursively because the pipeline stores it
+            under synth_roi_data/<control>/<anomaly>.npy.
         extensions:
             Allowed file extensions (default: (".npy",)).
         sort:
             If True, sort file paths for deterministic ordering.
         load_to_ram:
-            If True, preload all `.npy` arrays into memory during initialization.
+            If True, preload selected loadable artifacts into memory.
         mmap_mode:
             Passed to np.load(..., mmap_mode=...) when load_to_ram=False.
             NOTE: If load_to_ram=True, mmap_mode is ignored (set to None).
@@ -123,18 +180,13 @@ class AnomalyDataset(Dataset):
         -------
         None
             Side effects:
-              - scans the folder and stores file paths
+              - scans selected artifact folders and stores file paths
               - builds fast lookup dicts for basename and stem
-              - optionally preloads arrays into RAM
+              - optionally preloads selected arrays into RAM
         """
-        # Resolve folder path
-        self.folder = Path(folder).expanduser().resolve()
-        if not self.folder.is_dir():
-            raise FileNotFoundError(str(self.folder))
-
         # Store configuration flags
         self.numpy_mode = numpy_mode
-        self.return_filename = return_filename
+        self.return_artifacts = self._normalize_return_artifacts(return_artifacts)
         self.dtype = dtype
         self.transform = transform
         self.recursive = recursive
@@ -145,13 +197,29 @@ class AnomalyDataset(Dataset):
         # mmap_mode is only relevant when we DO NOT preload into RAM
         self.mmap_mode = None if load_to_ram else mmap_mode
 
-        # Collect all .npy files into a list
-        self._paths: List[str] = self._collect_paths()
+        # Resolve configured folders for known artifacts.
+        self.study_paths = study_paths
+        self._artifact_paths = self._resolve_artifact_paths(study_paths)
+
+        self.index_artifact = self._resolve_index_artifact(index_artifact)
+        self._index_folder = self._artifact_paths[self.index_artifact]
+
+        # Collect all index files into a list. This defines dataset length/order.
+        self._paths = self._collect_paths(
+            self._index_folder,
+            artifact=self.index_artifact,
+        )
+        self._fnames = [os.path.basename(p) for p in self._paths]
+
+        self._artifact_lookup_cache: dict[str, dict[str, dict[str, list[str]]]] = {}
+
+        # Paths aligned by dataset index for selected loadable artifacts only.
+        self._sample_paths_by_artifact = self._build_sample_paths_by_artifact()
 
         # Fast lookup tables:
         # - basename -> [indices]
         # - stem (filename without extension) -> [indices]
-        # These support load_numpy_by_basename() lookups.
+        # These support load_numpy_by_basename() lookups for the index artifact.
         self._basename_to_indices: dict[str, list[int]] = {}
         self._stem_to_indices: dict[str, list[int]] = {}
 
@@ -161,21 +229,109 @@ class AnomalyDataset(Dataset):
             self._basename_to_indices.setdefault(base, []).append(idx)
             self._stem_to_indices.setdefault(stem, []).append(idx)
 
-        # Optional preload into RAM for faster access during training/inference
-        self._ram_arrays: Optional[List[np.ndarray]] = None
+        # Optional preload into RAM for faster access during training/inference.
+        # Only selected loadable artifacts are preloaded.
+        self._ram_arrays: dict[str, list[np.ndarray]] = {}
         if self.load_to_ram:
-            self._ram_arrays = []
-            for p in self._paths:
-                # allow_pickle=False for safety; loads full array into memory
-                self._ram_arrays.append(np.load(p, allow_pickle=False))
+            for artifact, paths in self._sample_paths_by_artifact.items():
+                self._ram_arrays[artifact] = [
+                    np.load(p, allow_pickle=False) for p in paths
+                ]
 
-    def _collect_paths(self) -> List[str]:
+    def _normalize_artifact_name(self, artifact: str) -> str:
+        key = str(artifact).strip().lower()
+        normalized = self.ARTIFACT_ALIASES.get(key, key)
+        if normalized not in self.ALLOWED_ARTIFACTS:
+            raise ValueError(
+                f"Unknown artifact {artifact!r}. Supported: {self.ALLOWED_ARTIFACTS}"
+            )
+        return normalized
+
+    def _normalize_return_artifacts(
+        self,
+        return_artifacts: Optional[Union[str, Sequence[str]]],
+    ) -> tuple[str, ...]:
+        if return_artifacts is None:
+            return ("img", "fname")
+
+        if isinstance(return_artifacts, str):
+            raw_artifacts = (return_artifacts,)
+        else:
+            raw_artifacts = tuple(return_artifacts)
+
+        artifacts = []
+        for artifact in raw_artifacts:
+            normalized = self._normalize_artifact_name(artifact)
+            if normalized not in artifacts:
+                artifacts.append(normalized)
+
+        if not artifacts:
+            raise ValueError("return_artifacts must contain at least one artifact.")
+
+        return tuple(artifacts)
+
+    def _resolve_artifact_paths(self, study_paths: StudyPaths) -> dict[str, Path]:
+        resolved: dict[str, Path] = {}
+
+        if study_paths is None:
+            raise ValueError("study_paths must be provided.")
+
+        for artifact, attr_name in self.STUDY_PATH_ATTRIBUTES.items():
+            if not hasattr(study_paths, attr_name):
+                continue
+            value = getattr(study_paths, attr_name)
+            if value is not None:
+                resolved[artifact] = Path(value).expanduser().resolve()
+
+        return resolved
+
+    def _resolve_index_artifact(self, index_artifact: Optional[str]) -> str:
+        candidates: list[str] = []
+        selected_loadable = [
+            artifact for artifact in self.return_artifacts if artifact != "fname"
+        ]
+
+        if index_artifact is not None:
+            candidates.append(self._normalize_artifact_name(index_artifact))
+
+        candidates.extend(
+            artifact
+            for artifact in selected_loadable
+            if artifact not in candidates
+        )
+        candidates.extend(
+            artifact
+            for artifact in self.LOADABLE_ARTIFACTS
+            if artifact in self._artifact_paths and artifact not in candidates
+        )
+
+        for artifact in candidates:
+            if artifact == "fname":
+                continue
+            folder = self._artifact_paths.get(artifact)
+            if folder is not None:
+                if folder.is_dir():
+                    return artifact
+                if index_artifact is not None or artifact in selected_loadable:
+                    raise FileNotFoundError(
+                        f"Configured folder for artifact {artifact!r} does not exist: {folder}"
+                    )
+
+        raise ValueError(
+            "No loadable artifact folder configured. Pass a StudyPaths instance "
+            "with the requested artifact folder."
+        )
+
+    def _collect_paths(self, folder: Path, *, artifact: str) -> list[str]:
         """
         Collect eligible file paths from the dataset folder.
 
         Inputs
         ------
-        None (uses self.folder, self.recursive, self.extensions)
+        folder:
+            Folder to scan.
+        artifact:
+            Artifact name, used for error messages and synth_roi recursion.
 
         Outputs
         -------
@@ -188,7 +344,8 @@ class AnomalyDataset(Dataset):
             If no matching files are found.
         """
         # Choose iterator depending on recursive search
-        iterator = self.folder.rglob("*") if self.recursive else self.folder.glob("*")
+        recursive = self.recursive or artifact == "synth_roi"
+        iterator = folder.rglob("*") if recursive else folder.glob("*")
 
         # Keep only files matching allowed extensions
         paths = [
@@ -204,10 +361,109 @@ class AnomalyDataset(Dataset):
         # Fail early if dataset folder is empty/misconfigured
         if not paths:
             raise FileNotFoundError(
-                f"No files with extensions {self.extensions} found in: {self.folder}"
+                f"No files with extensions {self.extensions} found for artifact "
+                f"{artifact!r} in: {folder}"
             )
 
         return paths
+
+    def _build_sample_paths_by_artifact(self) -> dict[str, list[str]]:
+        sample_paths: dict[str, list[str]] = {}
+        selected_loadable = [
+            artifact for artifact in self.return_artifacts if artifact != "fname"
+        ]
+
+        for artifact in selected_loadable:
+            folder = self._artifact_paths.get(artifact)
+            if folder is None:
+                raise ValueError(
+                    f"No folder configured for requested artifact {artifact!r}."
+                )
+            if not folder.is_dir():
+                raise FileNotFoundError(
+                    f"Configured folder for artifact {artifact!r} does not exist: {folder}"
+                )
+
+            if artifact == self.index_artifact:
+                sample_paths[artifact] = list(self._paths)
+            else:
+                sample_paths[artifact] = [
+                    self._matching_artifact_path(artifact, index_path)
+                    for index_path in self._paths
+                ]
+
+        return sample_paths
+
+    def _matching_artifact_path(self, artifact: str, index_path: str) -> str:
+        artifact_folder = self._artifact_paths[artifact]
+        index_folder = self._artifact_paths[self.index_artifact]
+        index_path_obj = Path(index_path)
+
+        try:
+            rel_path = index_path_obj.relative_to(index_folder)
+        except ValueError:
+            rel_path = Path(index_path_obj.name)
+
+        exact_path = artifact_folder / rel_path
+        if exact_path.is_file() and exact_path.suffix.lower() in self.extensions:
+            return str(exact_path)
+
+        lookup = self._artifact_lookup(artifact)
+        return self._single_lookup_match(
+            lookup,
+            key=os.path.basename(index_path),
+            artifact=artifact,
+        )
+
+    def _artifact_lookup(self, artifact: str) -> dict[str, dict[str, list[str]]]:
+        if artifact in self._artifact_lookup_cache:
+            return self._artifact_lookup_cache[artifact]
+
+        folder = self._artifact_paths.get(artifact)
+        if folder is None:
+            raise ValueError(f"No folder configured for artifact {artifact!r}.")
+        if not folder.is_dir():
+            raise FileNotFoundError(
+                f"Configured folder for artifact {artifact!r} does not exist: {folder}"
+            )
+
+        paths = self._collect_paths(folder, artifact=artifact)
+        by_basename: dict[str, list[str]] = {}
+        by_stem: dict[str, list[str]] = {}
+
+        for path in paths:
+            base = os.path.basename(path)
+            stem = Path(base).stem
+            by_basename.setdefault(base, []).append(path)
+            by_stem.setdefault(stem, []).append(path)
+
+        lookup = {"basename": by_basename, "stem": by_stem}
+        self._artifact_lookup_cache[artifact] = lookup
+        return lookup
+
+    def _single_lookup_match(
+        self,
+        lookup: dict[str, dict[str, list[str]]],
+        *,
+        key: str,
+        artifact: str,
+    ) -> str:
+        candidates = lookup["basename"].get(key, [])
+
+        if not candidates:
+            stem = Path(key).stem
+            candidates = lookup["stem"].get(stem, [])
+
+        if not candidates:
+            raise KeyError(f"basename not found for artifact {artifact!r}: {key}")
+
+        if len(candidates) > 1:
+            names = [os.path.basename(p) for p in candidates]
+            raise ValueError(
+                f"basename is ambiguous for artifact {artifact!r} ({key}); matches: {names}"
+            )
+
+        return candidates[0]
 
     def __len__(self) -> int:
         """
@@ -278,46 +534,46 @@ class AnomalyDataset(Dataset):
 
         Outputs
         -------
-        If return_filename == True:
-            (x, fname)
-              - x: torch.Tensor (default) or np.ndarray (if numpy_mode=True)
-              - fname: str basename (e.g. "foo.npy")
-        Else:
-            x only
+        dict
+            Sample dictionary with the selected artifact keys.
+            Loadable artifacts are torch.Tensor by default or np.ndarray if
+            numpy_mode=True. fname is a basename string.
 
         Notes
         -----
-        - If load_to_ram=True, loads from self._ram_arrays (fast).
+        - If load_to_ram=True, loads selected arrays from self._ram_arrays (fast).
         - Otherwise loads from disk via np.load(..., mmap_mode=self.mmap_mode).
-        - If transform is provided:
+        - If transform is provided for img:
             - numpy_mode=False: transform receives torch.Tensor
             - numpy_mode=True : transform receives np.ndarray
         """
-        path = self._paths[idx]
-        fname = os.path.basename(path)
+        fname = self._fnames[idx]
 
-        # Load from RAM if preloaded, otherwise load from disk (optionally memory-mapped)
-        if self._ram_arrays is not None:
-            img_np = self._ram_arrays[idx]
+        sample = {}
+        for artifact in self.return_artifacts:
+            if artifact == "fname":
+                sample["fname"] = fname
+                continue
+
+            value = self._load_artifact_value(artifact, idx)
+            if artifact == "img" and self.transform is not None:
+                value = self.transform(value)
+            sample[artifact] = value
+
+        return sample
+
+    def _load_artifact_value(self, artifact: str, idx: int):
+        if artifact in self._ram_arrays:
+            array = self._ram_arrays[artifact][idx]
         else:
-            img_np = np.load(path, allow_pickle=False, mmap_mode=self.mmap_mode)
+            path = self._sample_paths_by_artifact[artifact][idx]
+            array = np.load(path, allow_pickle=False, mmap_mode=self.mmap_mode)
 
-        # Convert to torch tensor unless numpy_mode is enabled
-        if not self.numpy_mode:
-            x = self._to_tensor(img_np)
-        else:
-            x = img_np
+        if self.numpy_mode:
+            return array
+        return self._to_tensor(array)
 
-        # Optional transform hook
-        if self.transform is not None:
-            x = self.transform(x)
-
-        # Return format
-        if self.return_filename:
-            return x, fname
-        return x
-
-    def load_numpy_by_basename(self, basename: str) -> np.ndarray:
+    def load_numpy_by_basename(self, basename: str, artifact: Optional[str] = None) -> np.ndarray:
         """
         Load a `.npy` sample by its basename (filename) and return the NumPy array.
 
@@ -331,6 +587,9 @@ class AnomalyDataset(Dataset):
             Basename may be provided with or without extension:
               - "foo.npy"  (exact basename lookup)
               - "foo"      (stem lookup)
+        artifact:
+            Which loadable artifact to read. If omitted, the dataset's
+            index_artifact is used.
 
         Outputs
         -------
@@ -345,29 +604,76 @@ class AnomalyDataset(Dataset):
             If the basename/stem is ambiguous (multiple matches),
             which can happen in recursive mode if duplicate names exist.
         """
+        if artifact is None:
+            artifact = self.index_artifact
+        artifact = self._normalize_artifact_name(artifact)
+        if artifact == "fname":
+            raise ValueError("fname is metadata, not a loadable numpy artifact.")
+
         # Normalize input to just the basename portion
         key = os.path.basename(str(basename))
 
-        # 1) Try exact basename lookup (e.g. "foo.npy")
-        candidates = self._basename_to_indices.get(key, [])
+        # Fast path for the index artifact keeps the old behavior.
+        if artifact == self.index_artifact:
+            candidates = self._basename_to_indices.get(key, [])
 
-        # 2) If not found, try stem lookup (e.g. "foo")
-        if not candidates:
-            stem = Path(key).stem
-            candidates = self._stem_to_indices.get(stem, [])
+            if not candidates:
+                stem = Path(key).stem
+                candidates = self._stem_to_indices.get(stem, [])
 
-        # No hits
-        if not candidates:
-            raise KeyError(f"basename not found: {basename}")
+            if not candidates:
+                raise KeyError(f"basename not found: {basename}")
 
-        # Multiple hits => ambiguous
-        if len(candidates) > 1:
-            names = [os.path.basename(self._paths[i]) for i in candidates]
-            raise ValueError(f"basename is ambiguous ({basename}); matches: {names}")
+            if len(candidates) > 1:
+                names = [os.path.basename(self._paths[i]) for i in candidates]
+                raise ValueError(f"basename is ambiguous ({basename}); matches: {names}")
 
-        # Load from RAM or disk based on preload setting
-        idx = candidates[0]
-        if self._ram_arrays is not None:
-            return self._ram_arrays[idx]
+            idx = candidates[0]
+            if artifact in self._ram_arrays:
+                return self._ram_arrays[artifact][idx]
 
-        return np.load(self._paths[idx], allow_pickle=False, mmap_mode=self.mmap_mode)
+            return np.load(self._paths[idx], allow_pickle=False, mmap_mode=self.mmap_mode)
+
+        selected_indices = self._selected_artifact_indices_by_basename(artifact, key)
+        if selected_indices:
+            if len(selected_indices) > 1:
+                names = [
+                    os.path.basename(self._sample_paths_by_artifact[artifact][i])
+                    for i in selected_indices
+                ]
+                raise ValueError(f"basename is ambiguous ({basename}); matches: {names}")
+
+            idx = selected_indices[0]
+            if artifact in self._ram_arrays:
+                return self._ram_arrays[artifact][idx]
+
+            path = self._sample_paths_by_artifact[artifact][idx]
+            return np.load(path, allow_pickle=False, mmap_mode=self.mmap_mode)
+
+        lookup = self._artifact_lookup(artifact)
+        path = self._single_lookup_match(lookup, key=key, artifact=artifact)
+        return np.load(path, allow_pickle=False, mmap_mode=self.mmap_mode)
+
+    def _selected_artifact_indices_by_basename(
+        self,
+        artifact: str,
+        key: str,
+    ) -> list[int]:
+        paths = self._sample_paths_by_artifact.get(artifact)
+        if paths is None:
+            return []
+
+        candidates = [
+            idx
+            for idx, path in enumerate(paths)
+            if os.path.basename(path) == key
+        ]
+        if candidates:
+            return candidates
+
+        stem = Path(key).stem
+        return [
+            idx
+            for idx, path in enumerate(paths)
+            if Path(os.path.basename(path)).stem == stem
+        ]

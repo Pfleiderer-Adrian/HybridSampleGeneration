@@ -951,7 +951,7 @@ if __name__ == "__main__":
         categories="can",
         no_of_trials=1,
         #steps=("extract", "train", "generate_synth", "matching", "fusion", "save"),
-        steps=("generate_synth", "matching", "fusion", "save"),
+        steps=("matching", "fusion", "save"),
 
         save_path=save_path
     )

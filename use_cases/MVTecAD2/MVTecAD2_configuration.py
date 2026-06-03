@@ -143,9 +143,9 @@ def configure_mvtecad2_defaults(
     config.prior_sampling = False
 
     config.matching_routine = "local"
-    config.anomaly_duplicates = False
-    config.fusions_per_control = 1
-    config.max_fusions_per_control_deviation = 0
+    config.anomaly_duplicates = True
+    config.fusions_per_control = 2
+    config.max_fusions_per_control_deviation = 1
 
     config.fixed_roi_size = fixed_roi_size
     config.update_fusion_params(
@@ -183,7 +183,7 @@ def configure_mvtecad2_defaults(
         "threshold": 1e-5,
     }
 
-    config.update_model_param_ranges(
+    config.model_params.update_model_param_ranges(
         {
             "n_res_blocks": (3, 5),
             "n_levels": (3, 5),
@@ -193,7 +193,7 @@ def configure_mvtecad2_defaults(
             "beta_kl": (0.1, 0.5),
         }
     )
-    config.set_model_params(
+    config.model_params.set_model_params(
         {
             "use_multires_skips": False,
             "use_transpose_conv": False,
