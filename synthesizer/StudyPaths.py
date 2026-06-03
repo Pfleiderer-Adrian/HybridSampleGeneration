@@ -102,6 +102,14 @@ class StudyPaths:
         return self._join("anomaly_roi_data")
 
     @property
+    def anomaly_mask_data(self):
+        return self._join("anomaly_mask_data")
+
+    @property
+    def anomaly_tgt_mask_data(self):
+        return self._join("anomaly_tgt_mask_data")
+
+    @property
     def synth_anomaly_data(self):
         return self._join("synth_anomaly_data")
 

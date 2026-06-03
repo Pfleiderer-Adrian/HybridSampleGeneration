@@ -5,6 +5,10 @@ from skimage.feature import match_template
 from scipy import ndimage
 
 
+def _roi_parts(sample):
+    return sample["anomaly_roi"], sample["fname"]
+
+
 def _to_spatial(arr: np.ndarray) -> np.ndarray:
 
     arr = np.asarray(arr)
@@ -281,7 +285,10 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
             anomaly_list = []
             while True:
                 try:
-                    roi = roi_dataloader.load_numpy_by_basename(control_filename+"_"+str(j)+".npy")
+                    roi = roi_dataloader.load_numpy_by_basename(
+                        control_filename+"_"+str(j)+".npy",
+                        artifact="anomaly_roi",
+                    )
                     centroid = config.syn_anomaly_transformations[control_filename+"_"+str(j)+".npy"]["centroid_norm"]
 
                     anomaly_list.append(
@@ -315,12 +322,12 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
             if i >= roi_dataloader.__len__():
                 if anomaly_duplicates:
                     i = 0
-                    roi, roi_filename = roi_dataloader[i]
+                    roi, roi_filename = _roi_parts(roi_dataloader[i])
                     i += 1
                 else:
                     break
             else:
-                roi, roi_filename = roi_dataloader[i]
+                roi, roi_filename = _roi_parts(roi_dataloader[i])
                 checked_roi_names.add(roi_filename)
                 i += 1
 
@@ -389,7 +396,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 if i >= roi_dataloader.__len__():
                     if anomaly_duplicates:
                         i = 0
-                        roi, roi_filename = roi_dataloader[i]
+                        roi, roi_filename = _roi_parts(roi_dataloader[i])
 
                     else:
                         if skipped_rois:
@@ -397,7 +404,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                         else: 
                             break   # done, no roi left to match
                 else:
-                    roi, roi_filename = roi_dataloader[i]
+                    roi, roi_filename = _roi_parts(roi_dataloader[i])
                     checked_roi_names.add(roi_filename)
                 
                 i_start = i
@@ -420,7 +427,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                         if i == i_start:
                             break   # break after checking every roi once (break for anomaly_duplicates=True)
                         skipped_rois[roi_filename] = roi
-                        roi, roi_filename = roi_dataloader[i]
+                        roi, roi_filename = _roi_parts(roi_dataloader[i])
                         checked_roi_names.add(roi_filename)
                         i += 1
                         
@@ -478,7 +485,8 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 excluded_roi_samples = []
                         
             # so soll all_matches aufgebaut werden: all_matches.append((sim, roi_filename, opt_center))
-            for roi, roi_filename in roi_dataloader:
+            for roi_sample in roi_dataloader:
+                roi, roi_filename = _roi_parts(roi_sample)
                 current_roi_shape = roi.shape[1:]
 
                 if any(roi_filename == excluded_name for _, excluded_name in excluded_roi_samples):

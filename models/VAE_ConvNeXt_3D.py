@@ -550,6 +550,9 @@ class ConvNeXtVAE3D(nn.Module):
         if isinstance(batch, torch.Tensor):
             return batch
 
+        if isinstance(batch, np.ndarray):
+            return torch.as_tensor(batch)
+
         if isinstance(batch, (tuple, list)) and len(batch) > 0:
             x = batch[0]
             if isinstance(x, torch.Tensor):
@@ -557,7 +560,7 @@ class ConvNeXtVAE3D(nn.Module):
             return torch.as_tensor(x)
 
         if isinstance(batch, dict):
-            for key in ("x", "image", "inputs"):
+            for key in ("img", "x", "image", "inputs"):
                 if key in batch:
                     v = batch[key]
                     if isinstance(v, torch.Tensor):
@@ -636,7 +639,7 @@ class ConvNeXtVAE3D(nn.Module):
 
     def generate_synth_sample(
         self,
-        sample: Union[np.ndarray, torch.Tensor],
+        sample: Union[dict, np.ndarray, torch.Tensor],
         *,
         n: int = 1,
         s: float = 0.8,
@@ -659,7 +662,7 @@ class ConvNeXtVAE3D(nn.Module):
         Inputs
         ------
         sample:
-            Either (C,D,H,W) or (B,C,D,H,W).
+            Sample dict containing "img", or raw (C,D,H,W) / (B,C,D,H,W).
 
         Outputs
         -------
@@ -677,10 +680,7 @@ class ConvNeXtVAE3D(nn.Module):
         model = self.to(device)
         model.eval()
 
-        if not isinstance(sample, torch.Tensor):
-            x = torch.as_tensor(sample)
-        else:
-            x = sample
+        x = self._extract_x(sample)
 
         x = x.float()
         single = False

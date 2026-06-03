@@ -660,7 +660,7 @@ class ResNetVAE3D(nn.Module):
         -----------------------
         - batch is a torch.Tensor directly
         - batch is a tuple/list: (x, ...) where x is tensor-like
-        - batch is a dict containing keys: 'x', 'image', or 'inputs'
+        - batch is a dict containing keys: 'img', 'x', 'image', or 'inputs'
 
         Inputs
         ------
@@ -686,6 +686,9 @@ class ResNetVAE3D(nn.Module):
         if isinstance(batch, torch.Tensor):
             return batch
 
+        if isinstance(batch, np.ndarray):
+            return torch.as_tensor(batch)
+
         # Tuple/list: assume first element is x
         if isinstance(batch, (tuple, list)) and len(batch) > 0:
             x = batch[0]
@@ -695,7 +698,7 @@ class ResNetVAE3D(nn.Module):
 
         # Dict: look for typical keys
         if isinstance(batch, dict):
-            for key in ("x", "image", "inputs"):
+            for key in ("img", "x", "image", "inputs"):
                 if key in batch:
                     v = batch[key]
                     if isinstance(v, torch.Tensor):
@@ -824,7 +827,7 @@ class ResNetVAE3D(nn.Module):
 
     def generate_synth_sample(
             self,
-            sample: np.ndarray,
+            sample: Union[dict, np.ndarray, torch.Tensor],
             *,
             device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
             clamp_01: bool = True,
@@ -841,9 +844,8 @@ class ResNetVAE3D(nn.Module):
         Inputs
         ------
         sample:
-            np.ndarray expected shapes:
+            Sample dict containing the "img" artifact, or a raw tensor/array with shapes:
               - (C, D, H, W)   (single sample)
-            (If you pass tensors or include batch dims, behavior is ambiguous in current code.)
         device:
             Device for inference.
         clamp_01:
@@ -859,11 +861,7 @@ class ResNetVAE3D(nn.Module):
         model = self.to(device)
         model.eval()
 
-        # Convert numpy -> torch
-        if not isinstance(sample, torch.Tensor):
-            x = torch.as_tensor(sample)
-        else:
-            x = sample
+        x = self._extract_x(sample)
 
         x = x.float()
 

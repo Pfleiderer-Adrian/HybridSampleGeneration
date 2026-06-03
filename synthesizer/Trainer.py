@@ -7,6 +7,7 @@ from tqdm import tqdm
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from early_stopping_pytorch import EarlyStopping
 
+from models.model_configuration import ModelConfiguration
 from models.model_loader import model_loader
 from synthesizer.Configuration import Configuration
 
@@ -88,7 +89,7 @@ class _RandomSpatialOffset:
 
     def _transform_dict_sample(self, item):
         item = dict(item)
-        x_key = next((key for key in ("x", "image", "inputs") if key in item), None)
+        x_key = next((key for key in ("img", "x", "image", "inputs") if key in item), None)
         if x_key is None:
             return item
 
@@ -101,7 +102,7 @@ class _RandomSpatialOffset:
             return item
 
         item[x_key] = self._apply_shift(x, shifts, fill_value=torch.amin(x))
-        for key in ("org_mask", "mask", "tgt_mask", "target_mask"):
+        for key in ("ori_mask", "org_mask", "mask", "tgt_mask", "target_mask"):
             if key in item:
                 item[key] = self._maybe_apply_shift(item[key], shifts)
         return item
@@ -232,7 +233,7 @@ def objective(trial: Trial, config: Configuration, dataset):
     Optuna objective function: samples hyperparameters, trains a model, saves it, and returns a score.
 
     The objective:
-      1) Builds a hyperparameter set from config.model_params["min"/"max"].
+      1) Builds a hyperparameter set from config.model_params.
       2) Instantiates the model architecture specified by `config.model_name`.
       3) Splits dataset into train/val and trains for up to `config.epochs`.
       4) Stores hyperparameters + paths as Optuna user attributes for reproducibility.
@@ -329,13 +330,14 @@ def _apply_training_offset_augmentation(dataset, config: Configuration):
 
 def sample_model_params(trial: Trial, model_params):
     """
-    Build concrete model params from a {"min": ..., "max": ...} search space.
+    Build concrete model params from a ModelConfiguration search space.
 
     Equal min/max values are treated as fixed constants. Strings and booleans
     become categorical choices when min/max differ.
     """
-    min_params = model_params["min"]
-    max_params = model_params["max"]
+    model_params = ModelConfiguration.from_value(model_params)
+    min_params = model_params.min
+    max_params = model_params.max
     params = {}
 
     for key in sorted(set(min_params) | set(max_params)):

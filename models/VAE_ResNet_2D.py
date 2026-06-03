@@ -644,7 +644,7 @@ class ResNetVAE2D(nn.Module):
         -----------------------
         - batch is a torch.Tensor directly
         - batch is a tuple/list: (x, ...) where x is tensor-like
-        - batch is a dict containing keys: 'x', 'image', or 'inputs'
+        - batch is a dict containing keys: 'img', 'x', 'image', or 'inputs'
 
         Inputs
         ------
@@ -669,6 +669,9 @@ class ResNetVAE2D(nn.Module):
         if isinstance(batch, torch.Tensor):
             return batch
 
+        if isinstance(batch, np.ndarray):
+            return torch.as_tensor(batch)
+
         if isinstance(batch, (tuple, list)) and len(batch) > 0:
             x = batch[0]
             if isinstance(x, torch.Tensor):
@@ -676,7 +679,7 @@ class ResNetVAE2D(nn.Module):
             return torch.as_tensor(x)
 
         if isinstance(batch, dict):
-            for key in ("x", "image", "inputs"):
+            for key in ("img", "x", "image", "inputs"):
                 if key in batch:
                     v = batch[key]
                     if isinstance(v, torch.Tensor):
@@ -796,7 +799,7 @@ class ResNetVAE2D(nn.Module):
 
     def generate_synth_sample(
         self,
-        sample: np.ndarray,
+        sample: Union[dict, np.ndarray, torch.Tensor],
         *,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
@@ -813,7 +816,7 @@ class ResNetVAE2D(nn.Module):
         Inputs
         ------
         sample:
-            np.ndarray expected shapes:
+            Sample dict containing the "img" artifact, or a raw tensor/array with shapes:
               - (C, H, W)   (single sample)
         device:
             Device for inference.
@@ -829,10 +832,7 @@ class ResNetVAE2D(nn.Module):
         model = self.to(device)
         model.eval()
 
-        if not isinstance(sample, torch.Tensor):
-            x = torch.as_tensor(sample)
-        else:
-            x = sample
+        x = self._extract_x(sample)
 
         if x.ndim == 3:  # (C,H,W) -> (1,C,H,W)
             x = x.unsqueeze(0)

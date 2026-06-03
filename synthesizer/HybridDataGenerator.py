@@ -96,8 +96,15 @@ class HybridDataGenerator:
         paths = self._config.get_paths()
         anomaly_folder = paths.anomaly_data
         anomaly_roi_folder = paths.anomaly_roi_data
+        anomaly_mask_folder = paths.anomaly_mask_data
+        anomaly_tgt_mask_folder = paths.anomaly_tgt_mask_data
 
-        paths.confirm_and_clear_artifact_dirs(anomaly_folder, anomaly_roi_folder)
+        paths.confirm_and_clear_artifact_dirs(
+            anomaly_folder,
+            anomaly_roi_folder,
+            anomaly_mask_folder,
+            anomaly_tgt_mask_folder,
+        )
         self._config.syn_anomaly_transformations = {}
 
         for img, seg, basename in sample_dataloader:
@@ -127,30 +134,50 @@ class HybridDataGenerator:
             else:
                 raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
 
-            i = 0
             # save anomaly cutout for training
-            for anomaly_sample, meta_data in anomalies:
-                save_numpy_as_npy(anomaly_sample, os.path.join(anomaly_folder, basename+"_"+str(i)+".npy"), overwrite=True)
-                self._config.add_anomaly_transformation(basename+"_"+str(i)+".npy", meta_data)
-                i = i + 1
-            i = 0
+            for i, (anomaly_sample, meta_data) in enumerate(anomalies):
+                artifact_name = basename + "_" + str(i) + ".npy"
+                save_numpy_as_npy(
+                    anomaly_sample,
+                    os.path.join(anomaly_folder, artifact_name),
+                    overwrite=True,
+                )
+                self._config.add_anomaly_transformation(artifact_name, meta_data)
+
             # save roi of anomaly for matching
-            for roi_sample in anomalies_roi:
-                save_numpy_as_npy(roi_sample, os.path.join(anomaly_roi_folder, basename+"_"+str(i)+".npy"), overwrite=True)
-                i = i + 1
+            for i, roi_sample in enumerate(anomalies_roi):
+                artifact_name = basename + "_" + str(i) + ".npy"
+                save_numpy_as_npy(
+                    roi_sample,
+                    os.path.join(anomaly_roi_folder, artifact_name),
+                    overwrite=True,
+                )
+
+            # save mask of anomaly for matching
+            for i, mask_sample in enumerate(org_masks):
+                artifact_name = basename + "_" + str(i) + ".npy"
+                save_numpy_as_npy(
+                    mask_sample,
+                    os.path.join(anomaly_mask_folder, artifact_name),
+                    overwrite=True,
+                )
+
+            # todo save tgt mask of anomaly for matching
+            tgt_masks = org_masks  # implement tgt mask generation
+            for i, mask_sample in enumerate(tgt_masks):
+                artifact_name = basename + "_" + str(i) + ".npy"
+                save_numpy_as_npy(
+                    mask_sample,
+                    os.path.join(anomaly_tgt_mask_folder, artifact_name),
+                    overwrite=True,
+                )
         self._config.save_anomaly_transformations()
-        self.load_anomalies(anomaly_folder=anomaly_folder)
+        self.load_anomalies()
 
-    def load_anomalies(self, anomaly_folder=None):
+    def load_anomalies(self):
         """
-        Load previously extracted anomaly cutouts into an AnomalyDataset3D and
+        Load previously extracted anomaly cutouts into an AnomalyDataset and
         load their transformation meta-data from config.
-
-        Inputs
-        ------
-        anomaly_folder:
-            Folder containing anomaly .npy files.
-            If None: "<study_folder>/anomaly_data"
 
         Outputs
         -------
@@ -158,11 +185,10 @@ class HybridDataGenerator:
             Side effects: sets self._anomaly_dataset and loads config transformations into memory.
         """
         self._log_step("Step 2/9: Loading anomaly dataset.")
-        if anomaly_folder is None:
-            anomaly_folder = self._config.get_paths().anomaly_data
+        paths = self._config.get_paths()
         self._anomaly_dataset = AnomalyDataset(
-            anomaly_folder,  # oder samples=[...]
-            return_filename=True,
+            paths,
+            return_artifacts=self._config.model_params.input_artefacts,
             load_to_ram=True,
             dtype=torch.float32,
         )
@@ -252,9 +278,9 @@ class HybridDataGenerator:
         """
         Generate synthetic anomalies for each anomaly in the loaded anomaly dataset.
 
-        For each (img, basename) in anomaly dataset:
-          - run model.generate_synth_sample(img)
-          - save output as .npy under the same basename
+        For each anomaly sample:
+          - run model.generate_synth_sample(sample)
+          - save output as .npy under sample["fname"]
 
         Outputs
         -------
@@ -269,15 +295,16 @@ class HybridDataGenerator:
         paths = self._config.get_paths()
         synth_anomaly_folder = paths.synth_anomaly_data
         paths.confirm_and_clear_artifact_dirs(synth_anomaly_folder)
+        self._anomaly_dataset.numpy_mode = True
 
 
         # use feedback system to generate similar anomalies
         if self._config.use_feedback:
-            self._anomaly_dataset.numpy_mode = True
             bad_anomalies = []
 
-            for img, basename in tqdm(self._anomaly_dataset):
-                #syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
+            for sample in tqdm(self._anomaly_dataset):
+                img = sample["img"]
+                basename = sample["fname"]
 
                 best = -1
                 best_image = None
@@ -287,7 +314,7 @@ class HybridDataGenerator:
                     if self._config.prior_sampling:
                         syn_anomaly_sample = self._model.generate_synth_sample_prior(clamp_01=self._config.clamp01_output, out_hw=self._config.anomaly_size[1:])
                     else:
-                        syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
+                        syn_anomaly_sample = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
 
                     if best_image is None:
                         best_image = syn_anomaly_sample
@@ -324,26 +351,25 @@ class HybridDataGenerator:
 
         # standard generation without feedback
         else:
-            for img, basename in tqdm(self._anomaly_dataset):
+            for sample in tqdm(self._anomaly_dataset):
+                img = sample["img"]
+                basename = sample["fname"]
                 if self._config.prior_sampling:
                     syn_anomaly_sample = self._model.generate_synth_sample_prior(clamp_01=self._config.clamp01_output, out_hw=self._config.anomaly_size[1:])
                 else:
-                    syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
+                    syn_anomaly_sample = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
                 save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
 
-        self.load_synth_anomalies(synth_anomaly_folder)
+        self.load_synth_anomalies()
 
 
 
-    def load_synth_anomalies(self, synth_anomaly_folder=None, transformation_file=None):
+    def load_synth_anomalies(self, transformation_file=None):
         """
         Load synthetic anomalies from disk and load the anomaly transformations file.
 
         Inputs
         ------
-        synth_anomaly_folder:
-            Folder containing synthetic anomaly .npy files.
-            If None: "<study_folder>/synth_anomaly_data"
         transformation_file:
             Path to anomaly transformations file.
             If None: "<study_folder>/anomaly_transformations.json"
@@ -354,15 +380,15 @@ class HybridDataGenerator:
             Side effects: sets self._synth_anomaly_dataset and loads transformation meta-data into config.
         """
         self._log_step("Step 6/9: Loading synthetic anomalies and transformation metadata.")
-        if synth_anomaly_folder is None:
-            synth_anomaly_folder = self._config.get_paths().synth_anomaly_data
+        paths = self._config.get_paths()
         if transformation_file is None:
-            transformation_file = self._config.get_paths().anomaly_transformations_file
+            transformation_file = paths.anomaly_transformations_file
 
         self._config.load_anomaly_transformations(transformation_file)
         self._synth_anomaly_dataset = AnomalyDataset(
-            synth_anomaly_folder,  # oder samples=[...]
-            return_filename=True,
+            paths,
+            return_artifacts=("synth_anomaly", "fname"),
+            index_artifact="synth_anomaly",
             load_to_ram=True,
             dtype=torch.float32,
         )
@@ -397,16 +423,16 @@ class HybridDataGenerator:
         if self._synth_anomaly_dataset is None:
             raise ValueError(f"No Synth Anomalies Loaded: Run generate_synth_anomalies or load_synth_anomalies first")
         paths = self._config.get_paths()
-        roi_folder = paths.anomaly_roi_data
         csv_file_path = paths.matching_dict_file
         _roi_dataset = AnomalyDataset(
-            roi_folder,
-            return_filename=True,
+            paths,
+            return_artifacts=("anomaly_roi", "fname"),
+            index_artifact="anomaly_roi",
             load_to_ram=True,
             dtype=torch.float32,
             numpy_mode=True
         )
-        img = _roi_dataset.__getitem__(0)[0]
+        img = _roi_dataset[0]["anomaly_roi"]
         if img.ndim in [3, 4]:
             _data = create_matching_dictionary(control_samples_dataloader, _roi_dataset, self._config, matching_routine=self._config.matching_routine, anomaly_duplicates=self._config.anomaly_duplicates)
         else:
@@ -486,7 +512,10 @@ class HybridDataGenerator:
 
         for anomaly_basename, fusion_position in anomalies:
 
-            synth_anomaly_image = self._synth_anomaly_dataset.load_numpy_by_basename(anomaly_basename)
+            synth_anomaly_image = self._synth_anomaly_dataset.load_numpy_by_basename(
+                anomaly_basename,
+                artifact="synth_anomaly",
+            )
 
             anomaly_meta = self._config.syn_anomaly_transformations.get(anomaly_basename, {})
 

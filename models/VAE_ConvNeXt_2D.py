@@ -590,6 +590,9 @@ class ConvNeXtVAE2D(nn.Module):
         if isinstance(batch, torch.Tensor):
             return batch
 
+        if isinstance(batch, np.ndarray):
+            return torch.as_tensor(batch)
+
         if isinstance(batch, (tuple, list)) and len(batch) > 0:
             x = batch[0]
             if isinstance(x, torch.Tensor):
@@ -597,7 +600,7 @@ class ConvNeXtVAE2D(nn.Module):
             return torch.as_tensor(x)
 
         if isinstance(batch, dict):
-            for key in ("x", "image", "inputs"):
+            for key in ("img", "x", "image", "inputs"):
                 if key in batch:
                     v = batch[key]
                     if isinstance(v, torch.Tensor):
@@ -674,7 +677,7 @@ class ConvNeXtVAE2D(nn.Module):
 
     def generate_synth_sample(
         self,
-        sample: Union[np.ndarray, torch.Tensor],
+        sample: Union[dict, np.ndarray, torch.Tensor],
         *,
         n: int = 1,
         s: float = 0.5,
@@ -695,7 +698,7 @@ class ConvNeXtVAE2D(nn.Module):
                s>=1.0 -> large variations (can drift away)
 
         Input:
-          - sample: (C,H,W) or (B,C,H,W)
+          - sample: dict containing "img", or raw (C,H,W) / (B,C,H,W)
 
         Output:
           - if input is (C,H,W): (n,C,H,W)
@@ -710,10 +713,7 @@ class ConvNeXtVAE2D(nn.Module):
         model = self.to(device)
         model.eval()
 
-        if not isinstance(sample, torch.Tensor):
-            x = torch.as_tensor(sample)
-        else:
-            x = sample
+        x = self._extract_x(sample)
 
         x = x.float()
         single = False
@@ -915,5 +915,10 @@ if __name__ == "__main__":
     print({k: tuple(v.shape) for k, v in out.items()})
 
     # Posterior sampling: generate 5 variants per item
-    variants = model.generate_synth_sample(x[0], n=5, s=0.3, return_torch=True)
+    variants = model.generate_synth_sample(
+        {"img": x[0], "fname": "sanity.npy"},
+        n=5,
+        s=0.3,
+        return_torch=True,
+    )
     print("variants:", tuple(variants.shape))
