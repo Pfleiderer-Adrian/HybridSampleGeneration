@@ -2,6 +2,7 @@ import numpy as np
 import scipy.ndimage
 from scipy.ndimage import zoom
 from scipy.ndimage import binary_fill_holes
+from scipy.ndimage import binary_dilation
 
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_square_clip
 
@@ -211,28 +212,42 @@ def fusion2d(
     valid_mask = anom_proj > background_threshold            # (h,w)
 
     # ------------------------------------------------------------
-    # 9) Locally normalize anomaly values (per channel) to match control region stats
-    #    - Only normalize values where valid_mask is True
-    #    - Match anomaly's foreground range to control region's per-channel range
+    # 9) Locally normalize anomaly values (per channel) to match 
+    #    local control region stats (Combined Multiclass Mask)
     # ------------------------------------------------------------
-    if np.any(valid_mask):
-        anom = anom.copy()  # we will modify in place
-        for c in range(C):
-            vp = anom[c][valid_mask]  # foreground values for this channel
-            if vp.size == 0:
-                continue
+    
+    anom = anom.copy() 
+    binary_mask = (valid_mask > 0) 
 
-            a_min = float(vp.min())
-            a_max = float(vp.max())
-            src_range = a_max - a_min
-            if src_range == 0:
-                src_range = 1.0
-
-            tgt_range = float(img_region_max[c] - img_region_min[c])
-
-            # Map anomaly foreground values into control region intensity range
-            vp = ((vp - a_min) / src_range) * tgt_range + float(img_region_min[c])
-            anom[c][valid_mask] = vp
+    if np.any(binary_mask):
+        # ring around anomaly
+        dilation_structure = np.ones((5, 5), dtype=bool) # thickness of ring
+        dilated_mask = binary_dilation(binary_mask, structure=dilation_structure)
+        ring_mask = dilated_mask ^ binary_mask # only ring (without anomaly)
+        
+        if np.any(ring_mask):
+            for c in range(C):
+                # anomaly intensity
+                vp = anom[c][binary_mask]  
+                if vp.size == 0:
+                    continue
+                
+                # background intensity
+                bg_local = bg_slice[c][ring_mask]
+                
+                # mean and std
+                a_mean = np.mean(vp)
+                a_std = np.std(vp)
+                if a_std == 0: 
+                    a_std = 1e-5
+                    
+                bg_mean = np.mean(bg_local)
+                bg_std = np.std(bg_local)
+                
+                # z score matching
+                vp_matched = ((vp - a_mean) / a_std) * bg_std + bg_mean
+                
+                anom[c][binary_mask] = vp_matched
 
     # ------------------------------------------------------------
     # 10) Create alpha mask from Sobel+distance transform mask (edge-aware)
@@ -271,20 +286,24 @@ def fusion2d(
     # ------------------------------------------------------------
     segmentation = np.zeros((H, W), dtype=np.uint8)
 
-    seg_local = alpha_mask > 0.05   # Schwelle anpassen (0.01–0.2 typ.)
-    seg_local = binary_fill_holes(seg_local).astype(np.uint8)
-    # valid_mask is anomaly-local (h,w) -> crop to actual inserted region size
-    vm_crop = seg_local[:hh, :ww]
-    segmentation[h0 : h0 + hh, w0 : w0 + ww] = vm_crop.astype(np.uint8)
+    seg_local_binary = alpha_mask > 0.05
+    seg_local_binary = binary_fill_holes(seg_local_binary)
 
-    # Fill holes for a cleaner binary segmentation
-    segmentation = binary_fill_holes(segmentation).astype(np.uint8)
+    multiclass_seg_local = (valid_mask * seg_local_binary).astype(np.uint8)
+
+    vm_crop = multiclass_seg_local[:hh, :ww]
+    segmentation[h0 : h0 + hh, w0 : w0 + ww] = vm_crop
+
+    for class_id in np.unique(segmentation):
+        if class_id == 0:
+            continue
+        class_mask = segmentation == class_id
+        filled_class_mask = binary_fill_holes(class_mask)
+        segmentation[filled_class_mask] = class_id
 
     segmentation = segmentation[None, ...]                 # (1, H, W)
     if C != 1:
         segmentation = np.repeat(segmentation, C, axis=0)  # (C, H, W)
-
-    segmentation = np.where(segmentation > 0, 1, 0).astype(np.uint8)
 
     # Ensuring no anomalies are fused in and an empty mask is provided -> could this confuse the model? Better to simply return ctrl
     # This is why synth ROI is missing for some samples! (roi becomes None here)
