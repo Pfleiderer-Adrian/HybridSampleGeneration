@@ -25,7 +25,7 @@ from use_cases.MVTecAD2.MVTecAD2_configuration import (
 
 
 MVTECAD2_ROOT = Path(
-    os.environ.get("MVTECAD2_ROOT", r"C:\Users\priva\Documents\datasets\mvtec_ad_2")
+    os.environ.get("MVTECAD2_ROOT", r"path/to/mvtec_ad_2_dataset")
 )
 
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp")
@@ -944,15 +944,14 @@ def _validate_dataset_root(root: Path) -> None:
 
 if __name__ == "__main__":
 
-    save_path = r"C:\Users\priva\Documents\experiments\mvtec_ad_2"
+    save_path = r"path/to/save/generated/data"
 
     run_hybrid_sample_generation_for_all_usecases(
         MVTECAD2_ROOT,
         categories="can",
         no_of_trials=1,
-        #steps=("extract", "train", "generate_synth", "matching", "fusion", "save"),
-        steps=("matching", "fusion", "save"),
-
+        steps=("extract", "train", "generate_synth", "matching", "fusion", "save"),
+        #steps=("matching", "fusion", "save"),
         save_path=save_path
     )
 
