@@ -9,9 +9,11 @@ import os
 import jsonpickle
 
 from models.model_configuration import get_model_configuration
+from synthesizer.StudyPaths import StudyPaths
 
 # Allowed model choices (fixed set)
 ALLOWED_MODELS = ["VAE_ResNet_3D", "VAE_ResNet_2D", "VAE_ConvNeXt_3D", "VAE_ConvNeXt_2D"]
+
 
 # creates a new interactive config object/file for the data generator
 class Configuration:
@@ -70,9 +72,11 @@ class Configuration:
         self.model_name = model_name
         self.config_name = None
         if save_path is None:
-            self.study_folder = os.path.join(os.path.join(os.getcwd(),"results"), study_name)
+            study_folder = os.path.join(os.path.join(os.getcwd(),"results"), study_name)
         else:
-            self.study_folder = os.path.join(os.path.join(save_path,"results"), study_name)
+            study_folder = os.path.join(os.path.join(save_path,"results"), study_name)
+        self.study_folder = os.path.normpath(study_folder)
+        self.paths = StudyPaths(self.study_folder, self.study_name)
         # rng for persitence
         self.rng = np.random.default_rng(42)
 
@@ -182,6 +186,22 @@ class Configuration:
 
         self._immutable_fields_locked = True
 
+    def get_paths(self) -> StudyPaths:
+        """
+        Return the managed study path layout.
+
+        This method also upgrades older serialized configs that do not yet
+        contain a StudyPaths object.
+        """
+        study_folder = os.path.normpath(os.fspath(self.study_folder))
+        paths = getattr(self, "paths", None)
+        if (
+            not isinstance(paths, StudyPaths)
+            or paths.study_folder != study_folder
+            or paths.study_name != self.study_name
+        ):
+            self.paths = StudyPaths(study_folder, self.study_name)
+        return self.paths
 
     # set hyperparameter space. need min and max config of model.py
     def set_hyperparameter_space(self, min_config, max_config):
@@ -269,15 +289,12 @@ class Configuration:
         raise TypeError("Model config must be a dataclass instance or mapping.")
 
     # save config as JSON
-    def save_config_file(self, json_path=None, overwrite=False):
+    def save_config_file(self, overwrite=False):
         """
         Serialize and save the entire Configuration object to a JSON file using jsonpickle.
 
         Inputs
         ------
-        json_path:
-            Target path for the JSON file.
-            If None: "<study_folder>/configuration.json"
         overwrite:
             If True and file exists, remove it first.
 
@@ -285,14 +302,9 @@ class Configuration:
         -------
         None
             Side effect: writes JSON to disk.
-
-        Notes
-        -----
-        The implementation has a small logic quirk:
         """
         json_string = jsonpickle.encode(self, indent=0)
-        if json_path is None:
-            json_path = os.path.join(self.study_folder, "configuration.json")
+        json_path = self.get_paths().configuration_file
         os.makedirs(os.path.dirname(json_path), exist_ok=True)
         if os.path.exists(json_path):
             with open(json_path, 'w', encoding='utf-8') as fi:
@@ -339,27 +351,21 @@ class Configuration:
             Side effect: overwrites self.syn_anomaly_transformations with loaded content.
         """
         if json_path is None:
-            json_path = os.path.join(self.study_folder, "anomaly_transformations.json")
+            json_path = self.get_paths().anomaly_transformations_file
         with open(json_path, "r", encoding="utf-8") as f:
             self.syn_anomaly_transformations = json.load(f)
 
-    def save_anomaly_transformations(self, json_path=None):
+    def save_anomaly_transformations(self):
         """
         Save `self.syn_anomaly_transformations` to JSON.
-
-        Inputs
-        ------
-        json_path:
-            Target JSON file.
-            If None: "<study_folder>/anomaly_transformations.json"
 
         Outputs
         -------
         None
             Side effect: writes JSON to disk.
         """
-        if json_path is None:
-            json_path = os.path.join(self.study_folder, "anomaly_transformations.json")
+        json_path = self.get_paths().anomaly_transformations_file
+        os.makedirs(os.path.dirname(json_path), exist_ok=True)
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(self.syn_anomaly_transformations, f, ensure_ascii=False, indent=2)
 
@@ -389,6 +395,9 @@ class Configuration:
         None
             Side effect: updates self.matching_dict.
         """
+        if csv_path is None:
+            csv_path = self.get_paths().matching_dict_file
+
         result = {}
         with open(csv_path, "r", newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)

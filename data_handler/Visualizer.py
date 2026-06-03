@@ -15,6 +15,8 @@ import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
 
+from synthesizer.Configuration import StudyPaths
+
 class OutlierGUI:
     def __init__(self, root, config):
         self.root = root
@@ -22,14 +24,15 @@ class OutlierGUI:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         self.config = config
+        self.paths = config.get_paths()
 
-        self.synth_anomaly_dir = os.path.join(config.study_folder, "synth_anomaly_data")
-        self.synth_roi_dir = os.path.join(config.study_folder, "synth_roi_data")
-        self.anomaly_dir = os.path.join(config.study_folder, "anomaly_data")
-        self.anomaly_roi_dir = os.path.join(config.study_folder, "anomaly_roi_data")
+        self.synth_anomaly_dir = self.paths.synth_anomaly_data
+        self.synth_roi_dir = self.paths.synth_roi_data
+        self.anomaly_dir = self.paths.anomaly_data
+        self.anomaly_roi_dir = self.paths.anomaly_roi_data
         
-        self.ghs_dir = os.path.join(config.study_folder, "generated_hybrid_samples", "images_npy")
-        self.ghs_seg_dir = os.path.join(config.study_folder, "generated_hybrid_samples", "segmentations_npy")
+        self.ghs_dir = self.paths.generated_images_npy
+        self.ghs_seg_dir = self.paths.generated_segmentations_npy
 
         self.metric_stats = {}
         
@@ -67,7 +70,7 @@ class OutlierGUI:
                     for a in anomalies:
                         anomaly_to_controls[a].append(control_name)
 
-        csv_path = os.path.join(self.config.study_folder, "evaluation_results", "metric_diffs.csv")
+        csv_path = self.paths.metric_diffs_csv
         
         try:
             with open(csv_path, mode='r', encoding='utf-8') as f:
@@ -1120,10 +1123,11 @@ def main():
 
     args = parser.parse_args()
 
-    anomaly_folder = os.path.join(args.folder, "anomaly_data")
-    roi_folder = os.path.join(args.folder, "anomaly_roi_data")
-    synth_folder = os.path.join(args.folder, "synth_anomaly_data")
-    fusion_folder = os.path.join(args.folder, os.path.join("generated_hybrid_samples", "images_npy"))
+    paths = StudyPaths(args.folder, os.path.basename(os.path.normpath(args.folder)) or "study")
+    anomaly_folder = paths.anomaly_data
+    roi_folder = paths.anomaly_roi_data
+    synth_folder = paths.synth_anomaly_data
+    fusion_folder = paths.generated_images_npy
 
     visualize_four_folders(
         roi_folder,

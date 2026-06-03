@@ -26,7 +26,7 @@ if __name__ == "__main__":
 
     HDG = HybridDataGenerator(config)
     # 1) Extract anomaly cutouts + ROI cutouts from anomaly-labeled samples
-    HDG.extract_anomalies(dataloader_samples_with_anomalies, None)
+    HDG.extract_anomalies(dataloader_samples_with_anomalies)
     # 1) Or load already extracted anomalies
     HDG.load_anomalies()
 
@@ -46,9 +46,9 @@ if __name__ == "__main__":
     HDG.load_matching_dict()
 
     # set result folder
-    save_folder = os.path.join(config.study_folder, "generated_hybrid_samples")
-    img_folder = os.path.join(save_folder, "images")
-    seg_folder = os.path.join(save_folder, "segmentations")
+    paths = config.get_paths()
+    img_folder = paths.generated_images
+    seg_folder = paths.generated_segmentations
     os.makedirs(img_folder, exist_ok=True)
     os.makedirs(seg_folder, exist_ok=True)
 
@@ -78,4 +78,3 @@ if __name__ == "__main__":
 
     # 7) Start Outlier Viewer for manual inspection of generated samples
     HDG.visualize_evaluation_results()
-    

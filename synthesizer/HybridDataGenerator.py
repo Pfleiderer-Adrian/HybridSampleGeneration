@@ -1,6 +1,5 @@
 from __future__ import annotations
 import os.path
-import shutil
 from typing import Iterator
 import numpy as np
 from typing import Tuple
@@ -62,8 +61,6 @@ class HybridDataGenerator:
     def extract_anomalies(
         self,
         sample_dataloader: Iterator[Tuple[np.ndarray, np.ndarray, str]],
-        save_folder=None,
-        save_folder_roi=None,
     ):
         """
         Extract anomaly cutouts (and anomaly ROIs) from samples that contain anomalies.
@@ -84,12 +81,6 @@ class HybridDataGenerator:
               - img: np.ndarray, the image/volume
               - seg: np.ndarray, the anomaly mask (same shape as img)
               - basename: str, unique sample identifier used for filenames with extension (e.g. .nii)
-        save_folder:
-            Folder for saving anomaly cutouts (.npy). If None:
-            "<study_folder>/anomaly_data"
-        save_folder_roi:
-            Folder for saving anomaly ROI cutouts (.npy). If None:
-            "<study_folder>/anomaly_roi_data"
         Notes
         -----
             Saved anomaly cutouts are always centered. Dynamic random offset
@@ -102,16 +93,13 @@ class HybridDataGenerator:
             Side effects: writes .npy files, updates config transformation file, sets self._anomaly_dataset.
         """
         self._log_step("Step 1/9: Extracting anomaly cutouts and ROI samples.")
-        if save_folder is None:
-            save_folder = os.path.join(self._config.study_folder, "anomaly_data")
-        if save_folder_roi is None:
-            save_folder_roi = os.path.join(self._config.study_folder, "anomaly_roi_data")
-        if os.path.exists(save_folder):    
-            shutil.rmtree(save_folder)
-        if os.path.exists(save_folder_roi):
-            shutil.rmtree(save_folder_roi)
-        os.makedirs(save_folder_roi, exist_ok=True)
-        os.makedirs(save_folder, exist_ok=True)
+        paths = self._config.get_paths()
+        anomaly_folder = paths.anomaly_data
+        anomaly_roi_folder = paths.anomaly_roi_data
+
+        paths.confirm_and_clear_artifact_dirs(anomaly_folder, anomaly_roi_folder)
+        self._config.syn_anomaly_transformations = {}
+
         for img, seg, basename in sample_dataloader:
             # check if sample has no anomaly
             if not np.any(seg):
@@ -142,16 +130,16 @@ class HybridDataGenerator:
             i = 0
             # save anomaly cutout for training
             for anomaly_sample, meta_data in anomalies:
-                save_numpy_as_npy(anomaly_sample, os.path.join(save_folder, basename+"_"+str(i)+".npy"), overwrite=True)
+                save_numpy_as_npy(anomaly_sample, os.path.join(anomaly_folder, basename+"_"+str(i)+".npy"), overwrite=True)
                 self._config.add_anomaly_transformation(basename+"_"+str(i)+".npy", meta_data)
                 i = i + 1
             i = 0
             # save roi of anomaly for matching
             for roi_sample in anomalies_roi:
-                save_numpy_as_npy(roi_sample, os.path.join(save_folder_roi, basename+"_"+str(i)+".npy"), overwrite=True)
+                save_numpy_as_npy(roi_sample, os.path.join(anomaly_roi_folder, basename+"_"+str(i)+".npy"), overwrite=True)
                 i = i + 1
         self._config.save_anomaly_transformations()
-        self.load_anomalies(anomaly_folder=save_folder)
+        self.load_anomalies(anomaly_folder=anomaly_folder)
 
     def load_anomalies(self, anomaly_folder=None):
         """
@@ -171,7 +159,7 @@ class HybridDataGenerator:
         """
         self._log_step("Step 2/9: Loading anomaly dataset.")
         if anomaly_folder is None:
-            anomaly_folder = os.path.join(self._config.study_folder, "anomaly_data")
+            anomaly_folder = self._config.get_paths().anomaly_data
         self._anomaly_dataset = AnomalyDataset(
             anomaly_folder,  # oder samples=[...]
             return_filename=True,
@@ -224,7 +212,7 @@ class HybridDataGenerator:
         """
         self._log_step("Step 4/9: Loading trained generator model.")
         if path_to_db_file is None:
-            path_to_db_model = "sqlite:///" + str(os.path.join(self._config.study_folder, self._config.study_name + ".db"))  # Speicherort der Datenbank
+            path_to_db_model = self._config.get_paths().optuna_storage_url
         else:
             path_to_db_model = "sqlite:///" + path_to_db_file
 
@@ -260,19 +248,13 @@ class HybridDataGenerator:
         self._model.warmup(self._config.anomaly_size)
         self._model.load_state_dict(torch.load(t.user_attrs['model_path']))
 
-    def generate_synth_anomalies(self, save_folder=None):
+    def generate_synth_anomalies(self):
         """
         Generate synthetic anomalies for each anomaly in the loaded anomaly dataset.
 
         For each (img, basename) in anomaly dataset:
           - run model.generate_synth_sample(img)
           - save output as .npy under the same basename
-
-        Inputs
-        ------
-        save_folder:
-            Output folder for synthetic anomaly .npy files.
-            If None: "<study_folder>/synth_anomaly_data"
 
         Outputs
         -------
@@ -284,11 +266,9 @@ class HybridDataGenerator:
             raise ValueError(f"No Anomalies Loaded: Run extract_anomalies or load_anomalies first")
         if self._model is None:
             raise ValueError(f"No Model Loaded: Run train_generator or load_generator first")
-        if save_folder is None:
-            save_folder = os.path.join(self._config.study_folder, "synth_anomaly_data")
-        if os.path.exists(save_folder):
-            shutil.rmtree(save_folder)
-        os.makedirs(save_folder, exist_ok=True)
+        paths = self._config.get_paths()
+        synth_anomaly_folder = paths.synth_anomaly_data
+        paths.confirm_and_clear_artifact_dirs(synth_anomaly_folder)
 
 
         # use feedback system to generate similar anomalies
@@ -336,7 +316,7 @@ class HybridDataGenerator:
                 if(best < 0.25):
                     bad_anomalies.append(basename)
                 print("Generated "+str(i)+" anomalies and save at threshold: "+str(best))
-                save_numpy_as_npy(best_image, str(os.path.join(save_folder, basename)), overwrite=True)
+                save_numpy_as_npy(best_image, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
             print("Summary")
             print("No-of bad Anomalies:"+ str(len(bad_anomalies)))
             for name in bad_anomalies:
@@ -349,9 +329,9 @@ class HybridDataGenerator:
                     syn_anomaly_sample = self._model.generate_synth_sample_prior(clamp_01=self._config.clamp01_output, out_hw=self._config.anomaly_size[1:])
                 else:
                     syn_anomaly_sample = self._model.generate_synth_sample(img, clamp_01=self._config.clamp01_output)
-                save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(save_folder, basename)), overwrite=True)
+                save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
 
-        self.load_synth_anomalies(save_folder)
+        self.load_synth_anomalies(synth_anomaly_folder)
 
 
 
@@ -375,9 +355,9 @@ class HybridDataGenerator:
         """
         self._log_step("Step 6/9: Loading synthetic anomalies and transformation metadata.")
         if synth_anomaly_folder is None:
-            synth_anomaly_folder = os.path.join(self._config.study_folder, "synth_anomaly_data")
+            synth_anomaly_folder = self._config.get_paths().synth_anomaly_data
         if transformation_file is None:
-            transformation_file = os.path.join(self._config.study_folder, "anomaly_transformations.json")
+            transformation_file = self._config.get_paths().anomaly_transformations_file
 
         self._config.load_anomaly_transformations(transformation_file)
         self._synth_anomaly_dataset = AnomalyDataset(
@@ -387,7 +367,7 @@ class HybridDataGenerator:
             dtype=torch.float32,
         )
 
-    def create_matching_dict(self, control_samples_dataloader:Iterator[Tuple[np.ndarray, np.ndarray, str]], roi_folder=None, csv_file_path=None):
+    def create_matching_dict(self, control_samples_dataloader:Iterator[Tuple[np.ndarray, np.ndarray, str]]):
         """
         Create a matching dictionary between control samples and anomaly ROI samples.
 
@@ -408,13 +388,6 @@ class HybridDataGenerator:
               - "local": match ith control with ith ROI (sequential) and compute best template position (resource middle - O(n)!)
               - "global": for each control, search over all ROI and pick best similarity (resource heavy - O(n2)!!)
               - "fixed_from_extraction": sequential mapping, take centroid from extraction metadata (resource lite)
-        roi_folder:
-            Folder containing ROI .npy files (saved during extract_anomalies()).
-            If None: "<study_folder>/anomaly_roi_data"
-        csv_file_path:
-            Output path for the matching CSV.
-            If None: "<study_folder>/matching_dict.csv"
-
         Outputs
         -------
         None
@@ -423,10 +396,9 @@ class HybridDataGenerator:
         self._log_step("Step 7/9: Creating matching dictionary between controls and anomalies.")
         if self._synth_anomaly_dataset is None:
             raise ValueError(f"No Synth Anomalies Loaded: Run generate_synth_anomalies or load_synth_anomalies first")
-        if roi_folder is None:
-            roi_folder = os.path.join(self._config.study_folder, "anomaly_roi_data")
-        if csv_file_path is None:
-            csv_file_path = os.path.join(self._config.study_folder, "matching_dict.csv")
+        paths = self._config.get_paths()
+        roi_folder = paths.anomaly_roi_data
+        csv_file_path = paths.matching_dict_file
         _roi_dataset = AnomalyDataset(
             roi_folder,
             return_filename=True,
@@ -441,6 +413,7 @@ class HybridDataGenerator:
             raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
 
         df_detection = pd.DataFrame(_data, columns=["control", "anomaly_list"])
+        os.makedirs(os.path.dirname(csv_file_path), exist_ok=True)
         df_detection.to_csv(csv_file_path, sep=',', encoding='utf-8', index=False)
 
         self.load_matching_dict(csv_file_path)
@@ -462,11 +435,11 @@ class HybridDataGenerator:
         """
         self._log_step("Step 8/9: Loading matching dictionary.")
         if csv_file_path is None:
-            csv_file_path = os.path.join(self._config.study_folder, "matching_dict.csv")
+            csv_file_path = self._config.get_paths().matching_dict_file
         self._config.load_matching_csv(csv_file_path)
 
 
-    def fusion_synth_anomalies(self, control_samples_array, basename_of_control_sample, base_mask=None, save_npy=True, save_path=None) -> Tuple[np.ndarray, np.ndarray]:
+    def fusion_synth_anomalies(self, control_samples_array, basename_of_control_sample, base_mask=None, save_npy=True) -> Tuple[np.ndarray, np.ndarray]:
         self._log_step("Step 9/9: Fusing synthetic anomalies.")
         """
         Fuse a synthetic anomaly into a control sample according to the loaded matching dict.
@@ -485,9 +458,6 @@ class HybridDataGenerator:
             Key used to look up the matched anomaly and fusion position in `self._config.matching_dict`.
         save_npy
             if True: saves generated hybrid images and segmentations as .npy -> for visualizer / debugging
-        save_path:
-            path to folder for npy files - only wenn save_npy is True
-
         Outputs
         -------
         img:
@@ -558,15 +528,18 @@ class HybridDataGenerator:
                 print(f"Warning: roi is None for {anomaly_basename} in {basename_of_control_sample}. (Empty synthetic segmentation) => skip fusion")
             else:
                 roi = np.array(roi, dtype=np.float32)
-                roi_path = os.path.join(self._config.study_folder, "synth_roi_data", basename_of_control_sample, anomaly_basename)
+                roi_path = os.path.join(
+                    self._config.get_paths().synth_roi_data,
+                    basename_of_control_sample,
+                    anomaly_basename,
+                )
                 os.makedirs(os.path.dirname(roi_path), exist_ok=True)
                 save_numpy_as_npy(roi, roi_path, overwrite=True)
             
         if save_npy:
-            if save_path is None:
-                save_path = os.path.join(self._config.study_folder, "generated_hybrid_samples")
-            img_folder = os.path.join(save_path,"images_npy")
-            seg_folder = os.path.join(save_path,"segmentations_npy")
+            paths = self._config.get_paths()
+            img_folder = paths.generated_images_npy
+            seg_folder = paths.generated_segmentations_npy
             os.makedirs(img_folder, exist_ok=True)
             os.makedirs(seg_folder, exist_ok=True)
 

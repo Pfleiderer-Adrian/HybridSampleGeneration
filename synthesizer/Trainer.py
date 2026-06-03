@@ -180,7 +180,7 @@ def optimize(no_of_trails, config:Configuration, dataset):
     Run Optuna hyperparameter optimization for a generative model.
 
     This function:
-      1) Creates (or reuses) an Optuna study stored as a SQLite DB in `config.study_folder`.
+      1) Creates (or reuses) an Optuna study stored via `config.get_paths()`.
       2) Runs `objective(...)` for `no_of_trails` trials.
       3) Prints summary information about the best trial found.
 
@@ -205,10 +205,11 @@ def optimize(no_of_trails, config:Configuration, dataset):
           - Trains and saves models per trial into `<study_folder>/trained_models/`
           - Prints best-trial statistics to stdout.
     """
-    os.makedirs(config.study_folder, exist_ok=True)
+    paths = config.get_paths()
+    os.makedirs(paths.study_folder, exist_ok=True)
 
     study = optuna.create_study(study_name=config.study_name, direction='minimize', load_if_exists=True,
-                                storage="sqlite:///" + str(os.path.join(config.study_folder, config.study_name + ".db")))  # Speicherort der Datenbank
+                                storage=paths.optuna_storage_url)
 
     # Run optimization process
     func = lambda trial: objective(trial, config, dataset)
@@ -288,7 +289,7 @@ def objective(trial: Trial, config: Configuration, dataset):
         )
 
     # 3. Start training of the model
-    directory = os.path.join(config.study_folder, 'trained_models')
+    directory = config.get_paths().trained_models
     os.makedirs(directory, exist_ok=True)
     best_model_path = os.path.join(directory, f"model_trial_{trial.number}_best.pth")
 
