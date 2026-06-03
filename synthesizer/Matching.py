@@ -532,7 +532,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
 
     used_roi_names = {roi_name for _, anom_list in matching_data for roi_name, _ in anom_list}
 
-    synth_anomaly_dir = os.path.join(config.study_folder, "synth_anomaly_data")
+    synth_anomaly_dir = config.get_paths().synth_anomaly_data
     if os.path.exists(synth_anomaly_dir):
         synth_anomaly_files = {f for f in os.listdir(synth_anomaly_dir) if f.endswith('.npy')}
     else:
@@ -639,4 +639,3 @@ def combine_binary_masks(
         return out.astype(mask_a.dtype, copy=False)
     else:
         return out.astype(return_dtype, copy=False)
-

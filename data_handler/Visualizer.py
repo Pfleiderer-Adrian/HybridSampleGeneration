@@ -15,6 +15,8 @@ import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
 
+from synthesizer.StudyPaths import StudyPaths
+
 
 def _mousewheel_units(event) -> int:
     """Normalize Tk mouse wheel events across Windows, macOS, and Linux."""
@@ -39,6 +41,18 @@ def _is_descendant(widget, ancestor) -> bool:
     return False
 
 
+def _paths(config) -> StudyPaths:
+    """Return the StudyPaths instance exposed by a configuration object."""
+    get_paths = getattr(config, "get_paths", None)
+    if callable(get_paths):
+        paths = get_paths()
+    else:
+        paths = getattr(config, "paths", None)
+    if not isinstance(paths, StudyPaths):
+        raise TypeError("Visualizer requires config.get_paths() to return a StudyPaths instance.")
+    return paths
+
+
 class OutlierGUI:
     def __init__(self, root, config, embedded: bool = False):
         self.root = root
@@ -48,25 +62,25 @@ class OutlierGUI:
             self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         self.config = config
+        self.paths = _paths(config)
 
-        self.synth_anomaly_dir = os.path.join(config.study_folder, "synth_anomaly_data")
-        self.synth_roi_dir = os.path.join(config.study_folder, "synth_roi_data")
-        self.anomaly_dir = os.path.join(config.study_folder, "anomaly_data")
-        self.anomaly_roi_dir = os.path.join(config.study_folder, "anomaly_roi_data")
-        
-        self.ghs_dir = os.path.join(config.study_folder, "generated_hybrid_samples", "images_npy")
-        self.ghs_seg_dir = os.path.join(config.study_folder, "generated_hybrid_samples", "segmentations_npy")
-        self.anomaly_transformations = _load_anomaly_transformations(config.study_folder)
+        self.synth_anomaly_dir = self.paths.synth_anomaly_data
+        self.synth_roi_dir = self.paths.synth_roi_data
+        self.anomaly_dir = self.paths.anomaly_data
+        self.anomaly_roi_dir = self.paths.anomaly_roi_data
+        self.ghs_dir = self.paths.generated_images_npy
+        self.ghs_seg_dir = self.paths.generated_segmentations_npy
+        self.anomaly_transformations = _load_anomaly_transformations(self.paths.anomaly_transformations_file)
 
         self.metric_stats = {}
-        
+
         self.hierarchy = defaultdict(list)
         self.metric_map = self.build_metric_sample_map()
-        
+
         self.filtered_hierarchy = {}
         self.sorted_controls = []
         self.flat_list = []
-        
+
         self.current_index = 0
         self.current_slice = 0
 
@@ -75,7 +89,7 @@ class OutlierGUI:
         self.build_ui()
         self.update_filter()
         self.root.focus_set()
-    
+
     def _setup_responsive_sizes(self):
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
@@ -101,17 +115,17 @@ class OutlierGUI:
 
         self.info_text_height = max(8, int(10 * scale))
         self.info_text_width = max(25, int(30 * scale))
-    
+
     def _on_canvas_resize(self, event):
         if hasattr(self, 'axs'):
             fig_width = self.fig.get_figwidth()
             scale = max(0.8, min(1.5, fig_width / 12.0))
-            
+
             for ax in self.axs:
                 for label in ax.get_xticklabels() + ax.get_yticklabels():
                     label.set_fontsize(max(8, int(10 * scale)))
                 ax.title.set_fontsize(max(10, int(12 * scale)))
-            
+
             self.fig.canvas.draw_idle()
 
     def _background_color(self):
@@ -137,8 +151,8 @@ class OutlierGUI:
     def build_metric_sample_map(self):
         metric_map = defaultdict(lambda: defaultdict(dict))
         temp_values = defaultdict(list)
-        anomaly_to_controls = defaultdict(list) 
-        
+        anomaly_to_controls = defaultdict(list)
+
         if os.path.exists(self.synth_roi_dir):
             for control_name in os.listdir(self.synth_roi_dir):
                 control_path = os.path.join(self.synth_roi_dir, control_name)
@@ -148,8 +162,8 @@ class OutlierGUI:
                     for a in anomalies:
                         anomaly_to_controls[a].append(control_name)
 
-        csv_path = os.path.join(self.config.study_folder, "evaluation_results", "metric_diffs.csv")
-        
+        csv_path = self.paths.metric_diffs_csv
+
         try:
             with open(csv_path, mode='r', encoding='utf-8') as f:
                 reader = csv.reader(f)
@@ -157,14 +171,14 @@ class OutlierGUI:
                     if len(row) < 3:
                         continue
                     if row[0].lower() == "sample_name":
-                        continue 
-                    
+                        continue
+
                     sample_id = row[0]
                     try:
                         data_dict = json.loads(row[2])
                     except json.JSONDecodeError:
                         continue
-                    
+
                     is_roi = any(isinstance(v, dict) for v in data_dict.values())
 
                     if is_roi:
@@ -178,26 +192,26 @@ class OutlierGUI:
                                 base = control_name.replace('.png', '').replace('.npy', '')
                                 if base in self.hierarchy:
                                     control_name = base
-                        
+
                         for anomaly_name, metrics in data_dict.items():
                             for metric_name, val in metrics.items():
                                 metric_map[metric_name][control_name][anomaly_name] = float(val)
                                 temp_values[metric_name].append(float(val))
-                                
+
                                 if anomaly_name not in self.hierarchy[control_name]:
                                     self.hierarchy[control_name].append(anomaly_name)
                                     anomaly_to_controls[anomaly_name].append(control_name)
                     else:
                         anomaly_name = sample_id
-                        
+
                         if anomaly_name not in anomaly_to_controls:
                             if anomaly_name + '.npy' in anomaly_to_controls:
                                 anomaly_name += '.npy'
                             elif anomaly_name + '.png' in anomaly_to_controls:
                                 anomaly_name += '.png'
-                                
+
                         associated_controls = anomaly_to_controls.get(anomaly_name, [])
-                        
+
                         for control_name in associated_controls:
                             for metric_name, val in data_dict.items():
                                 metric_map[metric_name][control_name][anomaly_name] = float(val)
@@ -209,7 +223,7 @@ class OutlierGUI:
         for metric, values in temp_values.items():
             if values:
                 self.metric_stats[metric] = {'min': min(values), 'max': max(values)}
-                
+
         return metric_map
 
     def build_ui(self):
@@ -222,23 +236,23 @@ class OutlierGUI:
 
         scrollbar = tk.Scrollbar(left_frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
+
         canvas = tk.Canvas(left_frame, yscrollcommand=scrollbar.set, bg=bg)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=canvas.yview)
-        
+
 
         control_frame = tk.Frame(canvas, bg=bg)
         canvas_window = canvas.create_window((0, 0), window=control_frame, anchor="nw")
-        
+
         # Update scroll region when frame changes
         def on_frame_configure(event=None):
             canvas.configure(scrollregion=canvas.bbox("all"))
             canvas.itemconfig(canvas_window, width=canvas.winfo_width())
-        
+
         control_frame.bind("<Configure>", on_frame_configure)
         canvas.bind("<Configure>", lambda e: canvas.itemconfig(canvas_window, width=e.width))
-        
+
         # Mouse wheel scrolling stays scoped to the left control panel.
         def on_mousewheel(event):
             widget = self.root.winfo_containing(event.x_root, event.y_root)
@@ -268,7 +282,7 @@ class OutlierGUI:
             self.metric_vars[metric] = var
 
         tk.Label(control_frame, text="Outlier Threshold (Top %):", font=self.font_label_bold, bg=bg).pack(anchor="w", padx=5, pady=(10, 0))
-        self.outlier_slider = tk.Scale(control_frame, from_=0, to=10, resolution=.1, orient=tk.HORIZONTAL, 
+        self.outlier_slider = tk.Scale(control_frame, from_=0, to=10, resolution=.1, orient=tk.HORIZONTAL,
                                        command=lambda _: self.update_filter(), font=self.font_label, bg=bg)
         self.outlier_slider.set(1)
         self.outlier_slider.pack(fill=tk.X, padx=5, pady=(0, 5))
@@ -292,7 +306,7 @@ class OutlierGUI:
         tk.Button(contrast_header_frame, text="reset", command=self.reset_contrast, font=self.font_small,
                   relief=tk.FLAT, padx=2, pady=0, cursor="hand2").pack(side=tk.LEFT, padx=5)
 
-        self.contrast_slider = tk.Scale(control_frame, from_=0.1, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, 
+        self.contrast_slider = tk.Scale(control_frame, from_=0.1, to=10.0, resolution=0.1, orient=tk.HORIZONTAL,
                                         command=lambda _: self.update_display(), font=self.font_label, bg=bg)
         self.contrast_slider.set(1.0)
         self.contrast_slider.pack(fill=tk.X, pady=(0, 10))
@@ -319,10 +333,10 @@ class OutlierGUI:
         self.canvas = FigureCanvasTkAgg(self.fig, master=main_container)
         self.canvas_widget = self.canvas.get_tk_widget()
         main_container.add(self.canvas_widget, weight=4)
-        
+
         # Connect resize event for responsive figure scaling
         self.canvas.mpl_connect('resize_event', self._on_canvas_resize)
-        
+
         self.canvas_widget.bind("<MouseWheel>", self.on_mouse_wheel)
         self.canvas_widget.bind("<Button-4>", self.on_mouse_wheel)
         self.canvas_widget.bind("<Button-5>", self.on_mouse_wheel)
@@ -334,7 +348,7 @@ class OutlierGUI:
     def update_filter(self):
         active_metrics = [m for m, v in self.metric_vars.items() if v.get()]
         threshold_pct = float(self.outlier_slider.get())
-        
+
         self.filtered_hierarchy = defaultdict(list)
         control_scores = {}
 
@@ -348,19 +362,19 @@ class OutlierGUI:
                 control_scores[c] = 0
         else:
             outlier_anomalies = []
-            
+
             for m in active_metrics:
                 all_vals = []
                 for c_dict in self.metric_map[m].values():
                     all_vals.extend(c_dict.values())
-                    
+
                 if not all_vals:
                     outlier_anomalies.append(set())
                     continue
-                    
+
                 cutoff_percentile = max(0.0, 100.0 - threshold_pct)
                 cutoff_value = np.percentile(all_vals, cutoff_percentile)
-                
+
                 m_outliers = set()
                 for c, a_dict in self.metric_map[m].items():
                     for a, val in a_dict.items():
@@ -369,7 +383,7 @@ class OutlierGUI:
                 outlier_anomalies.append(m_outliers)
 
             intersection = set.intersection(*outlier_anomalies) if outlier_anomalies else set()
-            
+
             anomaly_scores = {}
             for c, a in intersection:
                 norm_sum = 0
@@ -380,46 +394,46 @@ class OutlierGUI:
                     norm_sum += norm_val
                 score = norm_sum / len(active_metrics)
                 anomaly_scores[(c, a)] = score
-                
+
             for (c, a), score in anomaly_scores.items():
                 self.filtered_hierarchy[c].append(a)
                 if c not in control_scores or score > control_scores[c]:
                     control_scores[c] = score
 
         self.sorted_controls = sorted(self.filtered_hierarchy.keys(), key=lambda x: control_scores.get(x, 0), reverse=True)
-        
+
         self.flat_list = []
         for c in self.sorted_controls:
             self.flat_list.append(("control", c))
             self.filtered_hierarchy[c].sort()
             for a in self.filtered_hierarchy[c]:
                 self.flat_list.append(("anomaly", c, a))
-                
+
         if self.current_index >= len(self.flat_list):
             self.current_index = max(0, len(self.flat_list) - 1)
-            
+
         self.update_treeview()
         self.update_display()
 
     def update_treeview(self):
         for item in self.tree.get_children():
             self.tree.delete(item)
-            
-        self.tree_item_mapping = {} 
-        
+
+        self.tree_item_mapping = {}
+
         flat_idx = 0
         for c in self.sorted_controls:
             parent_id = self.tree.insert("", tk.END, text=c, open=True)
             self.tree_item_mapping[flat_idx] = parent_id
             self.tree_item_mapping[parent_id] = flat_idx
             flat_idx += 1
-            
+
             for a in self.filtered_hierarchy[c]:
                 child_id = self.tree.insert(parent_id, tk.END, text=a)
                 self.tree_item_mapping[flat_idx] = child_id
                 self.tree_item_mapping[child_id] = flat_idx
                 flat_idx += 1
-                
+
         self._sync_treeview_selection()
 
     def _sync_treeview_selection(self):
@@ -434,7 +448,7 @@ class OutlierGUI:
         if not selection:
             return
         item_id = selection[0]
-        
+
         if item_id in self.tree_item_mapping:
             new_idx = self.tree_item_mapping[item_id]
             if new_idx != self.current_index:
@@ -490,7 +504,7 @@ class OutlierGUI:
             self.hierarchy[control].remove(anomaly)
         if control in self.hierarchy and not self.hierarchy[control]:
             del self.hierarchy[control]
-            
+
         for m in self.metric_map:
             if control in self.metric_map[m] and anomaly in self.metric_map[m][control]:
                 del self.metric_map[m][control][anomaly]
@@ -500,11 +514,11 @@ class OutlierGUI:
             os.path.join(self.synth_roi_dir, control, anomaly),
             os.path.join(self.anomaly_dir, anomaly),
             os.path.join(self.anomaly_roi_dir, anomaly),
-            os.path.join(self.synth_anomaly_dir, anomaly) 
+            os.path.join(self.synth_anomaly_dir, anomaly)
         ]
         for path in targets:
             self._remove_if_exists(path)
-            
+
         self._remove_anomaly_from_hierarchy(control, anomaly)
 
     def _delete_files_for_control(self, control):
@@ -512,9 +526,9 @@ class OutlierGUI:
         for a in anomalies_to_delete:
             roi_path = os.path.join(self.synth_roi_dir, control, a)
             self._remove_if_exists(roi_path)
-            
+
             self._remove_anomaly_from_hierarchy(control, a)
-            
+
         control_roi_dir = os.path.join(self.synth_roi_dir, control)
         if os.path.exists(control_roi_dir):
             try:
@@ -551,16 +565,16 @@ class OutlierGUI:
 
         def execute_delete():
             deleted_anything = False
-            
+
             if var_all.get():
                 self._delete_files_for_control(control)
                 deleted_anything = True
-            
+
             if var_real.get():
                 self._remove_if_exists(os.path.join(self.anomaly_dir, anomaly))
                 self._remove_if_exists(os.path.join(self.anomaly_roi_dir, anomaly))
                 deleted_anything = True
-            
+
             if var_synth_roi.get():
                 self._remove_if_exists(os.path.join(self.synth_roi_dir, control, anomaly))
                 deleted_anything = True
@@ -579,7 +593,7 @@ class OutlierGUI:
                 self._remove_anomaly_from_hierarchy(control, anomaly)
 
             dialog.destroy()
-            
+
             if deleted_anything:
                 self.update_filter()
 
@@ -594,7 +608,7 @@ class OutlierGUI:
         if not self.flat_list:
             return
         item = self.flat_list[self.current_index]
-        
+
         if item[0] == "control":
             control = item[1]
             if not messagebox.askyesno("Delete Control", f"Do you want to delete the Hybrid Sample '{control}' with all its ROIs?"):
@@ -618,7 +632,7 @@ class OutlierGUI:
         return p
 
     def update_display(self):
-        for ax in self.axs: 
+        for ax in self.axs:
             ax.clear()
             ax.axis("off")
 
@@ -629,14 +643,14 @@ class OutlierGUI:
 
         item = self.flat_list[self.current_index]
         contrast = float(self.contrast_slider.get())
-        
+
         if item[0] == "control":
             control = item[1]
             self.fig.suptitle(f"Control: {control}", fontsize=12, fontweight='bold')
-            
+
             ghs_path = self._get_fallback_path(self.ghs_dir, control)
             ghs_seg_path = self._get_fallback_path(self.ghs_seg_dir, control)
-            
+
             paths = [
                 (ghs_path, "Generated Hybrid Sample", None, None),
                 (ghs_seg_path, "Generated Hybrid Segmentation", None, None),
@@ -684,7 +698,7 @@ class OutlierGUI:
         for i, (img, title, path, error, window_arr) in enumerate(loaded_data):
             if not title:
                 continue
-            
+
             if img is None:
                 if error:
                     self.axs[i].text(
@@ -704,7 +718,7 @@ class OutlierGUI:
             img_display = _normalize_for_display(img, window_arr if window_arr is not None else img, contrast)
 
             self.axs[i].set_title(title, fontsize=10, pad=12)
-            
+
             if img_display.ndim == 3 and img_display.shape[-1] == 1:
                 self.axs[i].imshow(img_display[:, :, 0], cmap="gray", vmin=0, vmax=1, aspect='equal')
             elif img_display.ndim == 3:
@@ -716,9 +730,9 @@ class OutlierGUI:
         self.info_text.delete('1.0', tk.END)
         self.info_text.insert(tk.END, f"Selected: {self.current_index+1} / {len(self.flat_list)}\n", "header")
         self.info_text.insert(tk.END, "=" * 30 + "\n\n", "header")
-        
+
         active = [m for m, v in self.metric_vars.items() if v.get()]
-        
+
         if item[0] == "control":
             self.info_text.insert(tk.END, f"Anomalies: {len(self.filtered_hierarchy.get(item[1], []))}\n\n", "active")
         else:
@@ -727,7 +741,7 @@ class OutlierGUI:
             self.info_text.insert(tk.END, f"Anomaly:\n{anomaly}\n\n", "active")
             self.info_text.insert(tk.END, "Metrics:\n", "header")
             self.info_text.insert(tk.END, "-" * 20 + "\n", "header")
-            
+
             for m in sorted(self.metric_map.keys()):
                 if control in self.metric_map[m] and anomaly in self.metric_map[m][control]:
                     val = self.metric_map[m][control][anomaly]
@@ -834,12 +848,11 @@ def _load_array(path: str) -> np.ndarray:
     return np.load(path)
 
 
-def _load_anomaly_transformations(study_folder: str) -> Dict[str, dict]:
-    path = os.path.join(study_folder, "anomaly_transformations.json")
-    if not os.path.isfile(path):
+def _load_anomaly_transformations(transformations_file: str) -> Dict[str, dict]:
+    if not os.path.isfile(transformations_file):
         return {}
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(transformations_file, "r", encoding="utf-8") as f:
             data = json.load(f)
         return data if isinstance(data, dict) else {}
     except Exception:
@@ -1318,22 +1331,6 @@ def _build_file_list(parent, height: int, on_select):
     return file_list
 
 
-def _generated_hybrid_images_dir(study_folder: str) -> str:
-    plural = os.path.join(study_folder, "generated_hybrid_samples", "images_npy")
-    singular = os.path.join(study_folder, "generated_hybrid_sample", "images_npy")
-    if os.path.isdir(plural) or not os.path.isdir(singular):
-        return plural
-    return singular
-
-
-def _generated_hybrid_segmentations_dir(study_folder: str) -> str:
-    plural = os.path.join(study_folder, "generated_hybrid_samples", "segmentations_npy")
-    singular = os.path.join(study_folder, "generated_hybrid_sample", "segmentations_npy")
-    if os.path.isdir(plural) or not os.path.isdir(singular):
-        return plural
-    return singular
-
-
 def _add_unique(items: List[str], value: str):
     if value and value not in items:
         items.append(value)
@@ -1534,8 +1531,8 @@ class _ArrayTabBase(ttk.Frame):
     def __init__(self, master, config, channel: int = 0, cmap: str = "gray"):
         super().__init__(master)
         self.config = config
-        self.study_folder = config.study_folder
-        self.anomaly_transformations = _load_anomaly_transformations(self.study_folder)
+        self.paths = _paths(config)
+        self.anomaly_transformations = _load_anomaly_transformations(self.paths.anomaly_transformations_file)
         self.channel = int(channel)
         self.cmap = cmap
         self.slice_var = tk.DoubleVar(value=0)
@@ -1625,10 +1622,10 @@ class _ArrayTabBase(ttk.Frame):
 class AnomalyGenerationTab(_ArrayTabBase):
     def __init__(self, master, config, channel: int = 0, cmap: str = "gray"):
         super().__init__(master, config, channel=channel, cmap=cmap)
-        self.anomaly_dir = os.path.join(self.study_folder, "anomaly_data")
-        self.anomaly_roi_dir = os.path.join(self.study_folder, "anomaly_roi_data")
-        self.synth_anomaly_dir = os.path.join(self.study_folder, "synth_anomaly_data")
-        self.synth_anomaly_mask_dir = os.path.join(self.study_folder, "synth_anomaly_mask_data")
+        self.anomaly_dir = self.paths.anomaly_data
+        self.anomaly_roi_dir = self.paths.anomaly_roi_data
+        self.synth_anomaly_dir = self.paths.synth_anomaly_data
+        self.synth_anomaly_mask_dir = self.paths.synth_anomaly_mask_data
         self.files: List[str] = []
         self.current_filename: Optional[str] = None
         self._build_ui()
@@ -1706,11 +1703,11 @@ class AnomalyGenerationTab(_ArrayTabBase):
 class FusedAnomalyTab(_ArrayTabBase):
     def __init__(self, master, config, channel: int = 0, cmap: str = "gray"):
         super().__init__(master, config, channel=channel, cmap=cmap)
-        self.hybrid_images_dir = _generated_hybrid_images_dir(self.study_folder)
-        self.hybrid_segmentations_dir = _generated_hybrid_segmentations_dir(self.study_folder)
-        self.synth_roi_dir = os.path.join(self.study_folder, "synth_roi_data")
-        self.anomaly_dir = os.path.join(self.study_folder, "anomaly_data")
-        self.anomaly_roi_dir = os.path.join(self.study_folder, "anomaly_roi_data")
+        self.hybrid_images_dir = self.paths.generated_images_npy
+        self.hybrid_segmentations_dir = self.paths.generated_segmentations_npy
+        self.synth_roi_dir = self.paths.synth_roi_data
+        self.anomaly_dir = self.paths.anomaly_data
+        self.anomaly_roi_dir = self.paths.anomaly_roi_data
         self.files: List[str] = []
         self.roi_files: List[str] = []
         self.current_filename: Optional[str] = None
@@ -1869,8 +1866,7 @@ class HybridDataGeneratorVisualizer:
         self.notebook.add(self.fused_tab, text="fused anomaly")
 
         self.evaluation_tab = ttk.Frame(self.notebook)
-        evaluation_results_dir = os.path.join(config.study_folder, "evaluation_results")
-        if os.path.isdir(evaluation_results_dir):
+        if os.path.isdir(_paths(config).evaluation_results):
             self.evaluation_gui = OutlierGUI(self.evaluation_tab, config, embedded=True)
             self.notebook.add(self.evaluation_tab, text="evaluation")
         else:
@@ -1891,10 +1887,14 @@ def run_hybrid_visualizer(config, channel: int = 0, cmap: str = "gray"):
 
 def run_hybrid_visualizer_for_folder(study_folder: str, channel: int = 0, cmap: str = "gray"):
     class FolderConfig:
-        pass
+        def __init__(self, folder: str):
+            study_name = os.path.basename(os.path.normpath(folder)) or "study"
+            self.paths = StudyPaths(folder, study_name)
 
-    config = FolderConfig()
-    config.study_folder = study_folder
+        def get_paths(self) -> StudyPaths:
+            return self.paths
+
+    config = FolderConfig(study_folder)
     run_hybrid_visualizer(config, channel=channel, cmap=cmap)
 
 
