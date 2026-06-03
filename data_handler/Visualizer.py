@@ -1,4 +1,4 @@
-import argparse 
+import argparse
 import os
 import json
 import csv
@@ -15,52 +15,144 @@ import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
 
-from synthesizer.Configuration import StudyPaths
+from synthesizer.StudyPaths import StudyPaths
+
+
+def _mousewheel_units(event) -> int:
+    """Normalize Tk mouse wheel events across Windows, macOS, and Linux."""
+    if getattr(event, "delta", 0):
+        delta = event.delta
+        if abs(delta) >= 120:
+            return int(-1 * (delta / 120))
+        return -1 if delta > 0 else 1
+    if getattr(event, "num", None) == 4:
+        return -1
+    if getattr(event, "num", None) == 5:
+        return 1
+    return 0
+
+
+def _is_descendant(widget, ancestor) -> bool:
+    """Return True when widget is inside ancestor in the Tk widget tree."""
+    while widget is not None:
+        if widget == ancestor:
+            return True
+        widget = widget.master
+    return False
+
+
+def _paths(config) -> StudyPaths:
+    """Return the StudyPaths instance exposed by a configuration object."""
+    get_paths = getattr(config, "get_paths", None)
+    if callable(get_paths):
+        paths = get_paths()
+    else:
+        paths = getattr(config, "paths", None)
+    if not isinstance(paths, StudyPaths):
+        raise TypeError("Visualizer requires config.get_paths() to return a StudyPaths instance.")
+    return paths
+
 
 class OutlierGUI:
-    def __init__(self, root, config):
+    def __init__(self, root, config, embedded: bool = False):
         self.root = root
-        self.root.title("Outlier Viewer")
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.embedded = embedded
+        if not self.embedded:
+            self.root.title("Outlier Viewer")
+            self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         self.config = config
-        self.paths = config.get_paths()
+        self.paths = _paths(config)
 
         self.synth_anomaly_dir = self.paths.synth_anomaly_data
         self.synth_roi_dir = self.paths.synth_roi_data
         self.anomaly_dir = self.paths.anomaly_data
         self.anomaly_roi_dir = self.paths.anomaly_roi_data
-        
         self.ghs_dir = self.paths.generated_images_npy
         self.ghs_seg_dir = self.paths.generated_segmentations_npy
+        self.anomaly_transformations = _load_anomaly_transformations(self.paths.anomaly_transformations_file)
 
         self.metric_stats = {}
-        
+
         self.hierarchy = defaultdict(list)
         self.metric_map = self.build_metric_sample_map()
-        
+
         self.filtered_hierarchy = {}
         self.sorted_controls = []
         self.flat_list = []
-        
+
         self.current_index = 0
         self.current_slice = 0
+
+        self._setup_responsive_sizes()
 
         self.build_ui()
         self.update_filter()
         self.root.focus_set()
 
+    def _setup_responsive_sizes(self):
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+
+        base_width = 1920
+        base_height = 1080
+        tk_scale = 1.0
+        try:
+            tk_scale = float(self.root.tk.call('tk', 'scaling'))
+        except Exception:
+            tk_scale = 1.0
+
+        scale_x = screen_width / (base_width * max(1.0, tk_scale))
+        scale_y = screen_height / (base_height * max(1.0, tk_scale))
+        scale = min(scale_x, scale_y)
+        scale = max(0.7, min(1.5, scale))
+
+        self.font_label_bold = ('Arial', max(9, int(10 * scale)), 'bold')
+        self.font_label = ('Arial', max(8, int(10 * scale)))
+        self.font_button = ('Arial', max(8, int(10 * scale)))
+        self.font_small = ('Arial', max(7, int(8 * scale)), 'italic')
+        self.font_info = ('Arial', max(8, int(10 * scale)))
+
+        self.info_text_height = max(8, int(10 * scale))
+        self.info_text_width = max(25, int(30 * scale))
+
+    def _on_canvas_resize(self, event):
+        if hasattr(self, 'axs'):
+            fig_width = self.fig.get_figwidth()
+            scale = max(0.8, min(1.5, fig_width / 12.0))
+
+            for ax in self.axs:
+                for label in ax.get_xticklabels() + ax.get_yticklabels():
+                    label.set_fontsize(max(8, int(10 * scale)))
+                ax.title.set_fontsize(max(10, int(12 * scale)))
+
+            self.fig.canvas.draw_idle()
+
+    def _background_color(self):
+        for widget in (self.root, getattr(self.root, "master", None)):
+            if widget is None:
+                continue
+            for option in ("bg", "background"):
+                try:
+                    return widget.cget(option)
+                except tk.TclError:
+                    pass
+        try:
+            return ttk.Style(self.root).lookup("TFrame", "background") or "#f0f0f0"
+        except Exception:
+            return "#f0f0f0"
+
     def on_closing(self):
         plt.close('all')
-        self.root.quit()
-        self.root.destroy()
-        os._exit(0)
+        if not self.embedded:
+            self.root.quit()
+            self.root.destroy()
 
     def build_metric_sample_map(self):
         metric_map = defaultdict(lambda: defaultdict(dict))
         temp_values = defaultdict(list)
-        anomaly_to_controls = defaultdict(list) 
-        
+        anomaly_to_controls = defaultdict(list)
+
         if os.path.exists(self.synth_roi_dir):
             for control_name in os.listdir(self.synth_roi_dir):
                 control_path = os.path.join(self.synth_roi_dir, control_name)
@@ -71,7 +163,7 @@ class OutlierGUI:
                         anomaly_to_controls[a].append(control_name)
 
         csv_path = self.paths.metric_diffs_csv
-        
+
         try:
             with open(csv_path, mode='r', encoding='utf-8') as f:
                 reader = csv.reader(f)
@@ -79,14 +171,14 @@ class OutlierGUI:
                     if len(row) < 3:
                         continue
                     if row[0].lower() == "sample_name":
-                        continue 
-                    
+                        continue
+
                     sample_id = row[0]
                     try:
                         data_dict = json.loads(row[2])
                     except json.JSONDecodeError:
                         continue
-                    
+
                     is_roi = any(isinstance(v, dict) for v in data_dict.values())
 
                     if is_roi:
@@ -100,26 +192,26 @@ class OutlierGUI:
                                 base = control_name.replace('.png', '').replace('.npy', '')
                                 if base in self.hierarchy:
                                     control_name = base
-                        
+
                         for anomaly_name, metrics in data_dict.items():
                             for metric_name, val in metrics.items():
                                 metric_map[metric_name][control_name][anomaly_name] = float(val)
                                 temp_values[metric_name].append(float(val))
-                                
+
                                 if anomaly_name not in self.hierarchy[control_name]:
                                     self.hierarchy[control_name].append(anomaly_name)
                                     anomaly_to_controls[anomaly_name].append(control_name)
                     else:
                         anomaly_name = sample_id
-                        
+
                         if anomaly_name not in anomaly_to_controls:
                             if anomaly_name + '.npy' in anomaly_to_controls:
                                 anomaly_name += '.npy'
                             elif anomaly_name + '.png' in anomaly_to_controls:
                                 anomaly_name += '.png'
-                                
+
                         associated_controls = anomaly_to_controls.get(anomaly_name, [])
-                        
+
                         for control_name in associated_controls:
                             for metric_name, val in data_dict.items():
                                 metric_map[metric_name][control_name][anomaly_name] = float(val)
@@ -131,56 +223,100 @@ class OutlierGUI:
         for metric, values in temp_values.items():
             if values:
                 self.metric_stats[metric] = {'min': min(values), 'max': max(values)}
-                
+
         return metric_map
 
     def build_ui(self):
-        control_frame = tk.Frame(self.root)
-        control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
+        bg = self._background_color()
+        main_container = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
+        main_container.pack(fill=tk.BOTH, expand=True)
 
-        tk.Label(control_frame, text="Filter & Sort by:", font=('Arial', 10, 'bold')).pack(anchor="w")
+        left_frame = tk.Frame(main_container)
+        main_container.add(left_frame, weight=1)
+
+        scrollbar = tk.Scrollbar(left_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        canvas = tk.Canvas(left_frame, yscrollcommand=scrollbar.set, bg=bg)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=canvas.yview)
+
+
+        control_frame = tk.Frame(canvas, bg=bg)
+        canvas_window = canvas.create_window((0, 0), window=control_frame, anchor="nw")
+
+        # Update scroll region when frame changes
+        def on_frame_configure(event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            canvas.itemconfig(canvas_window, width=canvas.winfo_width())
+
+        control_frame.bind("<Configure>", on_frame_configure)
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(canvas_window, width=e.width))
+
+        # Mouse wheel scrolling stays scoped to the left control panel.
+        def on_mousewheel(event):
+            widget = self.root.winfo_containing(event.x_root, event.y_root)
+            if widget is None:
+                widget = getattr(event, "widget", None)
+            if widget is None or not _is_descendant(widget, left_frame):
+                return
+            widget_class = widget.winfo_class() if widget is not None else ""
+            if widget_class in ("Treeview", "TTreeview", "Text"):
+                return
+            units = _mousewheel_units(event)
+            if units:
+                canvas.yview_scroll(units, "units")
+                return "break"
+
+        self.root.bind("<MouseWheel>", on_mousewheel, add="+")
+        self.root.bind("<Button-4>", on_mousewheel, add="+")
+        self.root.bind("<Button-5>", on_mousewheel, add="+")
+
+        # Filter section
+        tk.Label(control_frame, text="Filter & Sort by:", font=self.font_label_bold, bg=bg).pack(anchor="w", padx=5, pady=(5, 0))
         self.metric_vars = {}
         for metric in sorted(self.metric_map.keys()):
             var = tk.BooleanVar(value=False)
-            cb = tk.Checkbutton(control_frame, text=metric, variable=var, command=self.update_filter)
-            cb.pack(anchor="w")
+            cb = tk.Checkbutton(control_frame, text=metric, variable=var, command=self.update_filter, font=self.font_label, bg=bg)
+            cb.pack(anchor="w", padx=10)
             self.metric_vars[metric] = var
 
-        tk.Label(control_frame, text="Outlier Threshold (Top %):", font=('Arial', 10, 'bold')).pack(anchor="w", pady=(10, 0))
-        self.outlier_slider = tk.Scale(control_frame, from_=0, to=10, resolution=.1, orient=tk.HORIZONTAL, 
-                                       command=lambda _: self.update_filter())
+        tk.Label(control_frame, text="Outlier Threshold (Top %):", font=self.font_label_bold, bg=bg).pack(anchor="w", padx=5, pady=(10, 0))
+        self.outlier_slider = tk.Scale(control_frame, from_=0, to=10, resolution=.1, orient=tk.HORIZONTAL,
+                                       command=lambda _: self.update_filter(), font=self.font_label, bg=bg)
         self.outlier_slider.set(1)
-        self.outlier_slider.pack(fill=tk.X, pady=(0, 5))
+        self.outlier_slider.pack(fill=tk.X, padx=5, pady=(0, 5))
 
-        self.list_frame = tk.Frame(control_frame)
-        self.list_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        tk.Label(control_frame, text="Controls / Anomalies:", font=self.font_label_bold, bg=bg).pack(anchor="w", padx=5, pady=(10, 0))
+        self.list_frame = tk.Frame(control_frame, height=150, bg=bg)
+        self.list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        self.scrollbar = tk.Scrollbar(self.list_frame)
-        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.scrollbar_tree = tk.Scrollbar(self.list_frame)
+        self.scrollbar_tree.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.tree = ttk.Treeview(self.list_frame, yscrollcommand=self.scrollbar.set, selectmode="browse")
-        self.tree.heading("#0", text="Controls / Anomalies", anchor="w")
+        self.tree = ttk.Treeview(self.list_frame, yscrollcommand=self.scrollbar_tree.set, selectmode="browse", height=8)
+        self.tree.heading("#0", text="Items", anchor="w")
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.scrollbar.config(command=self.tree.yview)
+        self.scrollbar_tree.config(command=self.tree.yview)
         self.tree.bind('<<TreeviewSelect>>', self.on_treeview_select)
 
-        contrast_header_frame = tk.Frame(control_frame)
-        contrast_header_frame.pack(fill=tk.X, pady=(10, 0))
-        tk.Label(contrast_header_frame, text="Contrast:", font=('Arial', 10, 'bold')).pack(side=tk.LEFT)
-        tk.Button(contrast_header_frame, text="reset", command=self.reset_contrast, font=('Arial', 8, 'italic'),
+        contrast_header_frame = tk.Frame(control_frame, bg=bg)
+        contrast_header_frame.pack(fill=tk.X, padx=5, pady=(10, 0))
+        tk.Label(contrast_header_frame, text="Contrast:", font=self.font_label_bold, bg=bg).pack(side=tk.LEFT)
+        tk.Button(contrast_header_frame, text="reset", command=self.reset_contrast, font=self.font_small,
                   relief=tk.FLAT, padx=2, pady=0, cursor="hand2").pack(side=tk.LEFT, padx=5)
 
-        self.contrast_slider = tk.Scale(control_frame, from_=0.1, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, 
-                                        command=lambda _: self.update_display())
+        self.contrast_slider = tk.Scale(control_frame, from_=0.1, to=10.0, resolution=0.1, orient=tk.HORIZONTAL,
+                                        command=lambda _: self.update_display(), font=self.font_label, bg=bg)
         self.contrast_slider.set(1.0)
         self.contrast_slider.pack(fill=tk.X, pady=(0, 10))
 
-        tk.Button(control_frame, text="Prev Sample (←)", command=self.prev_sample).pack(fill=tk.X, pady=2)
-        tk.Button(control_frame, text="Next Sample (→)", command=self.next_sample).pack(fill=tk.X, pady=2)
-        tk.Button(control_frame, text="Slice - (↓)", command=self.prev_slice).pack(fill=tk.X, pady=2)
-        tk.Button(control_frame, text="Slice + (↑)", command=self.next_slice).pack(fill=tk.X, pady=2)
+        tk.Button(control_frame, text="Prev Sample (<-)", command=self.prev_sample).pack(fill=tk.X, pady=2)
+        tk.Button(control_frame, text="Next Sample (->)", command=self.next_sample).pack(fill=tk.X, pady=2)
+        tk.Button(control_frame, text="Slice - (Down)", command=self.prev_slice).pack(fill=tk.X, pady=2)
+        tk.Button(control_frame, text="Slice + (Up)", command=self.next_slice).pack(fill=tk.X, pady=2)
 
-        self.info_text = tk.Text(control_frame, height=10, width=30, bg=self.root.cget("bg"), relief=tk.FLAT, font=("Arial", 10))
+        self.info_text = tk.Text(control_frame, height=10, width=30, bg=control_frame.cget("bg"), relief=tk.FLAT, font=("Arial", 10))
         self.info_text.pack(pady=10, fill=tk.BOTH, expand=True, anchor="w")
         self.info_text.tag_configure("active", foreground="black", font=("Arial", 10, "bold"))
         self.info_text.tag_configure("inactive", foreground="gray")
@@ -194,9 +330,12 @@ class OutlierGUI:
 
         self.fig, self.axs = plt.subplots(2, 2, figsize=(15, 5), constrained_layout=True)
         self.axs = self.axs.flatten()
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.root)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=main_container)
         self.canvas_widget = self.canvas.get_tk_widget()
-        self.canvas_widget.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        main_container.add(self.canvas_widget, weight=4)
+
+        # Connect resize event for responsive figure scaling
+        self.canvas.mpl_connect('resize_event', self._on_canvas_resize)
 
         self.canvas_widget.bind("<MouseWheel>", self.on_mouse_wheel)
         self.canvas_widget.bind("<Button-4>", self.on_mouse_wheel)
@@ -209,7 +348,7 @@ class OutlierGUI:
     def update_filter(self):
         active_metrics = [m for m, v in self.metric_vars.items() if v.get()]
         threshold_pct = float(self.outlier_slider.get())
-        
+
         self.filtered_hierarchy = defaultdict(list)
         control_scores = {}
 
@@ -223,19 +362,19 @@ class OutlierGUI:
                 control_scores[c] = 0
         else:
             outlier_anomalies = []
-            
+
             for m in active_metrics:
                 all_vals = []
                 for c_dict in self.metric_map[m].values():
                     all_vals.extend(c_dict.values())
-                    
+
                 if not all_vals:
                     outlier_anomalies.append(set())
                     continue
-                    
+
                 cutoff_percentile = max(0.0, 100.0 - threshold_pct)
                 cutoff_value = np.percentile(all_vals, cutoff_percentile)
-                
+
                 m_outliers = set()
                 for c, a_dict in self.metric_map[m].items():
                     for a, val in a_dict.items():
@@ -244,7 +383,7 @@ class OutlierGUI:
                 outlier_anomalies.append(m_outliers)
 
             intersection = set.intersection(*outlier_anomalies) if outlier_anomalies else set()
-            
+
             anomaly_scores = {}
             for c, a in intersection:
                 norm_sum = 0
@@ -255,46 +394,46 @@ class OutlierGUI:
                     norm_sum += norm_val
                 score = norm_sum / len(active_metrics)
                 anomaly_scores[(c, a)] = score
-                
+
             for (c, a), score in anomaly_scores.items():
                 self.filtered_hierarchy[c].append(a)
                 if c not in control_scores or score > control_scores[c]:
                     control_scores[c] = score
 
         self.sorted_controls = sorted(self.filtered_hierarchy.keys(), key=lambda x: control_scores.get(x, 0), reverse=True)
-        
+
         self.flat_list = []
         for c in self.sorted_controls:
             self.flat_list.append(("control", c))
             self.filtered_hierarchy[c].sort()
             for a in self.filtered_hierarchy[c]:
                 self.flat_list.append(("anomaly", c, a))
-                
+
         if self.current_index >= len(self.flat_list):
             self.current_index = max(0, len(self.flat_list) - 1)
-            
+
         self.update_treeview()
         self.update_display()
 
     def update_treeview(self):
         for item in self.tree.get_children():
             self.tree.delete(item)
-            
-        self.tree_item_mapping = {} 
-        
+
+        self.tree_item_mapping = {}
+
         flat_idx = 0
         for c in self.sorted_controls:
             parent_id = self.tree.insert("", tk.END, text=c, open=True)
             self.tree_item_mapping[flat_idx] = parent_id
             self.tree_item_mapping[parent_id] = flat_idx
             flat_idx += 1
-            
+
             for a in self.filtered_hierarchy[c]:
                 child_id = self.tree.insert(parent_id, tk.END, text=a)
                 self.tree_item_mapping[flat_idx] = child_id
                 self.tree_item_mapping[child_id] = flat_idx
                 flat_idx += 1
-                
+
         self._sync_treeview_selection()
 
     def _sync_treeview_selection(self):
@@ -309,7 +448,7 @@ class OutlierGUI:
         if not selection:
             return
         item_id = selection[0]
-        
+
         if item_id in self.tree_item_mapping:
             new_idx = self.tree_item_mapping[item_id]
             if new_idx != self.current_index:
@@ -345,9 +484,12 @@ class OutlierGUI:
             self.update_display()
 
     def on_mouse_wheel(self, event):
-        if event.num == 4 or event.delta > 0:
+        delta = getattr(event, "delta", 0) or 0
+        num = getattr(event, "num", None)
+
+        if num == 4 or delta > 0:
             self.next_slice()
-        elif event.num == 5 or event.delta < 0:
+        elif num == 5 or delta < 0:
             self.prev_slice()
 
     def _remove_if_exists(self, path):
@@ -362,7 +504,7 @@ class OutlierGUI:
             self.hierarchy[control].remove(anomaly)
         if control in self.hierarchy and not self.hierarchy[control]:
             del self.hierarchy[control]
-            
+
         for m in self.metric_map:
             if control in self.metric_map[m] and anomaly in self.metric_map[m][control]:
                 del self.metric_map[m][control][anomaly]
@@ -372,11 +514,11 @@ class OutlierGUI:
             os.path.join(self.synth_roi_dir, control, anomaly),
             os.path.join(self.anomaly_dir, anomaly),
             os.path.join(self.anomaly_roi_dir, anomaly),
-            os.path.join(self.synth_anomaly_dir, anomaly) 
+            os.path.join(self.synth_anomaly_dir, anomaly)
         ]
         for path in targets:
             self._remove_if_exists(path)
-            
+
         self._remove_anomaly_from_hierarchy(control, anomaly)
 
     def _delete_files_for_control(self, control):
@@ -384,9 +526,9 @@ class OutlierGUI:
         for a in anomalies_to_delete:
             roi_path = os.path.join(self.synth_roi_dir, control, a)
             self._remove_if_exists(roi_path)
-            
+
             self._remove_anomaly_from_hierarchy(control, a)
-            
+
         control_roi_dir = os.path.join(self.synth_roi_dir, control)
         if os.path.exists(control_roi_dir):
             try:
@@ -423,16 +565,16 @@ class OutlierGUI:
 
         def execute_delete():
             deleted_anything = False
-            
+
             if var_all.get():
                 self._delete_files_for_control(control)
                 deleted_anything = True
-            
+
             if var_real.get():
                 self._remove_if_exists(os.path.join(self.anomaly_dir, anomaly))
                 self._remove_if_exists(os.path.join(self.anomaly_roi_dir, anomaly))
                 deleted_anything = True
-            
+
             if var_synth_roi.get():
                 self._remove_if_exists(os.path.join(self.synth_roi_dir, control, anomaly))
                 deleted_anything = True
@@ -451,7 +593,7 @@ class OutlierGUI:
                 self._remove_anomaly_from_hierarchy(control, anomaly)
 
             dialog.destroy()
-            
+
             if deleted_anything:
                 self.update_filter()
 
@@ -466,7 +608,7 @@ class OutlierGUI:
         if not self.flat_list:
             return
         item = self.flat_list[self.current_index]
-        
+
         if item[0] == "control":
             control = item[1]
             if not messagebox.askyesno("Delete Control", f"Do you want to delete the Hybrid Sample '{control}' with all its ROIs?"):
@@ -490,7 +632,7 @@ class OutlierGUI:
         return p
 
     def update_display(self):
-        for ax in self.axs: 
+        for ax in self.axs:
             ax.clear()
             ax.axis("off")
 
@@ -501,70 +643,82 @@ class OutlierGUI:
 
         item = self.flat_list[self.current_index]
         contrast = float(self.contrast_slider.get())
-        
+
         if item[0] == "control":
             control = item[1]
-            self.fig.suptitle(f"Control: {control}", fontsize=14, fontweight='bold', y=.995)
-            
+            self.fig.suptitle(f"Control: {control}", fontsize=12, fontweight='bold')
+
             ghs_path = self._get_fallback_path(self.ghs_dir, control)
             ghs_seg_path = self._get_fallback_path(self.ghs_seg_dir, control)
-            
+
             paths = [
-                (ghs_path, "Generated Hybrid Sample"),
-                (ghs_seg_path, "Generated Hybrid Segmentation"),
-                (None, ""),
-                (None, "")
+                (ghs_path, "Generated Hybrid Sample", None, None),
+                (ghs_seg_path, "Generated Hybrid Segmentation", None, None),
+                (None, "", None, None),
+                (None, "", None, None)
             ]
         else:
             _, control, anomaly = item
-            self.fig.suptitle(f"{anomaly} in {control}", fontsize=14, fontweight='bold', y=.995)
+            self.fig.suptitle(f"{anomaly} in {control}", fontsize=12, fontweight='bold')
 
+            anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, anomaly)
+            synth_roi_path = os.path.join(self.synth_roi_dir, control, anomaly)
+            real_roi_path = os.path.join(self.anomaly_roi_dir, anomaly)
             paths = [
-                (os.path.join(self.synth_anomaly_dir, anomaly), "synth_anomaly_data"),
-                (os.path.join(self.synth_roi_dir, control, anomaly), "synth_roi_data"),
-                (os.path.join(self.anomaly_dir, anomaly), "anomaly_data"),
-                (os.path.join(self.anomaly_roi_dir, anomaly), "anomaly_roi_data")
+                (os.path.join(self.synth_anomaly_dir, anomaly), "synth_anomaly_data", anomaly_meta, None),
+                (synth_roi_path, "synth_roi_data", None, None),
+                (os.path.join(self.anomaly_dir, anomaly), "anomaly_data", anomaly_meta, real_roi_path),
+                (real_roi_path, "anomaly_roi_data", None, None)
             ]
 
         loaded_data = []
         max_slices = 0
-        for p, title in paths:
+        for p, title, meta, window_path in paths:
             if p and os.path.exists(p):
-                arr = np.load(p)
-                if arr.ndim == 4:
-                    max_slices = max(max_slices, arr.shape[1])
-                    curr_slice = min(self.current_slice, arr.shape[1] - 1)
-                    img = arr[:, curr_slice, :, :]
-                    img = np.transpose(img, (1, 2, 0))
-                    display_title = f"{title}\nSlice {curr_slice}"
-                elif arr.ndim == 3:
-                    img = np.transpose(arr, (1, 2, 0))
-                    display_title = title
-                else:
-                    img = arr
-                    display_title = title
-                loaded_data.append((img, display_title))
+                try:
+                    arr = np.load(p)
+                    arr, denormalized = _denormalize_array_for_display(arr, meta)
+                    window_arr = arr
+                    if denormalized and window_path and os.path.exists(window_path):
+                        window_arr = np.load(window_path)
+                    img, depth, curr_slice, _mode = _display_plane(
+                        arr, slice_index=self.current_slice, channel=0
+                    )
+                    max_slices = max(max_slices, depth)
+                    display_title = f"{title}\nSlice {curr_slice}" if depth > 1 else title
+                    loaded_data.append((img, display_title, p, None, window_arr))
+                except Exception as exc:
+                    loaded_data.append((None, title, p, str(exc), None))
             else:
-                loaded_data.append((None, title))
+                loaded_data.append((None, title, p, None, None))
 
         if self.current_slice >= max_slices and max_slices > 0:
             self.current_slice = max_slices - 1
 
-        for i, (img, title) in enumerate(loaded_data):
+        for i, (img, title, path, error, window_arr) in enumerate(loaded_data):
             if not title:
                 continue
-            
+
             if img is None:
-                self.axs[i].set_title(f"{title}\nNOT FOUND", fontsize=9)
+                if error:
+                    self.axs[i].text(
+                        0.5, 0.5, f"Could not load:\n{path}\n\n{error}",
+                        ha="center", va="center", transform=self.axs[i].transAxes,
+                        fontsize=8, wrap=True,
+                    )
+                else:
+                    self.axs[i].text(
+                        0.5, 0.5, f"Not found:\n{path}",
+                        ha="center", va="center", transform=self.axs[i].transAxes,
+                        fontsize=8, wrap=True,
+                    )
+                self.axs[i].set_title(title, fontsize=9)
                 continue
 
-            img_float = img.astype(np.float32)
-            i_min, i_max = np.min(img_float), np.max(img_float)
-            img_norm = (img_float - i_min) / (i_max - i_min) if i_max > i_min else img_float - i_min
-            img_display = np.clip(img_norm * contrast, 0, 1)
+            img_display = _normalize_for_display(img, window_arr if window_arr is not None else img, contrast)
 
-            self.axs[i].set_title(title, fontsize=10, pad=10)
-            
+            self.axs[i].set_title(title, fontsize=10, pad=12)
+
             if img_display.ndim == 3 and img_display.shape[-1] == 1:
                 self.axs[i].imshow(img_display[:, :, 0], cmap="gray", vmin=0, vmax=1, aspect='equal')
             elif img_display.ndim == 3:
@@ -574,26 +728,31 @@ class OutlierGUI:
 
         self.info_text.config(state=tk.NORMAL)
         self.info_text.delete('1.0', tk.END)
-        self.info_text.insert(tk.END, f"Selected: {self.current_index+1} / {len(self.flat_list)}\n\n", "header")
-        
+        self.info_text.insert(tk.END, f"Selected: {self.current_index+1} / {len(self.flat_list)}\n", "header")
+        self.info_text.insert(tk.END, "=" * 30 + "\n\n", "header")
+
         active = [m for m, v in self.metric_vars.items() if v.get()]
-        
+
         if item[0] == "control":
-            self.info_text.insert(tk.END, f"Anomalies in this control: {len(self.filtered_hierarchy.get(item[1], []))}\n", "active")
+            self.info_text.insert(tk.END, f"Anomalies: {len(self.filtered_hierarchy.get(item[1], []))}\n\n", "active")
         else:
             control, anomaly = item[1], item[2]
+            self.info_text.insert(tk.END, f"Control:\n{control}\n\n", "active")
+            self.info_text.insert(tk.END, f"Anomaly:\n{anomaly}\n\n", "active")
+            self.info_text.insert(tk.END, "Metrics:\n", "header")
+            self.info_text.insert(tk.END, "-" * 20 + "\n", "header")
+
             for m in sorted(self.metric_map.keys()):
                 if control in self.metric_map[m] and anomaly in self.metric_map[m][control]:
                     val = self.metric_map[m][control][anomaly]
-                    line = f"{m}: {val:.4f}\n"
+                    line = f"{m}:\n  {val:.4f}\n\n"
                     self.info_text.insert(tk.END, line, "active" if m in active else "inactive")
-                
+
         self.info_text.config(state=tk.DISABLED)
         self.canvas.draw()
 
 def run_outlier_gui(config):
     root = tk.Tk()
-    root.tk.call('tk', 'scaling', 2.0)
     app = OutlierGUI(root, config)
     root.mainloop()
 
@@ -687,6 +846,52 @@ def _load_array(path: str) -> np.ndarray:
             return z[keys[0]]
         return z
     return np.load(path)
+
+
+def _load_anomaly_transformations(transformations_file: str) -> Dict[str, dict]:
+    if not os.path.isfile(transformations_file):
+        return {}
+    try:
+        with open(transformations_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _get_anomaly_meta(transformations: Dict[str, dict], filename: str) -> Optional[dict]:
+    base = os.path.basename(str(filename or ""))
+    stem, _ = os.path.splitext(base)
+    for key in (base, stem, stem + ".npy"):
+        meta = transformations.get(key)
+        if isinstance(meta, dict):
+            return meta
+    return None
+
+
+def _denormalize_array_for_display(arr: np.ndarray, meta: Optional[dict]) -> Tuple[np.ndarray, bool]:
+    if not meta:
+        return arr, False
+
+    norm_type = meta.get("norm_type")
+    if norm_type == "zscore":
+        mean = meta.get("norm_mean")
+        std = meta.get("norm_std")
+        if mean is None or std is None:
+            return arr, False
+        return arr.astype(np.float32, copy=False) * float(std) + float(mean), True
+
+    if norm_type == "zscore_median":
+        median = meta.get("norm_median")
+        mad = meta.get("norm_mad")
+        if median is None or mad is None:
+            return arr, False
+        return arr.astype(np.float32, copy=False) * float(mad) + float(median), True
+
+    if norm_type is None:
+        return arr, True
+
+    return arr, False
 
 
 def _robust_window_params(arr: np.ndarray) -> Tuple[float, float]:
@@ -1103,11 +1308,600 @@ def visualize_four_folders(
         window_title="4-Array Set Viewer",
     )
 
+
+def _list_npy_files(folder: str) -> List[str]:
+    if not os.path.isdir(folder):
+        return []
+    return sorted(
+        name for name in os.listdir(folder)
+        if os.path.isfile(os.path.join(folder, name)) and name.lower().endswith(".npy")
+    )
+
+
+def _build_file_list(parent, height: int, on_select):
+    """Create the shared file list used by the array visualizer tabs."""
+    list_frame = ttk.Frame(parent)
+    list_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+    file_list = tk.Listbox(list_frame, width=34, height=height, exportselection=False)
+    scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=file_list.yview)
+    file_list.configure(yscrollcommand=scrollbar.set)
+    file_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    file_list.bind("<<ListboxSelect>>", on_select)
+    return file_list
+
+
+def _add_unique(items: List[str], value: str):
+    if value and value not in items:
+        items.append(value)
+
+
+def _name_candidates(filename: str, extensions: Sequence[str] = (".npy",)) -> List[str]:
+    base = os.path.basename(str(filename or ""))
+    stem, ext = os.path.splitext(base)
+    candidates: List[str] = []
+    _add_unique(candidates, base)
+    if stem:
+        for extension in extensions:
+            extension = extension if extension.startswith(".") else "." + extension
+            _add_unique(candidates, stem + extension)
+        _add_unique(candidates, stem)
+        for extension in (".png", ".jpg", ".jpeg", ".tif", ".tiff"):
+            _add_unique(candidates, stem + extension)
+    return candidates
+
+
+def _resolve_file_by_name(folder: str, filename: str, extensions: Sequence[str] = (".npy",)) -> Tuple[Optional[str], str]:
+    base = os.path.basename(str(filename or ""))
+    stem, ext = os.path.splitext(base)
+    expected_name = base if ext else stem + (extensions[0] if extensions else "")
+    expected = os.path.join(folder, expected_name)
+
+    if not os.path.isdir(folder):
+        return None, expected
+
+    for candidate in _name_candidates(filename, extensions):
+        path = os.path.join(folder, candidate)
+        if os.path.isfile(path):
+            return path, expected
+
+    target_stem = stem or os.path.splitext(expected_name)[0]
+    for name in _list_npy_files(folder):
+        if os.path.splitext(name)[0] == target_stem:
+            return os.path.join(folder, name), expected
+    return None, expected
+
+
+def _resolve_dir_by_name(folder: str, dirname: str) -> Tuple[Optional[str], str]:
+    base = os.path.basename(str(dirname or ""))
+    expected = os.path.join(folder, base)
+    if not os.path.isdir(folder):
+        return None, expected
+
+    for candidate in _name_candidates(base, extensions=(".npy",)):
+        path = os.path.join(folder, candidate)
+        if os.path.isdir(path):
+            return path, expected
+
+    target_stem = os.path.splitext(base)[0]
+    for name in sorted(os.listdir(folder)):
+        path = os.path.join(folder, name)
+        if os.path.isdir(path) and os.path.splitext(name)[0] == target_stem:
+            return path, expected
+    return None, expected
+
+
+def _is_channel_axis(length: int) -> bool:
+    return 1 <= int(length) <= 8
+
+
+def _chw_to_image(frame: np.ndarray, channel: int = 0) -> np.ndarray:
+    frame = np.asarray(frame)
+    if frame.ndim == 2:
+        return frame
+    channels = int(frame.shape[0])
+    if channels in (3, 4):
+        return np.moveaxis(frame[:3], 0, -1)
+    channel = max(0, min(int(channel), channels - 1))
+    return frame[channel]
+
+
+def _hwc_to_image(frame: np.ndarray, channel: int = 0) -> np.ndarray:
+    frame = np.asarray(frame)
+    channels = int(frame.shape[-1])
+    if channels in (3, 4):
+        return frame[..., :3]
+    channel = max(0, min(int(channel), channels - 1))
+    return frame[..., channel]
+
+
+def _display_plane(arr: np.ndarray, slice_index: int = 0, channel: int = 0) -> Tuple[np.ndarray, int, int, str]:
+    arr = np.asarray(arr)
+    slice_index = max(0, int(slice_index))
+
+    if arr.ndim == 4:
+        if _is_channel_axis(arr.shape[0]):
+            depth = int(arr.shape[1])
+            used = min(slice_index, max(depth - 1, 0))
+            return _chw_to_image(arr[:, used, :, :], channel), depth, used, "C,D,H,W"
+        if _is_channel_axis(arr.shape[-1]):
+            depth = int(arr.shape[0])
+            used = min(slice_index, max(depth - 1, 0))
+            return _hwc_to_image(arr[used], channel), depth, used, "D,H,W,C"
+        raise ValueError(f"Unsupported 4D shape {arr.shape}; expected channel-first or channel-last data.")
+
+    if arr.ndim == 3:
+        if _is_channel_axis(arr.shape[0]) and arr.shape[1] > 8 and arr.shape[2] > 8:
+            return _chw_to_image(arr, channel), 1, 0, "C,H,W"
+        if _is_channel_axis(arr.shape[-1]) and arr.shape[0] > 8 and arr.shape[1] > 8:
+            return _hwc_to_image(arr, channel), 1, 0, "H,W,C"
+        depth = int(arr.shape[0])
+        used = min(slice_index, max(depth - 1, 0))
+        return arr[used], depth, used, "D,H,W"
+
+    if arr.ndim == 2:
+        return arr, 1, 0, "H,W"
+
+    raise ValueError(f"Unsupported shape {arr.shape}; expected 2D, 3D, or 4D array.")
+
+
+def _normalize_for_display(image: np.ndarray, reference: np.ndarray, contrast: float) -> np.ndarray:
+    center, half0 = _robust_window_params(np.asarray(reference))
+    vmin, vmax = _window_limits(center, half0, contrast)
+    denom = (vmax - vmin) if vmax != vmin else 1.0
+    out = (np.asarray(image, dtype=np.float32) - vmin) / denom
+    out = np.nan_to_num(out, nan=0.0, posinf=1.0, neginf=0.0)
+    return np.clip(out, 0.0, 1.0)
+
+
+def _draw_placeholder(ax, title: str, detail: str):
+    ax.clear()
+    ax.axis("off")
+    ax.imshow(np.full((12, 12), 0.94, dtype=np.float32), cmap="gray", vmin=0, vmax=1)
+    ax.set_title(title, fontsize=10, pad=8)
+    ax.text(
+        0.5, 0.5, detail,
+        ha="center", va="center", transform=ax.transAxes,
+        fontsize=8, color="#444444", wrap=True,
+    )
+
+
+def _array_item(
+    title: str,
+    path: Optional[str],
+    expected_path: Optional[str] = None,
+    meta: Optional[dict] = None,
+    window_path: Optional[str] = None,
+) -> Dict[str, object]:
+    """Build a display item while keeping optional metadata out of the common path."""
+    item: Dict[str, object] = {
+        "title": title,
+        "path": path,
+        "expected_path": expected_path if expected_path is not None else path,
+    }
+    if meta is not None:
+        item["meta"] = meta
+    if window_path is not None:
+        item["window_path"] = window_path
+    return item
+
+
+def _render_array_panel(ax, item: Dict[str, object], slice_index: int, contrast: float,
+                        channel: int = 0, cmap: str = "gray") -> int:
+    title = str(item.get("title") or "")
+    path = item.get("path")
+    expected_path = item.get("expected_path") or path or ""
+
+    if not path or not os.path.isfile(path):
+        _draw_placeholder(ax, title, f"Not found:\n{expected_path}")
+        return 1
+
+    try:
+        arr = _load_array(path)
+        arr, denormalized = _denormalize_array_for_display(arr, item.get("meta"))
+        window_reference = arr
+        window_path = item.get("window_path")
+        if denormalized and window_path and os.path.isfile(window_path):
+            window_reference = _load_array(window_path)
+        image, depth, used_slice, mode = _display_plane(arr, slice_index=slice_index, channel=channel)
+        image = _normalize_for_display(image, window_reference, contrast)
+    except Exception as exc:
+        _draw_placeholder(ax, title, f"Could not load:\n{path}\n\n{exc}")
+        return 1
+
+    ax.clear()
+    ax.axis("off")
+    if image.ndim == 3 and image.shape[-1] == 1:
+        ax.imshow(image[:, :, 0], cmap=cmap, vmin=0, vmax=1, aspect="equal")
+    elif image.ndim == 3:
+        ax.imshow(image, aspect="equal")
+    else:
+        ax.imshow(image, cmap=cmap, vmin=0, vmax=1, aspect="equal")
+
+    slice_info = f" | slice {used_slice}/{depth - 1}" if depth > 1 else ""
+    ax.set_title(
+        f"{title}\n{os.path.basename(path)} | shape={tuple(arr.shape)} | {mode}{slice_info}",
+        fontsize=9,
+        pad=8,
+    )
+    return max(int(depth), 1)
+
+
+class _ArrayTabBase(ttk.Frame):
+    def __init__(self, master, config, channel: int = 0, cmap: str = "gray"):
+        super().__init__(master)
+        self.config = config
+        self.paths = _paths(config)
+        self.anomaly_transformations = _load_anomaly_transformations(self.paths.anomaly_transformations_file)
+        self.channel = int(channel)
+        self.cmap = cmap
+        self.slice_var = tk.DoubleVar(value=0)
+        self.contrast_var = tk.DoubleVar(value=1.0)
+        self.status_var = tk.StringVar(value="")
+        self._updating_controls = False
+
+    def _build_controls(self, parent):
+        ttk.Label(parent, text="Slice").pack(anchor="w", pady=(12, 0))
+        self.slice_scale = ttk.Scale(parent, from_=0, to=0, variable=self.slice_var, command=self._on_slice_changed)
+        self.slice_scale.pack(fill=tk.X)
+        self.slice_label = ttk.Label(parent, text="0 / 0")
+        self.slice_label.pack(anchor="w")
+
+        ttk.Label(parent, text="Contrast").pack(anchor="w", pady=(12, 0))
+        self.contrast_scale = ttk.Scale(
+            parent, from_=0.2, to=5.0, variable=self.contrast_var, command=self._on_contrast_changed
+        )
+        self.contrast_scale.pack(fill=tk.X)
+        ttk.Label(parent, textvariable=self.status_var, wraplength=260, foreground="#555555").pack(
+            anchor="w", fill=tk.X, pady=(12, 0)
+        )
+
+    def _refresh_file_list(self, folder: str):
+        """Reload the primary .npy list and select the first available file."""
+        self.files = _list_npy_files(folder)
+        self.file_list.delete(0, tk.END)
+        for name in self.files:
+            self.file_list.insert(tk.END, name)
+
+        if self.files:
+            self.file_list.selection_set(0)
+            self.current_filename = self.files[0]
+            self.status_var.set(f"{len(self.files)} files")
+        else:
+            self.current_filename = None
+            self.status_var.set(f"No .npy files found in: {folder}")
+
+    def _render_items(self, axes, items: Sequence[Dict[str, object]]) -> int:
+        """Render a group of array panels and return the largest slice count."""
+        slice_index = int(round(self.slice_var.get()))
+        contrast = float(self.contrast_var.get())
+        max_slices = 1
+        for ax, item in zip(axes, items):
+            max_slices = max(
+                max_slices,
+                _render_array_panel(
+                    ax, item, slice_index, contrast,
+                    channel=self.channel, cmap=self.cmap,
+                ),
+            )
+        return max_slices
+
+    def _on_slice_changed(self, _value=None):
+        if not self._updating_controls:
+            self.render()
+
+    def _on_contrast_changed(self, _value=None):
+        if not self._updating_controls:
+            self.render()
+
+    def _sync_slice_control(self, max_slices: int):
+        max_index = max(int(max_slices) - 1, 0)
+        current = max(0, min(int(round(self.slice_var.get())), max_index))
+        self._updating_controls = True
+        self.slice_scale.configure(to=max_index)
+        self.slice_var.set(current)
+        self.slice_label.configure(text=f"{current} / {max_index}")
+        if max_index == 0:
+            self.slice_scale.state(["disabled"])
+        else:
+            self.slice_scale.state(["!disabled"])
+        self._updating_controls = False
+
+    def _on_scroll(self, event):
+        step = 1 if getattr(event, "button", "") == "up" else -1
+        max_index = int(float(self.slice_scale.cget("to")))
+        new_value = max(0, min(int(round(self.slice_var.get())) + step, max_index))
+        if new_value != int(round(self.slice_var.get())):
+            self.slice_var.set(new_value)
+            self.render()
+
+    def render(self):
+        raise NotImplementedError
+
+
+class AnomalyGenerationTab(_ArrayTabBase):
+    def __init__(self, master, config, channel: int = 0, cmap: str = "gray"):
+        super().__init__(master, config, channel=channel, cmap=cmap)
+        self.anomaly_dir = self.paths.anomaly_data
+        self.anomaly_roi_dir = self.paths.anomaly_roi_data
+        self.synth_anomaly_dir = self.paths.synth_anomaly_data
+        self.synth_anomaly_mask_dir = self.paths.synth_anomaly_mask_data
+        self.files: List[str] = []
+        self.current_filename: Optional[str] = None
+        self._build_ui()
+        self.refresh_files()
+
+    def _build_ui(self):
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        side = ttk.Frame(self, padding=8)
+        side.grid(row=0, column=0, sticky="ns")
+        ttk.Label(side, text="anomaly_data", font=("Arial", 10, "bold")).pack(anchor="w")
+        ttk.Label(side, text=self.anomaly_dir, wraplength=260).pack(anchor="w", fill=tk.X)
+
+        self.file_list = _build_file_list(side, height=22, on_select=self._on_file_selected)
+
+        ttk.Button(side, text="Refresh", command=self.refresh_files).pack(fill=tk.X, pady=(8, 0))
+        self._build_controls(side)
+
+        content = ttk.Frame(self, padding=(4, 8, 8, 8))
+        content.grid(row=0, column=1, sticky="nsew")
+        content.rowconfigure(0, weight=1)
+        content.columnconfigure(0, weight=1)
+
+        self.fig, self.axs = plt.subplots(2, 2, figsize=(12, 8), constrained_layout=True)
+        self.axs = self.axs.flatten()
+        self.canvas = FigureCanvasTkAgg(self.fig, master=content)
+        self.canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
+        self.canvas.mpl_connect("scroll_event", self._on_scroll)
+
+    def refresh_files(self):
+        self._refresh_file_list(self.anomaly_dir)
+        self.render()
+
+    def _on_file_selected(self, _event=None):
+        selection = self.file_list.curselection()
+        if not selection:
+            return
+        self.current_filename = self.files[selection[0]]
+        self.slice_var.set(0)
+        self.render()
+
+    def render(self):
+        selected = self.current_filename
+        if selected is None:
+            items = [
+                _array_item("Extracted anomaly", None, self.anomaly_dir),
+                _array_item("Extracted ROI", None, self.anomaly_roi_dir),
+                _array_item("Generated anomaly", None, self.synth_anomaly_dir),
+                _array_item("Future mask", None, self.synth_anomaly_mask_dir),
+            ]
+            self.fig.suptitle("anomaly generation", fontsize=13, fontweight="bold")
+        else:
+            anomaly_path, anomaly_expected = _resolve_file_by_name(self.anomaly_dir, selected)
+            roi_path, roi_expected = _resolve_file_by_name(self.anomaly_roi_dir, selected)
+            synth_path, synth_expected = _resolve_file_by_name(self.synth_anomaly_dir, selected)
+            mask_path, mask_expected = _resolve_file_by_name(self.synth_anomaly_mask_dir, selected)
+            anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, selected)
+            items = [
+                _array_item(
+                    "Extracted anomaly", anomaly_path, anomaly_expected,
+                    meta=anomaly_meta, window_path=roi_path,
+                ),
+                _array_item("Extracted ROI", roi_path, roi_expected),
+                _array_item("Generated anomaly", synth_path, synth_expected, meta=anomaly_meta),
+                _array_item("Future mask", mask_path, mask_expected),
+            ]
+            self.fig.suptitle(f"anomaly generation: {selected}", fontsize=13, fontweight="bold")
+
+        max_slices = self._render_items(self.axs, items)
+        self._sync_slice_control(max_slices)
+        self.canvas.draw_idle()
+
+
+class FusedAnomalyTab(_ArrayTabBase):
+    def __init__(self, master, config, channel: int = 0, cmap: str = "gray"):
+        super().__init__(master, config, channel=channel, cmap=cmap)
+        self.hybrid_images_dir = self.paths.generated_images_npy
+        self.hybrid_segmentations_dir = self.paths.generated_segmentations_npy
+        self.synth_roi_dir = self.paths.synth_roi_data
+        self.anomaly_dir = self.paths.anomaly_data
+        self.anomaly_roi_dir = self.paths.anomaly_roi_data
+        self.files: List[str] = []
+        self.roi_files: List[str] = []
+        self.current_filename: Optional[str] = None
+        self.current_roi_dir: Optional[str] = None
+        self.expected_roi_dir: str = os.path.join(self.synth_roi_dir, "")
+        self.roi_var = tk.StringVar(value="")
+        self._build_ui()
+        self.refresh_files()
+
+    def _build_ui(self):
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        side = ttk.Frame(self, padding=8)
+        side.grid(row=0, column=0, sticky="ns")
+        ttk.Label(side, text="images_npy", font=("Arial", 10, "bold")).pack(anchor="w")
+        ttk.Label(side, text=self.hybrid_images_dir, wraplength=260).pack(anchor="w", fill=tk.X)
+
+        self.file_list = _build_file_list(side, height=18, on_select=self._on_file_selected)
+
+        ttk.Button(side, text="Refresh", command=self.refresh_files).pack(fill=tk.X, pady=(8, 0))
+        self._build_controls(side)
+
+        content = ttk.Frame(self, padding=(4, 8, 8, 8))
+        content.grid(row=0, column=1, sticky="nsew")
+        content.rowconfigure(0, weight=2)
+        content.rowconfigure(2, weight=1)
+        content.columnconfigure(0, weight=1)
+
+        self.fig_hybrid, top_axs = plt.subplots(1, 2, figsize=(12, 4.8), constrained_layout=True)
+        self.ax_hybrid, self.ax_hybrid_mask = top_axs
+        self.hybrid_canvas = FigureCanvasTkAgg(self.fig_hybrid, master=content)
+        self.hybrid_canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
+        self.hybrid_canvas.mpl_connect("scroll_event", self._on_scroll)
+
+        roi_bar = ttk.Frame(content, padding=(0, 6, 0, 6))
+        roi_bar.grid(row=1, column=0, sticky="ew")
+        ttk.Label(roi_bar, text="ROI").pack(side=tk.LEFT)
+        self.roi_combo = ttk.Combobox(roi_bar, textvariable=self.roi_var, state="readonly", width=48)
+        self.roi_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
+        self.roi_combo.bind("<<ComboboxSelected>>", self._on_roi_selected)
+
+        self.fig_bottom, bottom_axs = plt.subplots(1, 2, figsize=(12, 4), constrained_layout=True)
+        self.ax_roi, self.ax_anomaly = bottom_axs
+        self.bottom_canvas = FigureCanvasTkAgg(self.fig_bottom, master=content)
+        self.bottom_canvas.get_tk_widget().grid(row=2, column=0, sticky="nsew")
+        self.bottom_canvas.mpl_connect("scroll_event", self._on_scroll)
+
+    def refresh_files(self):
+        self._refresh_file_list(self.hybrid_images_dir)
+        self._refresh_roi_files()
+        self.render()
+
+    def _on_file_selected(self, _event=None):
+        selection = self.file_list.curselection()
+        if not selection:
+            return
+        self.current_filename = self.files[selection[0]]
+        self.slice_var.set(0)
+        self._refresh_roi_files()
+        self.render()
+
+    def _on_roi_selected(self, _event=None):
+        self.slice_var.set(0)
+        self.render()
+
+    def _refresh_roi_files(self):
+        selected = self.current_filename
+        if selected is None:
+            self.current_roi_dir = None
+            self.expected_roi_dir = self.synth_roi_dir
+            self.roi_files = []
+        else:
+            self.current_roi_dir, self.expected_roi_dir = _resolve_dir_by_name(self.synth_roi_dir, selected)
+            self.roi_files = _list_npy_files(self.current_roi_dir) if self.current_roi_dir else []
+
+        self.roi_combo.configure(values=self.roi_files)
+        if self.roi_files:
+            self.roi_var.set(self.roi_files[0])
+            self.roi_combo.state(["!disabled"])
+        else:
+            self.roi_var.set("")
+            self.roi_combo.state(["disabled"])
+
+    def render(self):
+        selected = self.current_filename
+        roi_name = self.roi_var.get()
+
+        if selected is None:
+            top_items = [
+                _array_item("Hybrid sample", None, self.hybrid_images_dir),
+                _array_item("Hybrid mask", None, self.hybrid_segmentations_dir),
+            ]
+            bottom_items = [
+                _array_item("Selected synthetic ROI", None, self.synth_roi_dir),
+                _array_item("Matched anomaly", None, self.anomaly_dir),
+            ]
+            self.fig_hybrid.suptitle("fused anomaly", fontsize=13, fontweight="bold")
+            self.fig_bottom.suptitle("")
+        else:
+            hybrid_path, hybrid_expected = _resolve_file_by_name(self.hybrid_images_dir, selected)
+            hybrid_mask_path, hybrid_mask_expected = _resolve_file_by_name(self.hybrid_segmentations_dir, selected)
+
+            if roi_name and self.current_roi_dir:
+                roi_path = os.path.join(self.current_roi_dir, roi_name)
+                roi_expected = os.path.join(self.expected_roi_dir, roi_name)
+                anomaly_path, anomaly_expected = _resolve_file_by_name(self.anomaly_dir, roi_name)
+                anomaly_roi_path, _anomaly_roi_expected = _resolve_file_by_name(self.anomaly_roi_dir, roi_name)
+                anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, roi_name)
+            else:
+                roi_path = None
+                roi_expected = self.expected_roi_dir
+                anomaly_path = None
+                anomaly_expected = os.path.join(self.anomaly_dir, "<selected_roi>.npy")
+                anomaly_roi_path = None
+                anomaly_meta = None
+
+            top_items = [
+                _array_item("Hybrid sample", hybrid_path, hybrid_expected),
+                _array_item("Hybrid mask", hybrid_mask_path, hybrid_mask_expected),
+            ]
+            bottom_items = [
+                _array_item("Selected synthetic ROI", roi_path, roi_expected),
+                _array_item(
+                    "Matched anomaly", anomaly_path, anomaly_expected,
+                    meta=anomaly_meta, window_path=anomaly_roi_path,
+                ),
+            ]
+            roi_suffix = f" | ROI: {roi_name}" if roi_name else " | no ROI found"
+            self.fig_hybrid.suptitle(f"fused anomaly: {selected}", fontsize=13, fontweight="bold")
+            self.fig_bottom.suptitle(roi_suffix.lstrip(" | "), fontsize=11)
+
+        max_slices = max(
+            self._render_items((self.ax_hybrid, self.ax_hybrid_mask), top_items),
+            self._render_items((self.ax_roi, self.ax_anomaly), bottom_items),
+        )
+        self._sync_slice_control(max_slices)
+        self.hybrid_canvas.draw_idle()
+        self.bottom_canvas.draw_idle()
+
+
+class HybridDataGeneratorVisualizer:
+    def __init__(self, root, config, channel: int = 0, cmap: str = "gray"):
+        self.root = root
+        self.config = config
+        self.root.title("HybridDataGenerator Visualizer")
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+
+        self.anomaly_tab = AnomalyGenerationTab(self.notebook, config, channel=channel, cmap=cmap)
+        self.notebook.add(self.anomaly_tab, text="anomaly generation")
+
+        self.fused_tab = FusedAnomalyTab(self.notebook, config, channel=channel, cmap=cmap)
+        self.notebook.add(self.fused_tab, text="fused anomaly")
+
+        self.evaluation_tab = ttk.Frame(self.notebook)
+        if os.path.isdir(_paths(config).evaluation_results):
+            self.evaluation_gui = OutlierGUI(self.evaluation_tab, config, embedded=True)
+            self.notebook.add(self.evaluation_tab, text="evaluation")
+        else:
+            self.notebook.add(self.evaluation_tab, text="evaluation", state="disabled")
+
+    def on_closing(self):
+        plt.close("all")
+        self.root.quit()
+        self.root.destroy()
+
+
+def run_hybrid_visualizer(config, channel: int = 0, cmap: str = "gray"):
+    root = tk.Tk()
+    root.tk.call("tk", "scaling", 2.0)
+    HybridDataGeneratorVisualizer(root, config, channel=channel, cmap=cmap)
+    root.mainloop()
+
+
+def run_hybrid_visualizer_for_folder(study_folder: str, channel: int = 0, cmap: str = "gray"):
+    class FolderConfig:
+        def __init__(self, folder: str):
+            study_name = os.path.basename(os.path.normpath(folder)) or "study"
+            self.paths = StudyPaths(folder, study_name)
+
+        def get_paths(self) -> StudyPaths:
+            return self.paths
+
+    config = FolderConfig(study_folder)
+    run_hybrid_visualizer(config, channel=channel, cmap=cmap)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Visualize 4 matched arrays from 4 folders side-by-side. "
-            "Supports (C,D,H,W) and (C,H,W). If C==3 => RGB, if C!=3 => grayscale channel. The 4th view is loaded from the fixed subfolder 'generated_hybrid_samples'."
+            "Visualize HybridDataGenerator outputs in three tabs: anomaly generation, fused anomaly, and evaluation."
         )
     )
     parser.add_argument("folder", help="Result Folder")
@@ -1123,22 +1917,8 @@ def main():
 
     args = parser.parse_args()
 
-    paths = StudyPaths(args.folder, os.path.basename(os.path.normpath(args.folder)) or "study")
-    anomaly_folder = paths.anomaly_data
-    roi_folder = paths.anomaly_roi_data
-    synth_folder = paths.synth_anomaly_data
-    fusion_folder = paths.generated_images_npy
-
-    visualize_four_folders(
-        roi_folder,
-        anomaly_folder,
-        synth_folder,
-        fusion_folder,
-        channel=args.channel,
-        cmap=args.cmap,
-        backend_preference=args.backend,
-        exts=args.exts,
-    )
+    _select_gui_backend(prefer=args.backend)
+    run_hybrid_visualizer_for_folder(args.folder, channel=args.channel, cmap=args.cmap)
 
 
 if __name__ == "__main__":
