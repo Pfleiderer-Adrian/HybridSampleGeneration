@@ -90,6 +90,9 @@ class Configuration:
         self.add_bg_noise = True
 
 
+        self.conditional = "cVAE" in self.model_name
+        self.num_anomaly_classes = None # will be set in HDG (load_anomalies)
+
         # synthesizer parameter
         self.prior_sampling = False
         self.min_anomaly_percentage = 0.05
@@ -161,8 +164,8 @@ class Configuration:
 
         self.model_params = get_model_configuration(model_name, anomaly_size[0], debug=False)
 
-         # (optional) fixed roi size - can also be set to None for variable roi size
-        self.fixed_roi_size = (64, 64)
+         # set to None for variable roi size
+        self.fixed_roi_size = None
 
         # evaluation parameter
         # (optional) absolute thresholds

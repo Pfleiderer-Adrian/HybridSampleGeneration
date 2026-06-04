@@ -735,8 +735,8 @@ class ConvNeXtcVAE3D(nn.Module):
 
     def generate_synth_sample(
         self,
-        sample: Union[np.ndarray, torch.Tensor],
-        original_mask: Union[np.ndarray, torch.Tensor],
+        sample: Union[dict, np.ndarray, torch.Tensor],
+        original_mask: Optional[Union[np.ndarray, torch.Tensor]] = None,
         target_mask: Optional[Union[np.ndarray, torch.Tensor]] = None,  # use target mask if you want spatial variation
         *,
         n: int = 1,
@@ -759,8 +759,11 @@ class ConvNeXtcVAE3D(nn.Module):
 
         Inputs
         ------
-        sample, original_mask, target_mask:
-            Either (C,D,H,W) or (B,C,D,H,W).
+        sample:
+            Sample dict containing "img", "ori_mask" and optionally "tgt_mask",
+            or raw (C,D,H,W) / (B,C,D,H,W).
+        original_mask, target_mask:
+            Required only when sample is a raw tensor/array.
 
         Outputs
         -------
@@ -779,7 +782,19 @@ class ConvNeXtcVAE3D(nn.Module):
         model = self.to(device)
         model.eval()
 
-        x = torch.as_tensor(sample).float()
+        if isinstance(sample, dict):
+            if "img" not in sample:
+                raise KeyError("Conditional sample dict must contain 'img'.")
+            x = torch.as_tensor(sample["img"]).float()
+            if original_mask is None:
+                original_mask = sample.get("ori_mask", sample.get("mask"))
+            if target_mask is None:
+                target_mask = sample.get("tgt_mask", original_mask)
+        else:
+            x = torch.as_tensor(sample).float()
+
+        if original_mask is None:
+            raise ValueError("original_mask is required for conditional generation.")
         
         # --- WICHTIG: KEIN .float() mehr für die Masken! ---
         ori_mask = torch.as_tensor(original_mask)
@@ -906,7 +921,7 @@ class ConvNeXtcVAE3D(nn.Module):
     
     def generate_synth_sample_prior(
         self,
-        target_mask: Union[np.ndarray, torch.Tensor],
+        target_mask: Union[dict, np.ndarray, torch.Tensor],
         *,
         s: float = 1.0,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
@@ -921,7 +936,8 @@ class ConvNeXtcVAE3D(nn.Module):
             z ~ N(0, I) (scaled by s), then decode to 3D volume space conditioned on target_mask.
 
         Parameters:
-        - target_mask: (C_mask, D, H, W) or (B, C_mask, D, H, W). Defines the classes and output spatial size.
+        - target_mask: sample dict containing "tgt_mask", or a label mask with
+          shape (D,H,W), (C,D,H,W) or (B,C,D,H,W). Defines the classes and output spatial size.
         - s: prior temperature / diversity strength (1.0 is standard; <1.0 more conservative).
         - clamp_01: clamp outputs to [0,1].
         - return_torch: return torch.Tensor instead of np.ndarray.
@@ -937,25 +953,34 @@ class ConvNeXtcVAE3D(nn.Module):
         model = self.to(device)
         model.eval()
 
-        tgt_mask = torch.as_tensor(target_mask).float()
+        if isinstance(target_mask, dict):
+            target_mask = target_mask.get("tgt_mask", target_mask.get("ori_mask", target_mask.get("mask")))
+            if target_mask is None:
+                raise KeyError("Conditional prior sample dict must contain 'tgt_mask' or 'ori_mask'.")
+
+        tgt_mask = torch.as_tensor(target_mask)
         single = False
 
-        if tgt_mask.ndim == 4:
-            tgt_mask = tgt_mask.unsqueeze(0)  # (1, C_mask, D, H, W)
+        if tgt_mask.ndim in [3, 4]:
+            # if 3D (D,H,W) or 4D (1,D,H,W)/(C,D,H,W) -> make it batched
+            if tgt_mask.ndim == 3:
+                tgt_mask = tgt_mask.unsqueeze(0)
+            tgt_mask = tgt_mask.unsqueeze(0)
             single = True
         elif tgt_mask.ndim == 5:
             pass
         else:
-            raise ValueError(f"Expected target_mask (C,D,H,W) or (B,C,D,H,W), got {tuple(tgt_mask.shape)}")
+            raise ValueError(f"Expected target_mask (D,H,W), (C,D,H,W) or (B,C,D,H,W), got {tuple(tgt_mask.shape)}")
 
         tgt_mask = tgt_mask.to(device)
+        tgt_mask_oh = to_one_hot_3D(tgt_mask, self.cfg.num_anomaly_classes)
 
         with torch.no_grad():
-            ref_dhw = tuple(tgt_mask.shape[-3:])
+            ref_dhw = tuple(tgt_mask_oh.shape[-3:])
             multiple = 2 ** self.cfg.n_levels
             
             # Pad the target mask so spatial dims are divisible by the downsampling factor
-            tgt_mask_pad, pad = _pad_to_multiple_3d(tgt_mask, multiple)
+            tgt_mask_pad, pad = _pad_to_multiple_3d(tgt_mask_oh, multiple)
 
             # Calculate latent dimensions based on the padded mask
             latent_dhw = (
@@ -966,7 +991,7 @@ class ConvNeXtcVAE3D(nn.Module):
             
             model._ensure_fcs(latent_dhw, device)
 
-            B = tgt_mask.shape[0]
+            B = tgt_mask_oh.shape[0]
             z_dim = int(getattr(self.cfg, "bottleneck_dim", 256))
 
             # Prior sampling: z ~ N(0, I)

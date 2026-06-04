@@ -178,6 +178,7 @@ class HybridDataGenerator:
         """
         Load previously extracted anomaly cutouts into an AnomalyDataset and
         load their transformation meta-data from config.
+        If conditional model: calculate num_anomaly_classes if necessary and sets model param.
 
         Outputs
         -------
@@ -186,6 +187,21 @@ class HybridDataGenerator:
         """
         self._log_step("Step 2/9: Loading anomaly dataset.")
         paths = self._config.get_paths()
+
+        if self._config.conditional:
+            # calc num_anomaly_classes if necessary    
+            if self._config.num_anomaly_classes is None:
+                mask_dir = paths.anomaly_mask_data
+                max_class_val = 0
+                # classes must be integers 0,1,2,...,num_anomaly_classes (with background class 0)
+                for mask_path in mask_dir.glob("*.npy"):
+                    mask = np.load(mask_path, allow_pickle=False, mmap_mode='r')
+                    max_val_in_file = np.max(mask)
+                    if max_val_in_file > max_class_val:
+                        max_class_val = max_val_in_file
+                self._config.num_anomaly_classes = int(max_class_val) + 1
+            self._config.model_params.set_model_param("num_anomaly_classes", self._config.num_anomaly_classes)
+
         self._anomaly_dataset = AnomalyDataset(
             paths,
             return_artifacts=self._config.model_params.input_artefacts,
@@ -312,7 +328,7 @@ class HybridDataGenerator:
                 i = 0
                 while best < self._config.feedback_threshold:
                     if self._config.prior_sampling:
-                        syn_anomaly_sample = self._model.generate_synth_sample_prior(clamp_01=self._config.clamp01_output, out_hw=self._config.anomaly_size[1:])
+                        syn_anomaly_sample = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output)
                     else:
                         syn_anomaly_sample = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
 
@@ -355,7 +371,7 @@ class HybridDataGenerator:
                 img = sample["img"]
                 basename = sample["fname"]
                 if self._config.prior_sampling:
-                    syn_anomaly_sample = self._model.generate_synth_sample_prior(clamp_01=self._config.clamp01_output, out_hw=self._config.anomaly_size[1:])
+                    syn_anomaly_sample = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output)
                 else:
                     syn_anomaly_sample = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
                 save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)

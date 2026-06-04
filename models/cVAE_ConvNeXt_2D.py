@@ -723,8 +723,8 @@ class ConvNeXtcVAE2D(nn.Module):
 
     def generate_synth_sample(
         self,
-        sample: Union[np.ndarray, torch.Tensor],
-        original_mask: Union[np.ndarray, torch.Tensor],
+        sample: Union[dict, np.ndarray, torch.Tensor],
+        original_mask: Optional[Union[np.ndarray, torch.Tensor]] = None,
         target_mask: Optional[Union[np.ndarray, torch.Tensor]] = None,
         *,
         n: int = 1,
@@ -742,7 +742,19 @@ class ConvNeXtcVAE2D(nn.Module):
         model = self.to(device)
         model.eval()
 
-        x = torch.as_tensor(sample).float()
+        if isinstance(sample, dict):
+            if "img" not in sample:
+                raise KeyError("Conditional sample dict must contain 'img'.")
+            x = torch.as_tensor(sample["img"]).float()
+            if original_mask is None:
+                original_mask = sample.get("ori_mask", sample.get("mask"))
+            if target_mask is None:
+                target_mask = sample.get("tgt_mask", original_mask)
+        else:
+            x = torch.as_tensor(sample).float()
+
+        if original_mask is None:
+            raise ValueError("original_mask is required for conditional generation.")
         
         ori_mask = torch.as_tensor(original_mask)
         if target_mask is None:
@@ -858,7 +870,7 @@ class ConvNeXtcVAE2D(nn.Module):
 
     def generate_synth_sample_prior(
         self,
-        target_mask: Union[np.ndarray, torch.Tensor],
+        target_mask: Union[dict, np.ndarray, torch.Tensor],
         *,
         s: float = 1.0,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
@@ -871,6 +883,11 @@ class ConvNeXtcVAE2D(nn.Module):
         device = torch.device(device)
         model = self.to(device)
         model.eval()
+
+        if isinstance(target_mask, dict):
+            target_mask = target_mask.get("tgt_mask", target_mask.get("ori_mask", target_mask.get("mask")))
+            if target_mask is None:
+                raise KeyError("Conditional prior sample dict must contain 'tgt_mask' or 'ori_mask'.")
 
         tgt_mask = torch.as_tensor(target_mask)
         single = False
@@ -925,7 +942,6 @@ class ConvNeXtcVAE2D(nn.Module):
 
             if single:
                 recon = recon.squeeze(0)
-                recon = recon.squeeze(0) 
 
         if return_torch:
             return recon
