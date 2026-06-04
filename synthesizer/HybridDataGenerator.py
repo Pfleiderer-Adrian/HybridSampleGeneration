@@ -163,9 +163,9 @@ class HybridDataGenerator:
                     overwrite=True,
                 )
 
-            # todo save tgt mask of anomaly for matching
+            # nur erstellen wen conditional
             tgt_masks = []
-            if org_masks is not None:
+            if self._config.conditional and org_masks is not None:
                 for org_mask in org_masks:
                     tgt_mask = augment_mask(org_mask)
                     tgt_masks.append(tgt_mask)
