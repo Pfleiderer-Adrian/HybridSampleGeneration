@@ -1,5 +1,7 @@
 from models.VAE_ConvNeXt_2D import ConvNeXtVAE2D, Config as ConvNeXtVAE2D_Config
+from models.cVAE_ConvNeXt_2D import ConvNeXtcVAE2D, Config as ConvNeXtcVAE2D_Config
 from models.VAE_ConvNeXt_3D import ConvNeXtVAE3D, Config as ConvNeXtVAE3D_Config
+from models.cVAE_ConvNeXt_3D import ConvNeXtcVAE3D, Config as ConvNeXtcVAE3D_Config
 from models.VAE_ResNet_2D import ResNetVAE2D, Config as ResNetVAE2D_Config
 from models.VAE_ResNet_3D import ResNetVAE3D, Config as ResNetVAE3D_Config
 
@@ -11,8 +13,12 @@ def model_loader(model_name, params):
         model = ResNetVAE2D(ResNetVAE2D_Config(**params))
     elif model_name == "VAE_ConvNeXt_3D":
         model = ConvNeXtVAE3D(ConvNeXtVAE3D_Config(**params))
+    elif model_name == "cVAE_ConvNeXt_3D":
+        model = ConvNeXtcVAE3D(ConvNeXtcVAE3D_Config(**params))
     elif model_name == "VAE_ConvNeXt_2D":
         model = ConvNeXtVAE2D(ConvNeXtVAE2D_Config(**params))  
+    elif model_name == "cVAE_ConvNeXt_2D":
+        model = ConvNeXtcVAE2D(ConvNeXtcVAE2D_Config(**params))
     else:
         raise ValueError(f"Unknown model: {model_name}")
     

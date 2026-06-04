@@ -10,7 +10,7 @@ from models.model_configuration import ModelConfiguration, get_model_configurati
 from synthesizer.StudyPaths import StudyPaths
 
 # Allowed model choices (fixed set)
-ALLOWED_MODELS = ["VAE_ResNet_3D", "VAE_ResNet_2D", "VAE_ConvNeXt_3D", "VAE_ConvNeXt_2D"]
+ALLOWED_MODELS = ["VAE_ResNet_3D", "VAE_ResNet_2D", "VAE_ConvNeXt_3D", "cVAE_ConvNeXt_3D", "VAE_ConvNeXt_2D", "cVAE_ConvNeXt_2D"]
 
 
 # creates a new interactive config object/file for the data generator
