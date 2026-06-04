@@ -199,7 +199,10 @@ class HybridDataGenerator:
                 mask_dir = paths.anomaly_mask_data
                 max_class_val = 0
                 # classes must be integers 0,1,2,...,num_anomaly_classes (with background class 0)
-                for mask_path in mask_dir.glob("*.npy"):
+                for mask_name in os.listdir(mask_dir):
+                    if not mask_name.endswith(".npy"):
+                        continue
+                    mask_path = os.path.join(mask_dir, mask_name)
                     mask = np.load(mask_path, allow_pickle=False, mmap_mode='r')
                     max_val_in_file = np.max(mask)
                     if max_val_in_file > max_class_val:
