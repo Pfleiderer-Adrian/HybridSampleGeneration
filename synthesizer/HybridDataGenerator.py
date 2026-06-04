@@ -11,6 +11,7 @@ from tqdm import tqdm
 from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
 
 from models.model_loader import model_loader
+from synthesizer.mask_augmentation import augment_mask
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
 from synthesizer.functions_2D.Fusion2D import fusion2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
@@ -163,7 +164,11 @@ class HybridDataGenerator:
                 )
 
             # todo save tgt mask of anomaly for matching
-            tgt_masks = org_masks  # implement tgt mask generation
+            tgt_masks = []
+            if org_masks is not None:
+                for org_mask in org_masks:
+                    tgt_mask = augment_mask(org_mask)
+                    tgt_masks.append(tgt_mask)
             for i, mask_sample in enumerate(tgt_masks):
                 artifact_name = basename + "_" + str(i) + ".npy"
                 save_numpy_as_npy(
@@ -199,7 +204,7 @@ class HybridDataGenerator:
                     max_val_in_file = np.max(mask)
                     if max_val_in_file > max_class_val:
                         max_class_val = max_val_in_file
-                self._config.num_anomaly_classes = int(max_class_val) + 1
+                self._config.num_anomaly_classes = int(max_class_val)
             self._config.model_params.set_model_param("num_anomaly_classes", self._config.num_anomaly_classes)
 
         self._anomaly_dataset = AnomalyDataset(
