@@ -220,7 +220,8 @@ class ConvNeXtUNetDecoder3D(nn.Module):
     """ConvNeXt3D decoder with U-Net skips.
 
     For API compatibility with the original decoder, forward(z) only takes `z`.
-    Skips are provided via set_skips(skips) before calling forward.
+    Skips are provided via set_skips(skips) before calling forward. If skips
+    are set to None, the decoder uses zero-skips for pure prior sampling.
     """
 
     def __init__(
@@ -284,27 +285,30 @@ class ConvNeXtUNetDecoder3D(nn.Module):
 
         self.out = nn.Conv3d(prev_ch, out_channels, kernel_size=3, stride=1, padding=1, bias=True)
 
-    def set_skips(self, skips: List[torch.Tensor]) -> None:
+    def set_skips(self, skips: Optional[List[torch.Tensor]]) -> None:
         self._skips = skips
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
-        if self._skips is None:
-            raise RuntimeError(
-                "Decoder skips are not set. Call decoder.set_skips(skips) before forward()."
-            )
 
         x = self.from_z(z)
 
-        # use reversed skips: deepest skip is last
+        # use reversed skips: deepest skip is last; None means zero-skips
         skips = self._skips
-        if len(skips) != self.n_levels:
+        if skips is not None and len(skips) != self.n_levels:
             raise ValueError(f"Expected {self.n_levels} skips, got {len(skips)}")
 
         for i in range(self.n_levels):
             x = self.ups[i](x)
 
-            # Align spatial sizes (in case of off-by-1 due to odd sizes)
-            skip = skips[-1 - i]
+            if skips is None:
+                skip_ch = 2 ** (self.n_levels - i + 2)
+                skip = torch.zeros(
+                    (x.shape[0], skip_ch, x.shape[-3], x.shape[-2], x.shape[-1]),
+                    device=x.device,
+                    dtype=x.dtype,
+                )
+            else:
+                skip = skips[-1 - i]
 
             # Skip dropout (training only): forces decoder to use latent z instead of bypassing via skips
             if self.training and self.skip_dropout_p > 0.0:
@@ -828,10 +832,9 @@ class ConvNeXtVAE3D(nn.Module):
         model.eval()
 
         # Ensure decoder doesn't expect encoder skips (we have none for pure prior sampling)
-        try:
-            model.decoder.set_skips(None)
-        except Exception:
-            pass
+
+        model.decoder.set_skips(None)
+
 
         # Compute latent spatial size (assuming 2x downsample per level)
         down = 2 ** int(self.cfg.n_levels)
