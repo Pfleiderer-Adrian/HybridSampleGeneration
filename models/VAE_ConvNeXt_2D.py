@@ -865,10 +865,8 @@ class ConvNeXtVAE2D(nn.Module):
         model.eval()
 
         # Ensure decoder doesn't expect encoder skips (we have none for pure prior sampling)
-        try:
-            model.decoder.set_skips(None)
-        except Exception:
-            pass
+        model.decoder.set_skips(None)
+
 
         # Compute latent spatial size (assuming 2x downsample per level)
         down = 2 ** int(self.cfg.n_levels)
