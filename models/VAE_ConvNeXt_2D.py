@@ -855,8 +855,6 @@ class ConvNeXtVAE2D(nn.Module):
         # pick output size
         if out_hw is None and sample is not None:
             out_hw = tuple(self._extract_x(sample).shape[-2:])
-        if out_hw is None:
-            out_hw = getattr(self.cfg, "sample_hw", None) or getattr(self.cfg, "image_hw", None) or (256, 256)
         if not (isinstance(out_hw, (tuple, list)) and len(out_hw) == 2):
             raise ValueError(f"out_hw must be (H,W), got {out_hw}")
         H, W = int(out_hw[0]), int(out_hw[1])
