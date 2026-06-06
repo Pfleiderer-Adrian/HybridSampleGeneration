@@ -11,6 +11,7 @@ from tqdm import tqdm
 from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
 
 from models.model_loader import model_loader
+from synthesizer.mask_augmentation import augment_mask
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
 from synthesizer.functions_2D.Fusion2D import fusion2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
@@ -162,8 +163,12 @@ class HybridDataGenerator:
                     overwrite=True,
                 )
 
-            # todo save tgt mask of anomaly for matching
-            tgt_masks = org_masks  # implement tgt mask generation
+            # nur erstellen wen conditional
+            tgt_masks = []
+            if self._config.conditional and org_masks is not None:
+                for org_mask in org_masks:
+                    tgt_mask = augment_mask(org_mask)
+                    tgt_masks.append(tgt_mask)
             for i, mask_sample in enumerate(tgt_masks):
                 artifact_name = basename + "_" + str(i) + ".npy"
                 save_numpy_as_npy(
@@ -178,6 +183,7 @@ class HybridDataGenerator:
         """
         Load previously extracted anomaly cutouts into an AnomalyDataset and
         load their transformation meta-data from config.
+        If conditional model: calculate num_anomaly_classes if necessary and sets model param.
 
         Outputs
         -------
@@ -186,12 +192,27 @@ class HybridDataGenerator:
         """
         self._log_step("Step 2/9: Loading anomaly dataset.")
         paths = self._config.get_paths()
+
         self._anomaly_dataset = AnomalyDataset(
             paths,
             return_artifacts=self._config.model_params.input_artefacts,
             load_to_ram=True,
             dtype=torch.float32,
         )
+
+        if self._config.conditional:
+            if self._config.num_anomaly_classes is None:
+                max_class_val = 0
+                for sample in self._anomaly_dataset:
+                    mask = sample["ori_mask"]
+                    max_class_val = max(max_class_val, int(mask.max().item()))
+                self._config.num_anomaly_classes = max_class_val
+
+            self._config.model_params.set_model_param(
+                "num_anomaly_classes",
+                self._config.num_anomaly_classes,
+            )
+            
         self._config.load_anomaly_transformations()
 
     def train_generator(self, no_of_trails):
@@ -312,7 +333,7 @@ class HybridDataGenerator:
                 i = 0
                 while best < self._config.feedback_threshold:
                     if self._config.prior_sampling:
-                        syn_anomaly_sample = self._model.generate_synth_sample_prior(clamp_01=self._config.clamp01_output, out_hw=self._config.anomaly_size[1:])
+                        syn_anomaly_sample = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output)
                     else:
                         syn_anomaly_sample = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
 
@@ -352,10 +373,9 @@ class HybridDataGenerator:
         # standard generation without feedback
         else:
             for sample in tqdm(self._anomaly_dataset):
-                img = sample["img"]
                 basename = sample["fname"]
                 if self._config.prior_sampling:
-                    syn_anomaly_sample = self._model.generate_synth_sample_prior(clamp_01=self._config.clamp01_output, out_hw=self._config.anomaly_size[1:])
+                    syn_anomaly_sample = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output)
                 else:
                     syn_anomaly_sample = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
                 save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)

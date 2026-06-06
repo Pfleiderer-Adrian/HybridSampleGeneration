@@ -10,7 +10,7 @@ from models.model_configuration import ModelConfiguration, get_model_configurati
 from synthesizer.StudyPaths import StudyPaths
 
 # Allowed model choices (fixed set)
-ALLOWED_MODELS = ["VAE_ResNet_3D", "VAE_ResNet_2D", "VAE_ConvNeXt_3D", "VAE_ConvNeXt_2D"]
+ALLOWED_MODELS = ["VAE_ResNet_3D", "VAE_ResNet_2D", "VAE_ConvNeXt_3D", "cVAE_ConvNeXt_3D", "VAE_ConvNeXt_2D", "cVAE_ConvNeXt_2D"]
 
 
 # creates a new interactive config object/file for the data generator
@@ -90,6 +90,9 @@ class Configuration:
         self.add_bg_noise = True
 
 
+        self.conditional = "cVAE" in self.model_name
+        self.num_anomaly_classes = None # will be set in HDG (load_anomalies)
+
         # synthesizer parameter
         self.prior_sampling = False
         self.min_anomaly_percentage = 0.05
@@ -161,8 +164,8 @@ class Configuration:
 
         self.model_params = get_model_configuration(model_name, anomaly_size[0], debug=False)
 
-         # (optional) fixed roi size - can also be set to None for variable roi size
-        self.fixed_roi_size = (64, 64)
+         # set to None for variable roi size
+        self.fixed_roi_size = None
 
         # evaluation parameter
         # (optional) absolute thresholds

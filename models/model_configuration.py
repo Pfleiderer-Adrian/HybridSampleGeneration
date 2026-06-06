@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 from dataclasses import asdict, is_dataclass
 
-from models import VAE_ConvNeXt_2D, VAE_ConvNeXt_3D, VAE_ResNet_2D, VAE_ResNet_3D
+from models import VAE_ConvNeXt_2D, cVAE_ConvNeXt_2D, VAE_ConvNeXt_3D, cVAE_ConvNeXt_3D, VAE_ResNet_2D, VAE_ResNet_3D
 
 
 DEFAULT_INPUT_ARTEFACTS = ("img", "fname")
@@ -12,7 +12,9 @@ MODEL_CONFIG_CLASSES = {
     "VAE_ResNet_3D": VAE_ResNet_3D.Config,
     "VAE_ResNet_2D": VAE_ResNet_2D.Config,
     "VAE_ConvNeXt_3D": VAE_ConvNeXt_3D.Config,
+    "cVAE_ConvNeXt_3D": cVAE_ConvNeXt_3D.Config,
     "VAE_ConvNeXt_2D": VAE_ConvNeXt_2D.Config,
+    "cVAE_ConvNeXt_2D": cVAE_ConvNeXt_2D.Config,
 }
 
 
@@ -231,6 +233,50 @@ def get_model_configuration(model_name, in_channels, debug=False):
                 use_transpose_conv=False))
             model_params = ModelConfiguration(_VAE3D_min_params, _VAE3D_max_params, input_artefacts=["img","fname"])
 
+        if model_name == "cVAE_ConvNeXt_3D":
+            _cVAE3D_min_params = asdict(cVAE_ConvNeXt_3D.Config(
+                in_channels=in_channels,
+                num_anomaly_classes=None,
+                n_res_blocks=5,
+                n_spade_blocks=2,
+                n_levels=5,
+                z_channels=128,
+                bottleneck_dim=256,
+                use_multires_skips=True,
+                recon_weight=1.0,
+                beta_kl=4.0,
+                beta_kl_start=0.0,
+                beta_kl_max=7.0,
+                beta_kl_warmup_start=0,
+                beta_kl_warmup_epochs=100,
+                fg_weight=1.0,
+                fg_threshold=0.0,
+                recon_loss="mse",
+                skip_dropout_p=0.6,
+                skip_alpha=0.2,
+                use_transpose_conv=False))
+            _cVAE3D_max_params = asdict(cVAE_ConvNeXt_3D.Config(
+                in_channels=in_channels,
+                num_anomaly_classes=None,
+                n_res_blocks=6,
+                n_spade_blocks=2,
+                n_levels=6,
+                z_channels=128,
+                bottleneck_dim=256,
+                use_multires_skips=True,
+                recon_weight=1.0,
+                beta_kl=4.0,
+                beta_kl_start=0.0,
+                beta_kl_max=7.0,
+                beta_kl_warmup_start=0,
+                beta_kl_warmup_epochs=100,
+                fg_weight=2.0,
+                fg_threshold=0.0,
+                skip_dropout_p=0.6,
+                skip_alpha=0.2,
+                recon_loss="mse",
+                use_transpose_conv=False))
+            model_params = ModelConfiguration(_cVAE3D_min_params, _cVAE3D_max_params, input_artefacts=["img","fname","ori_mask","tgt_mask"])
 
         # VAE2D parameter
         if model_name == "VAE_ResNet_2D":
@@ -315,6 +361,59 @@ def get_model_configuration(model_name, in_channels, debug=False):
                 fg_threshold=0.0
                 ))
             model_params = ModelConfiguration(_VAE2D_min_params, _VAE2D_max_params, input_artefacts=["img","fname"])
+
+        if model_name == "cVAE_ConvNeXt_2D":
+            _cVAE2D_min_params = asdict(cVAE_ConvNeXt_2D.Config(
+                in_channels=in_channels,
+                num_anomaly_classes=None,
+                n_res_blocks=4,
+                n_spade_blocks=2,
+                n_levels=4,
+                z_channels=32,
+                bottleneck_dim=64,
+                use_multires_skips=False,
+                recon_loss="smoothl1",
+                recon_weight=10.0,          
+                drop_path_rate=0.001,       
+                dropout=0.001,              
+                skip_dropout_p=1.0,        
+                skip_alpha=0.0,
+                use_transpose_conv=False,
+                beta_kl=0.05,             
+                beta_kl_start=0.0,
+                beta_kl_max=0.08,
+                beta_kl_warmup_start=0,
+                beta_kl_warmup_epochs=1000, 
+                free_bits=0.001,
+                fg_weight=1.0,
+                fg_threshold=0.0))
+            
+            _cVAE2D_max_params = asdict(cVAE_ConvNeXt_2D.Config(                
+                in_channels=in_channels,
+                num_anomaly_classes=None,
+                n_res_blocks=4,
+                n_levels=4,
+                n_spade_blocks=2,
+                z_channels=32,
+                bottleneck_dim=64,
+                use_multires_skips=False,
+                recon_loss="smoothl1",
+                recon_weight=10.0,          
+                drop_path_rate=0.001,       
+                dropout=0.001,              
+                skip_dropout_p=1.0,        
+                skip_alpha=0.0,
+                use_transpose_conv=False,
+                beta_kl=0.05,             
+                beta_kl_start=0.0,
+                beta_kl_max=0.08,
+                beta_kl_warmup_start=0,
+                beta_kl_warmup_epochs=1000, 
+                free_bits=0.001,
+                fg_weight=1.0,
+                fg_threshold=0.0))
+            model_params = ModelConfiguration(_cVAE2D_min_params, _cVAE2D_max_params, input_artefacts=["img","fname","ori_mask","tgt_mask"])
+
         if model_params is None:
             raise ValueError(f"Unknown model: {model_name}. Supported models: {list(MODEL_CONFIG_CLASSES)}")
 
