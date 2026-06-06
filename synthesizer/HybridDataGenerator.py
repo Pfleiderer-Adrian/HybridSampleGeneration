@@ -193,29 +193,26 @@ class HybridDataGenerator:
         self._log_step("Step 2/9: Loading anomaly dataset.")
         paths = self._config.get_paths()
 
-        if self._config.conditional:
-            # calc num_anomaly_classes if necessary    
-            if self._config.num_anomaly_classes is None:
-                mask_dir = paths.anomaly_mask_data
-                max_class_val = 0
-                # classes must be integers 0,1,2,...,num_anomaly_classes (with background class 0)
-                for mask_name in os.listdir(mask_dir):
-                    if not mask_name.endswith(".npy"):
-                        continue
-                    mask_path = os.path.join(mask_dir, mask_name)
-                    mask = np.load(mask_path, allow_pickle=False, mmap_mode='r')
-                    max_val_in_file = np.max(mask)
-                    if max_val_in_file > max_class_val:
-                        max_class_val = max_val_in_file
-                self._config.num_anomaly_classes = int(max_class_val)
-            self._config.model_params.set_model_param("num_anomaly_classes", self._config.num_anomaly_classes)
-
         self._anomaly_dataset = AnomalyDataset(
             paths,
             return_artifacts=self._config.model_params.input_artefacts,
             load_to_ram=True,
             dtype=torch.float32,
         )
+
+        if self._config.conditional:
+            if self._config.num_anomaly_classes is None:
+                max_class_val = 0
+                for sample in self._anomaly_dataset:
+                    mask = sample["ori_mask"]
+                    max_class_val = max(max_class_val, int(mask.max().item()))
+                self._config.num_anomaly_classes = max_class_val
+
+            self._config.model_params.set_model_param(
+                "num_anomaly_classes",
+                self._config.num_anomaly_classes,
+            )
+            
         self._config.load_anomaly_transformations()
 
     def train_generator(self, no_of_trails):
