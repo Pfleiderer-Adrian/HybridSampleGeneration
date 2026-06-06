@@ -212,10 +212,8 @@ def fusion2d(
     valid_mask = anom_proj > background_threshold            # (h,w)
 
     # ------------------------------------------------------------
-    # 9) Locally normalize anomaly values (per channel) to match 
-    #    local control region stats (Combined Multiclass Mask)
+    # 9) Locally normalize anomaly values (per channel) to match local control region stats
     # ------------------------------------------------------------
-    
     anom = anom.copy() 
     binary_mask = (valid_mask > 0) 
 

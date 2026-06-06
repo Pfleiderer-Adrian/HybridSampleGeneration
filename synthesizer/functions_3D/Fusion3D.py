@@ -4,6 +4,7 @@ from scipy.ndimage import zoom
 from tqdm import tqdm
 from skimage.feature import match_template
 from scipy.ndimage import binary_fill_holes
+from scipy.ndimage import binary_dilation
 
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_cube_clip
 
@@ -222,28 +223,36 @@ def fusion3d(
     valid_mask = anom_proj > background_threshold           # (d,h,w)
 
     # ------------------------------------------------------------
-    # 9) Locally normalize anomaly values (per channel) to match control region stats
-    #    - Only normalize values where valid_mask is True
-    #    - Match anomaly's foreground range to control region's per-channel range
+    # 9) Locally normalize anomaly values (per channel) to match the ring around it
     # ------------------------------------------------------------
-    if np.any(valid_mask):
-        anom = anom.copy()  # we will modify in place
-        for c in range(C):
-            vp = anom[c][valid_mask]  # foreground values for this channel
-            if vp.size == 0:
-                continue
+    anom = anom.copy()
+    binary_mask = valid_mask > 0
 
-            a_min = float(vp.min())
-            a_max = float(vp.max())
-            src_range = a_max - a_min
-            if src_range == 0:
-                src_range = 1.0
+    if np.any(binary_mask):
+        dilation_structure = np.ones((5, 5, 5), dtype=bool)
+        dilated_mask = binary_dilation(binary_mask, structure=dilation_structure)
+        ring_mask = dilated_mask ^ binary_mask
 
-            tgt_range = float(img_region_max[c] - img_region_min[c])
+        if np.any(ring_mask):
+            for c in range(C):
+                vp = anom[c][binary_mask]
+                if vp.size == 0:
+                    continue
 
-            # Map anomaly foreground values into control region intensity range
-            vp = ((vp - a_min) / src_range) * tgt_range + float(img_region_min[c])
-            anom[c][valid_mask] = vp
+                bg_local = bg_slice[c][ring_mask]
+                if bg_local.size == 0:
+                    continue
+
+                a_mean = np.mean(vp)
+                a_std = np.std(vp)
+                if a_std == 0:
+                    a_std = 1e-5
+
+                bg_mean = np.mean(bg_local)
+                bg_std = np.std(bg_local)
+
+                vp_matched = ((vp - a_mean) / a_std) * bg_std + bg_mean
+                anom[c][binary_mask] = vp_matched
 
     # ------------------------------------------------------------
     # 10) Create alpha mask from per-slice Sobel+distance transform mask (edge-aware)
@@ -282,18 +291,24 @@ def fusion3d(
     # ------------------------------------------------------------
     segmentation = np.zeros((D, H, W), dtype=np.uint8)
 
-    # valid_mask is anomaly-local (d,h,w) -> crop to actual inserted region size
-    vm_crop = valid_mask[:dd, :hh, :ww]
-    segmentation[d0 : d0 + dd, h0 : h0 + hh, w0 : w0 + ww] = vm_crop.astype(np.uint8)
+    seg_local_binary = alpha_mask > 0.05
+    seg_local_binary = binary_fill_holes(seg_local_binary)
+    multiclass_seg_local = np.where(valid_mask * seg_local_binary).astype(np.uint8)
 
-    # Fill holes for a cleaner binary segmentation
-    segmentation = binary_fill_holes(segmentation).astype(np.uint8)
+    vm_crop = multiclass_seg_local[:dd, :hh, :ww]
+    segmentation[d0 : d0 + dd, h0 : h0 + hh, w0 : w0 + ww] = vm_crop
+
+    for class_id in np.unique(segmentation):
+        if class_id == 0:
+            continue
+        class_mask = segmentation == class_id
+        filled_class_mask = binary_fill_holes(class_mask)
+        filled_background_holes = filled_class_mask & (segmentation == 0)
+        segmentation[filled_background_holes] = class_id
 
     segmentation = segmentation[None, ...]              # (1, D, H, W)
     if C != 1:
         segmentation = np.repeat(segmentation, C, axis=0)  # (C, D, H, W)
-
-    segmentation = np.where(segmentation > 0, 1, 0).astype(np.uint8)
 
     if np.sum(segmentation) == 0:        
         return ctrl, segmentation, None
