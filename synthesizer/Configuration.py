@@ -82,6 +82,7 @@ class Configuration:
 
         # anomaly extraction parameter
         self.anomaly_size = anomaly_size
+        self.separated_anomaly = True
         # Random offsets are applied dynamically during training augmentation.
         # Persisted anomaly cutouts stay centered, which keeps later fusion stable.
         self.random_offset = True
