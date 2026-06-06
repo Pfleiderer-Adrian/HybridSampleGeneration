@@ -870,7 +870,7 @@ class ConvNeXtcVAE2D(nn.Module):
 
     def generate_synth_sample_prior(
         self,
-        target_mask: Union[dict, np.ndarray, torch.Tensor],
+        sample: Union[dict, np.ndarray, torch.Tensor],
         *,
         s: float = 1.0,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
@@ -884,8 +884,8 @@ class ConvNeXtcVAE2D(nn.Module):
         model = self.to(device)
         model.eval()
 
-        if isinstance(target_mask, dict):
-            target_mask = target_mask.get("tgt_mask", target_mask.get("ori_mask", target_mask.get("mask")))
+        if isinstance(sample, dict):
+            target_mask = sample.get("tgt_mask", sample.get("ori_mask", sample.get("mask")))
             if target_mask is None:
                 raise KeyError("Conditional prior sample dict must contain 'tgt_mask' or 'ori_mask'.")
 

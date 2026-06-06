@@ -923,7 +923,7 @@ class ConvNeXtcVAE3D(nn.Module):
     
     def generate_synth_sample_prior(
         self,
-        target_mask: Union[dict, np.ndarray, torch.Tensor],
+        sample: Union[dict, np.ndarray, torch.Tensor],
         *,
         s: float = 1.0,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
@@ -938,7 +938,7 @@ class ConvNeXtcVAE3D(nn.Module):
             z ~ N(0, I) (scaled by s), then decode to 3D volume space conditioned on target_mask.
 
         Parameters:
-        - target_mask: sample dict containing "tgt_mask", or a label mask with
+        - sample: sample dict containing "tgt_mask", or a label mask with
           shape (D,H,W), (C,D,H,W) or (B,C,D,H,W). Defines the classes and output spatial size.
         - s: prior temperature / diversity strength (1.0 is standard; <1.0 more conservative).
         - clamp_01: clamp outputs to [0,1].
@@ -957,8 +957,8 @@ class ConvNeXtcVAE3D(nn.Module):
 
         model.decoder.set_skips(None)
 
-        if isinstance(target_mask, dict):
-            target_mask = target_mask.get("tgt_mask", target_mask.get("ori_mask", target_mask.get("mask")))
+        if isinstance(sample, dict):
+            target_mask = sample.get("tgt_mask", sample.get("ori_mask", sample.get("mask")))
             if target_mask is None:
                 raise KeyError("Conditional prior sample dict must contain 'tgt_mask' or 'ori_mask'.")
 

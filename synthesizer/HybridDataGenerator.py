@@ -373,7 +373,6 @@ class HybridDataGenerator:
         # standard generation without feedback
         else:
             for sample in tqdm(self._anomaly_dataset):
-                img = sample["img"]
                 basename = sample["fname"]
                 if self._config.prior_sampling:
                     syn_anomaly_sample = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output)
