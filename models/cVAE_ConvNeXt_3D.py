@@ -366,28 +366,30 @@ class ConvNeXtSPADEUNetDecoder3D(nn.Module):
 
         self.out = nn.Conv3d(prev_ch, out_channels, kernel_size=3, stride=1, padding=1, bias=True)
 
-    def set_skips(self, skips: List[torch.Tensor]) -> None:
+    def set_skips(self, skips: Optional[List[torch.Tensor]]) -> None:
         self._skips = skips
 
     # take z AND mask
     def forward(self, z: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        if self._skips is None:
-            raise RuntimeError(
-                "Decoder skips are not set. Call decoder.set_skips(skips) before forward()."
-            )
-
         x = self.from_z(z)
 
-        # use reversed skips: deepest skip is last
+        # use reversed skips: deepest skip is last; None means zero-skips
         skips = self._skips
-        if len(skips) != self.n_levels:
+        if skips is None and len(skips) != self.n_levels:
             raise ValueError(f"Expected {self.n_levels} skips, got {len(skips)}")
 
         for i in range(self.n_levels):
             x = self.ups[i](x)
 
-            # Align spatial sizes (in case of off-by-1 due to odd sizes)
-            skip = skips[-1 - i]
+            if skips is None:
+                skip_ch = 2 ** (self.n_levels - i + 2)
+                skip = torch.zeros(
+                    (x.shape[0], skip_ch, x.shape[-3], x.shape[-2], x.shape[-1]),
+                    device=x.device,
+                    dtype=x.dtype,
+                )
+            else:
+                skip = skips[-1 - i]
 
             # Skip dropout (training only): forces decoder to use latent z instead of bypassing via skips
             if self.training and self.skip_dropout_p > 0.0:
@@ -953,6 +955,8 @@ class ConvNeXtcVAE3D(nn.Module):
         model = self.to(device)
         model.eval()
 
+        model.decoder.set_skips(None)
+
         if isinstance(target_mask, dict):
             target_mask = target_mask.get("tgt_mask", target_mask.get("ori_mask", target_mask.get("mask")))
             if target_mask is None:
@@ -1002,17 +1006,6 @@ class ConvNeXtcVAE3D(nn.Module):
 
             # Map z -> decoder feature map
             h_dec = model.fc_decode(z).reshape(B, int(self.cfg.z_channels), *latent_dhw)
-
-            zero_skips = []
-            for level in range(int(self.cfg.n_levels)):
-                channels = 2 ** (level + 3)
-                skip_dhw = (
-                    tgt_mask_pad.shape[2] // (2 ** level),
-                    tgt_mask_pad.shape[3] // (2 ** level),
-                    tgt_mask_pad.shape[4] // (2 ** level),
-                )
-                zero_skips.append(torch.zeros((B, channels, *skip_dhw), device=device, dtype=h_dec.dtype))
-            model.decoder.set_skips(zero_skips)
 
             # Decode conditioned on the target mask
             recon = model.decoder(h_dec, tgt_mask_pad)

@@ -906,6 +906,8 @@ class ConvNeXtcVAE2D(nn.Module):
         tgt_mask = tgt_mask.to(device)
         tgt_mask_oh = to_one_hot_2D(tgt_mask, self.cfg.num_anomaly_classes)
 
+        model.decoder.set_skips(None)
+
         with torch.no_grad():
             ref_hw = tuple(tgt_mask_oh.shape[-2:])
             multiple = 2 ** self.cfg.n_levels
@@ -928,16 +930,6 @@ class ConvNeXtcVAE2D(nn.Module):
                 z = torch.randn((B, z_dim), device=device) * float(s)
 
             h_dec = model.fc_decode(z).reshape(B, int(self.cfg.z_channels), *latent_hw)
-
-            zero_skips = []
-            for level in range(int(self.cfg.n_levels)):
-                channels = 2 ** (level + 3)
-                skip_hw = (
-                    tgt_mask_pad.shape[2] // (2 ** level),
-                    tgt_mask_pad.shape[3] // (2 ** level),
-                )
-                zero_skips.append(torch.zeros((B, channels, *skip_hw), device=device, dtype=h_dec.dtype))
-            model.decoder.set_skips(zero_skips)
 
             recon = model.decoder(h_dec, tgt_mask_pad)
             recon = _crop_like_2d(recon, ref_hw)

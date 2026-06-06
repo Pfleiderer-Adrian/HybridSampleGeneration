@@ -864,16 +864,6 @@ class ConvNeXtVAE3D(nn.Module):
 
             # Map z -> decoder feature map and decode
             h_dec = model.fc_decode(z).reshape(1, int(self.cfg.z_channels), *latent_dhw)
-            zero_skips = []
-            for level in range(int(self.cfg.n_levels)):
-                channels = 2 ** (level + 3)
-                skip_dhw = (
-                    D_pad // (2 ** level),
-                    H_pad // (2 ** level),
-                    W_pad // (2 ** level),
-                )
-                zero_skips.append(torch.zeros((1, channels, *skip_dhw), device=device, dtype=h_dec.dtype))
-            model.decoder.set_skips(zero_skips)
             recon = model.decoder(h_dec)  # (1, C, D_pad, H_pad, W_pad) typically
 
             # Crop back to requested size and drop batch dim
