@@ -299,7 +299,8 @@ def fusion2d(
             continue
         class_mask = segmentation == class_id
         filled_class_mask = binary_fill_holes(class_mask)
-        segmentation[filled_class_mask] = class_id
+        filled_background_holes = filled_class_mask & (segmentation == 0)
+        segmentation[filled_background_holes] = class_id
 
     segmentation = segmentation[None, ...]                 # (1, H, W)
     if C != 1:
