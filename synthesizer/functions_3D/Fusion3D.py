@@ -45,12 +45,34 @@ def _denormalize_anomaly(anom, normalization_meta):
     return anom
 
 
+def _load_conditional_target_mask(config, anomaly_basename, target_mask_loader):
+    if not getattr(config, "conditional", False):
+        return None
+    if anomaly_basename is None or target_mask_loader is None:
+        raise ValueError("conditional fusion needs anomaly_basename and target_mask_loader to load tgt_mask.")
+    try:
+        return np.asarray(target_mask_loader(anomaly_basename, artifact="tgt_mask"))
+    except (FileNotFoundError, KeyError) as exc:
+        raise ValueError(f"conditional fusion needs a saved tgt_mask for {anomaly_basename!r}.") from exc
+
+
+def _spatial_label_mask(mask, spatial_ndim):
+    mask = np.asarray(mask)
+    if mask.ndim == spatial_ndim:
+        return mask
+    if mask.ndim == spatial_ndim + 1:
+        return np.max(mask, axis=0)
+    raise ValueError(f"target mask must have {spatial_ndim} or {spatial_ndim + 1} dims. Got {mask.shape}")
+
+
 def fusion3d(
     control_image,
     synth_anomaly_image,
     anomaly_meta,
     position_factor,
     config,
+    anomaly_basename=None,
+    target_mask_loader=None,
     background_threshold=None,
 ):
     """
@@ -121,10 +143,15 @@ def fusion3d(
 
     anom = synth_anomaly_image.astype(np.float32, copy=False)
     anom = _denormalize_anomaly(anom, anomaly_meta)
+    target_mask = _load_conditional_target_mask(config, anomaly_basename, target_mask_loader)
 
     # Validate dimensionality (expects channel-first 3D volumes)
     if ctrl.ndim != 4 or anom.ndim != 4:
         raise ValueError(f"Both images must be 4D (C,D,H,W). Got ctrl={ctrl.shape}, anom={anom.shape}")
+    if target_mask is not None and target_mask.ndim not in (3, 4):
+        raise ValueError(f"target mask must be 3D (D,H,W) or 4D (C,D,H,W). Got {target_mask.shape}")
+    if target_mask is not None and target_mask.shape[-3:] != anom.shape[-3:]:
+        raise ValueError(f"target mask spatial shape {target_mask.shape[-3:]} does not match anomaly {anom.shape[-3:]}")
 
     # Unpack control shape
     C, D, H, W = ctrl.shape
@@ -145,8 +172,11 @@ def fusion3d(
     # ------------------------------------------------------------
     # 3) Trim spatial padding by cropping to the foreground bounding box (same crop for all channels)
     # ------------------------------------------------------------
-    # Foreground mask over spatial dims: a voxel is foreground if ANY channel is above threshold
-    fg = np.any(anom > background_threshold, axis=0)  # (D,H,W)
+    # Foreground mask over spatial dims: conditional targets define the intended label footprint.
+    if target_mask is not None:
+        fg = _spatial_label_mask(target_mask, spatial_ndim=3) > 0
+    else:
+        fg = np.any(anom > background_threshold, axis=0)  # (D,H,W)
 
     # Only crop if there is any foreground
     if np.any(fg):
@@ -155,6 +185,11 @@ def fusion3d(
         y0, y1 = yy.min(), yy.max() + 1
         x0, x1 = xx.min(), xx.max() + 1
         anom = anom[:, z0:z1, y0:y1, x0:x1]
+        if target_mask is not None:
+            if target_mask.ndim == 4:
+                target_mask = target_mask[:, z0:z1, y0:y1, x0:x1]
+            else:
+                target_mask = target_mask[z0:z1, y0:y1, x0:x1]
     # If no foreground exists, `anom` remains unchanged. (You may optionally early-return.)
 
     # ------------------------------------------------------------
@@ -164,6 +199,12 @@ def fusion3d(
 
     # Zoom factors: (C unchanged, spatial scaled)
     anom = zoom(anom, (1.0, sf[0], sf[1], sf[2]), order=1)
+    if target_mask is not None:
+        if target_mask.ndim == 4:
+            target_mask = zoom(target_mask, (1.0, sf[0], sf[1], sf[2]), order=0)
+        else:
+            target_mask = zoom(target_mask, sf, order=0)
+        target_mask = _spatial_label_mask(target_mask, spatial_ndim=3).astype(np.uint8, copy=False)
 
     # ------------------------------------------------------------
     # 5) Compute insertion offset from normalized position_factor
@@ -291,20 +332,24 @@ def fusion3d(
     # ------------------------------------------------------------
     segmentation = np.zeros((D, H, W), dtype=np.uint8)
 
-    seg_local_binary = alpha_mask > 0.05
-    seg_local_binary = binary_fill_holes(seg_local_binary)
-    multiclass_seg_local = np.where(valid_mask * seg_local_binary).astype(np.uint8)
+    if target_mask is not None:
+        multiclass_seg_local = target_mask.astype(np.uint8, copy=False)
+    else:
+        seg_local_binary = alpha_mask > 0.05
+        seg_local_binary = binary_fill_holes(seg_local_binary)
+        multiclass_seg_local = (valid_mask * seg_local_binary).astype(np.uint8)
 
     vm_crop = multiclass_seg_local[:dd, :hh, :ww]
     segmentation[d0 : d0 + dd, h0 : h0 + hh, w0 : w0 + ww] = vm_crop
 
-    for class_id in np.unique(segmentation):
-        if class_id == 0:
-            continue
-        class_mask = segmentation == class_id
-        filled_class_mask = binary_fill_holes(class_mask)
-        filled_background_holes = filled_class_mask & (segmentation == 0)
-        segmentation[filled_background_holes] = class_id
+    if target_mask is None:
+        for class_id in np.unique(segmentation):
+            if class_id == 0:
+                continue
+            class_mask = segmentation == class_id
+            filled_class_mask = binary_fill_holes(class_mask)
+            filled_background_holes = filled_class_mask & (segmentation == 0)
+            segmentation[filled_background_holes] = class_id
 
     segmentation = segmentation[None, ...]              # (1, D, H, W)
     if C != 1:

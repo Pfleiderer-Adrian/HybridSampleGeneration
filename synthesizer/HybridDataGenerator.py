@@ -17,7 +17,7 @@ from synthesizer.functions_2D.Fusion2D import fusion2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
 from synthesizer.Configuration import Configuration
 from synthesizer.functions_3D.Fusion3D import fusion3d
-from synthesizer.Matching import center_foreground_com, combine_binary_masks, create_matching_dictionary, crop_border, ssim_01, template_matching
+from synthesizer.Matching import center_foreground_com, combine_label_masks, create_matching_dictionary, crop_border, ssim_01, template_matching
 from synthesizer.Trainer import optimize
 from synthesizer.Evaluation import evaluation_pipeline
 from data_handler.Visualizer import run_hybrid_visualizer
@@ -522,7 +522,7 @@ class HybridDataGenerator:
             else:
                 seg_final = base_mask.copy()
         else:
-            seg_final = np.zeros_like(control_samples_array)
+            seg_final = np.zeros_like(control_samples_array, dtype=np.uint8)
 
         anomalies = self._config.matching_dict[basename_of_control_sample]
         img = control_samples_array.copy()
@@ -556,6 +556,8 @@ class HybridDataGenerator:
                     anomaly_meta,
                     fusion_position,
                     self._config,
+                    anomaly_basename=anomaly_basename,
+                    target_mask_loader=self._synth_anomaly_dataset.load_numpy_by_basename,
                 )
             elif control_samples_array.ndim == 4:
                 img, seg, roi = fusion3d(
@@ -564,6 +566,8 @@ class HybridDataGenerator:
                     anomaly_meta,
                     fusion_position,
                     self._config,
+                    anomaly_basename=anomaly_basename,
+                    target_mask_loader=self._synth_anomaly_dataset.load_numpy_by_basename,
                 )
             else:
                 raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
@@ -571,7 +575,7 @@ class HybridDataGenerator:
             if seg_final is None:
                 seg_final = seg
             else:
-                seg_final = combine_binary_masks(seg_final, seg, mode = "or")
+                seg_final = combine_label_masks(seg_final, seg, overwrite=True)
 
             if roi is None:
                 print(f"Warning: roi is None for {anomaly_basename} in {basename_of_control_sample}. (Empty synthetic segmentation) => skip fusion")

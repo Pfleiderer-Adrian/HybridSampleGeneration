@@ -572,6 +572,33 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
     return matching_data
 
 
+def combine_label_masks(
+    mask_a: np.ndarray,
+    mask_b: np.ndarray,
+    *,
+    overwrite: bool = True,
+    return_dtype=None,
+) -> np.ndarray:
+    """Combine label masks without collapsing class ids to binary values."""
+    if not isinstance(mask_a, np.ndarray) or not isinstance(mask_b, np.ndarray):
+        raise TypeError("mask_a and mask_b must be NumPy arrays.")
+    if mask_a.shape != mask_b.shape:
+        raise ValueError(f"Shapes must match, got {mask_a.shape} vs {mask_b.shape}.")
+    if mask_a.ndim not in (3, 4):
+        raise ValueError(
+            f"Expected ndim 3 or 4 for (C,H,W) or (C,D,H,W), got ndim={mask_a.ndim}."
+        )
+
+    out = mask_a.copy()
+    insert_fg = mask_b > 0
+    if not overwrite:
+        insert_fg = insert_fg & (out == 0)
+    out[insert_fg] = mask_b[insert_fg]
+
+    if return_dtype is None:
+        return out
+    return out.astype(return_dtype, copy=False)
+
 
 def combine_binary_masks(
     mask_a: np.ndarray,
