@@ -1,7 +1,6 @@
 import numpy as np
 import scipy.ndimage
 from scipy.ndimage import zoom
-from scipy.ndimage import binary_fill_holes
 from scipy.ndimage import binary_dilation
 
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_square_clip
@@ -43,17 +42,6 @@ def _denormalize_anomaly(anom, normalization_meta):
     return anom
 
 
-def _load_conditional_target_mask(config, anomaly_basename, target_mask_loader):
-    if not getattr(config, "conditional", False):
-        return None
-    if anomaly_basename is None or target_mask_loader is None:
-        raise ValueError("conditional fusion needs anomaly_basename and target_mask_loader to load tgt_mask.")
-    try:
-        return np.asarray(target_mask_loader(anomaly_basename, artifact="tgt_mask"))
-    except (FileNotFoundError, KeyError) as exc:
-        raise ValueError(f"conditional fusion needs a saved tgt_mask for {anomaly_basename!r}.") from exc
-
-
 def _spatial_label_mask(mask, spatial_ndim):
     mask = np.asarray(mask)
     if mask.ndim == spatial_ndim:
@@ -69,8 +57,7 @@ def fusion2d(
     anomaly_meta,
     position_factor,
     config,
-    anomaly_basename=None,
-    target_mask_loader=None,
+    target_mask,
     background_threshold=None,
 ):
     """
@@ -141,14 +128,16 @@ def fusion2d(
 
     anom = synth_anomaly_image.astype(np.float32, copy=False)
     anom = _denormalize_anomaly(anom, anomaly_meta)
-    target_mask = _load_conditional_target_mask(config, anomaly_basename, target_mask_loader)
+    if target_mask is None:
+        raise ValueError("fusion2d requires target_mask. Create or load tgt_mask before calling fusion.")
+    target_mask = np.asarray(target_mask)
 
     # Validate dimensionality (expects channel-first 2D images)
     if ctrl.ndim != 3 or anom.ndim != 3:
         raise ValueError(f"Both images must be 2D (C,H,W). Got ctrl={ctrl.shape}, anom={anom.shape}")
-    if target_mask is not None and target_mask.ndim not in (2, 3):
+    if target_mask.ndim not in (2, 3):
         raise ValueError(f"target mask must be 2D (H,W) or 3D (C,H,W). Got {target_mask.shape}")
-    if target_mask is not None and target_mask.shape[-2:] != anom.shape[-2:]:
+    if target_mask.shape[-2:] != anom.shape[-2:]:
         raise ValueError(f"target mask spatial shape {target_mask.shape[-2:]} does not match anomaly {anom.shape[-2:]}")
 
     # Unpack control shape
@@ -170,11 +159,8 @@ def fusion2d(
     # ------------------------------------------------------------
     # 3) Trim spatial padding by cropping to the foreground bounding box (same crop for all channels)
     # ------------------------------------------------------------
-    # Foreground mask over spatial dims: conditional targets define the intended label footprint.
-    if target_mask is not None:
-        fg = _spatial_label_mask(target_mask, spatial_ndim=2) > 0
-    else:
-        fg = np.any(anom > background_threshold, axis=0)  # (H,W)
+    # Foreground mask over spatial dims: target mask defines the intended label footprint.
+    fg = _spatial_label_mask(target_mask, spatial_ndim=2) > 0
 
     # Only crop if there is any foreground
     if np.any(fg):
@@ -182,11 +168,10 @@ def fusion2d(
         y0, y1 = yy.min(), yy.max() + 1
         x0, x1 = xx.min(), xx.max() + 1
         anom = anom[:, y0:y1, x0:x1]
-        if target_mask is not None:
-            if target_mask.ndim == 3:
-                target_mask = target_mask[:, y0:y1, x0:x1]
-            else:
-                target_mask = target_mask[y0:y1, x0:x1]
+        if target_mask.ndim == 3:
+            target_mask = target_mask[:, y0:y1, x0:x1]
+        else:
+            target_mask = target_mask[y0:y1, x0:x1]
     # If no foreground exists, `anom` remains unchanged. (You may optionally early-return.)
 
     # ------------------------------------------------------------
@@ -196,12 +181,11 @@ def fusion2d(
 
     # Zoom factors: (C unchanged, spatial scaled)
     anom = zoom(anom, (1.0, sf[0], sf[1]), order=1)
-    if target_mask is not None:
-        if target_mask.ndim == 3:
-            target_mask = zoom(target_mask, (1.0, sf[0], sf[1]), order=0)
-        else:
-            target_mask = zoom(target_mask, sf, order=0)
-        target_mask = _spatial_label_mask(target_mask, spatial_ndim=2).astype(np.uint8, copy=False)
+    if target_mask.ndim == 3:
+        target_mask = zoom(target_mask, (1.0, sf[0], sf[1]), order=0)
+    else:
+        target_mask = zoom(target_mask, sf, order=0)
+    target_mask = _spatial_label_mask(target_mask, spatial_ndim=2).astype(np.uint8, copy=False)
 
     # ------------------------------------------------------------
     # 5) Compute insertion offset from normalized position_factor
@@ -326,24 +310,10 @@ def fusion2d(
     # ------------------------------------------------------------
     segmentation = np.zeros((H, W), dtype=np.uint8)
 
-    if target_mask is not None:
-        multiclass_seg_local = target_mask.astype(np.uint8, copy=False)
-    else:
-        seg_local_binary = alpha_mask > 0.05
-        seg_local_binary = binary_fill_holes(seg_local_binary)
-        multiclass_seg_local = (valid_mask * seg_local_binary).astype(np.uint8)
+    multiclass_seg_local = target_mask.astype(np.uint8, copy=False)
 
     vm_crop = multiclass_seg_local[:hh, :ww]
     segmentation[h0 : h0 + hh, w0 : w0 + ww] = vm_crop
-
-    if target_mask is None:
-        for class_id in np.unique(segmentation):
-            if class_id == 0:
-                continue
-            class_mask = segmentation == class_id
-            filled_class_mask = binary_fill_holes(class_mask)
-            filled_background_holes = filled_class_mask & (segmentation == 0)
-            segmentation[filled_background_holes] = class_id
 
     segmentation = segmentation[None, ...]                 # (1, H, W)
     if C != 1:

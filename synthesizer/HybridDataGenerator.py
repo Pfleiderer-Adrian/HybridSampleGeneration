@@ -59,6 +59,26 @@ class HybridDataGenerator:
     def _log_step(self, message: str) -> None:
         print(f"[HybridDataGenerator] {message}")
 
+    def _create_tgt_mask_from_synth_anomaly(self, synth_anomaly_image: np.ndarray) -> np.ndarray:
+        background_threshold = float(np.nanmin(synth_anomaly_image)) + 0.001
+        synth_projection = np.max(synth_anomaly_image, axis=0)
+        return (synth_projection > background_threshold).astype(np.uint8)
+
+    def _load_or_create_fusion_tgt_mask(self, anomaly_basename: str, synth_anomaly_image: np.ndarray) -> np.ndarray:
+        tgt_mask_path = os.path.join(self._config.get_paths().anomaly_tgt_mask_data, anomaly_basename)
+        if os.path.splitext(tgt_mask_path)[1].lower() != ".npy":
+            tgt_mask_path = os.path.splitext(tgt_mask_path)[0] + ".npy"
+
+        if os.path.exists(tgt_mask_path):
+            return np.asarray(np.load(tgt_mask_path, allow_pickle=False))
+
+        if self._config.conditional:
+            raise ValueError(f"conditional fusion needs a saved tgt_mask for {anomaly_basename!r}.")
+
+        tgt_mask = self._create_tgt_mask_from_synth_anomaly(synth_anomaly_image)
+        save_numpy_as_npy(tgt_mask, tgt_mask_path, overwrite=True)
+        return tgt_mask
+
     def extract_anomalies(
         self,
         sample_dataloader: Iterator[Tuple[np.ndarray, np.ndarray, str]],
@@ -549,6 +569,8 @@ class HybridDataGenerator:
                         f"Re-extract anomalies to populate norm_* fields (and re-generate synth anomalies)."
                     )
 
+            target_mask = self._load_or_create_fusion_tgt_mask(anomaly_basename, synth_anomaly_image)
+
             if control_samples_array.ndim == 3:
                 img, seg, roi = fusion2d(
                     img,
@@ -556,8 +578,7 @@ class HybridDataGenerator:
                     anomaly_meta,
                     fusion_position,
                     self._config,
-                    anomaly_basename=anomaly_basename,
-                    target_mask_loader=self._synth_anomaly_dataset.load_numpy_by_basename,
+                    target_mask=target_mask,
                 )
             elif control_samples_array.ndim == 4:
                 img, seg, roi = fusion3d(
@@ -566,8 +587,7 @@ class HybridDataGenerator:
                     anomaly_meta,
                     fusion_position,
                     self._config,
-                    anomaly_basename=anomaly_basename,
-                    target_mask_loader=self._synth_anomaly_dataset.load_numpy_by_basename,
+                    target_mask=target_mask,
                 )
             else:
                 raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
