@@ -264,23 +264,23 @@ def fusion3d(
     valid_mask = anom_proj > background_threshold           # (d,h,w)
 
     # ------------------------------------------------------------
-    # 9) Locally normalize anomaly values (per channel) to match the ring around it
+    # 9) Locally normalize anomaly values (per channel) to match the target area plus border
     # ------------------------------------------------------------
     anom = anom.copy()
     binary_mask = valid_mask > 0
 
     if np.any(binary_mask):
-        dilation_structure = np.ones((5, 5, 5), dtype=bool)
+        dilation_kernel_size = config.fusion_normalization_border_width * 2 + 1
+        dilation_structure = np.ones((dilation_kernel_size, dilation_kernel_size, dilation_kernel_size), dtype=bool)
         dilated_mask = binary_dilation(binary_mask, structure=dilation_structure)
-        ring_mask = dilated_mask ^ binary_mask
 
-        if np.any(ring_mask):
+        if np.any(dilated_mask):
             for c in range(C):
                 vp = anom[c][binary_mask]
                 if vp.size == 0:
                     continue
 
-                bg_local = bg_slice[c][ring_mask]
+                bg_local = bg_slice[c][dilated_mask]
                 if bg_local.size == 0:
                     continue
 

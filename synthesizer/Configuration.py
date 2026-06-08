@@ -144,6 +144,7 @@ class Configuration:
         self.selected_confidence = "90%" 
         self.confidence_z_score = self.confidence_levels[self.selected_confidence]
 
+        self.fusion_normalization_border_width = 2
 
         # global training parameter, fixed during training
         self.val_ratio = 0.2

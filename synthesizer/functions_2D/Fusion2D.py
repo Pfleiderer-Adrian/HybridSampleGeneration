@@ -253,18 +253,17 @@ def fusion2d(
     valid_mask = anom_proj > background_threshold            # (h,w)
 
     # ------------------------------------------------------------
-    # 9) Locally normalize anomaly values (per channel) to match local control region stats
+    # 9) Locally normalize anomaly values (per channel) to match the target area plus border
     # ------------------------------------------------------------
     anom = anom.copy() 
     binary_mask = (valid_mask > 0) 
 
     if np.any(binary_mask):
-        # ring around anomaly
-        dilation_structure = np.ones((5, 5), dtype=bool) # thickness of ring
+        dilation_kernel_size = config.fusion_normalization_border_width * 2 + 1
+        dilation_structure = np.ones((dilation_kernel_size, dilation_kernel_size), dtype=bool)
         dilated_mask = binary_dilation(binary_mask, structure=dilation_structure)
-        ring_mask = dilated_mask ^ binary_mask # only ring (without anomaly)
         
-        if np.any(ring_mask):
+        if np.any(dilated_mask):
             for c in range(C):
                 # anomaly intensity
                 vp = anom[c][binary_mask]  
@@ -272,7 +271,9 @@ def fusion2d(
                     continue
                 
                 # background intensity
-                bg_local = bg_slice[c][ring_mask]
+                bg_local = bg_slice[c][dilated_mask]
+                if bg_local.size == 0:
+                    continue
                 
                 # mean and std
                 a_mean = np.mean(vp)
