@@ -59,26 +59,6 @@ class HybridDataGenerator:
     def _log_step(self, message: str) -> None:
         print(f"[HybridDataGenerator] {message}")
 
-    def _create_tgt_mask_from_synth_anomaly(self, synth_anomaly_image: np.ndarray) -> np.ndarray:
-        background_threshold = float(np.nanmin(synth_anomaly_image)) + 0.001
-        synth_projection = np.max(synth_anomaly_image, axis=0)
-        return (synth_projection > background_threshold).astype(np.uint8)
-
-    def _load_or_create_fusion_tgt_mask(self, anomaly_basename: str, synth_anomaly_image: np.ndarray) -> np.ndarray:
-        tgt_mask_path = os.path.join(self._config.get_paths().anomaly_tgt_mask_data, anomaly_basename)
-        if os.path.splitext(tgt_mask_path)[1].lower() != ".npy":
-            tgt_mask_path = os.path.splitext(tgt_mask_path)[0] + ".npy"
-
-        if os.path.exists(tgt_mask_path):
-            return np.asarray(np.load(tgt_mask_path, allow_pickle=False))
-
-        if self._config.conditional:
-            raise ValueError(f"conditional fusion needs a saved tgt_mask for {anomaly_basename!r}.")
-
-        tgt_mask = self._create_tgt_mask_from_synth_anomaly(synth_anomaly_image)
-        save_numpy_as_npy(tgt_mask, tgt_mask_path, overwrite=True)
-        return tgt_mask
-
     def extract_anomalies(
         self,
         sample_dataloader: Iterator[Tuple[np.ndarray, np.ndarray, str]],
@@ -335,7 +315,9 @@ class HybridDataGenerator:
             raise ValueError(f"No Model Loaded: Run train_generator or load_generator first")
         paths = self._config.get_paths()
         synth_anomaly_folder = paths.synth_anomaly_data
+        tgt_mask_folder = paths.anomaly_tgt_mask_data
         paths.confirm_and_clear_artifact_dirs(synth_anomaly_folder)
+        os.makedirs(tgt_mask_folder, exist_ok=True)
         self._anomaly_dataset.numpy_mode = True
 
 
@@ -349,17 +331,19 @@ class HybridDataGenerator:
 
                 best = -1
                 best_image = None
+                best_mask = None
                 syn_anomaly_sample = None
+                syn_anomaly_mask = None
                 i = 0
                 while best < self._config.feedback_threshold:
                     if self._config.prior_sampling:
-                        syn_anomaly_sample = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output)
+                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output)
                     else:
-                        syn_anomaly_sample = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
+                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
 
                     if best_image is None:
                         best_image = syn_anomaly_sample
-
+                        best_mask = syn_anomaly_mask
 
                     if syn_anomaly_sample.shape != img.shape:
                         raise ValueError(str(syn_anomaly_sample.shape)+"vs"+str(img.shape))
@@ -375,6 +359,7 @@ class HybridDataGenerator:
                     if similarity_score > best:
                         best = similarity_score
                         best_image = syn_anomaly_sample
+                        best_mask = syn_anomaly_mask
                         print("New best Score: "+str(best))
                     
                     if i % 100 == 0:
@@ -385,6 +370,7 @@ class HybridDataGenerator:
                     bad_anomalies.append(basename)
                 print("Generated "+str(i)+" anomalies and save at threshold: "+str(best))
                 save_numpy_as_npy(best_image, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
+                save_numpy_as_npy(best_mask, str(os.path.join(tgt_mask_folder, basename)), overwrite=True)
             print("Summary")
             print("No-of bad Anomalies:"+ str(len(bad_anomalies)))
             for name in bad_anomalies:
@@ -395,10 +381,11 @@ class HybridDataGenerator:
             for sample in tqdm(self._anomaly_dataset):
                 basename = sample["fname"]
                 if self._config.prior_sampling:
-                    syn_anomaly_sample = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output)
+                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output)
                 else:
-                    syn_anomaly_sample = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
+                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
                 save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
+                save_numpy_as_npy(syn_anomaly_mask, str(os.path.join(tgt_mask_folder, basename)), overwrite=True)
 
         self.load_synth_anomalies()
 
@@ -569,7 +556,10 @@ class HybridDataGenerator:
                         f"Re-extract anomalies to populate norm_* fields (and re-generate synth anomalies)."
                     )
 
-            target_mask = self._load_or_create_fusion_tgt_mask(anomaly_basename, synth_anomaly_image)
+            target_mask = self._synth_anomaly_dataset.load_numpy_by_basename(
+                anomaly_basename,
+                artifact="tgt_mask",
+            )
 
             if control_samples_array.ndim == 3:
                 img, seg, roi = fusion2d(

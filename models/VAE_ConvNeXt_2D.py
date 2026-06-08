@@ -29,7 +29,7 @@ from tqdm import tqdm
 
 
 # -------------------------
-# helpers: padding/cropping
+# helpers: padding/cropping, tgt_mask creation
 # -------------------------
 
 def _compute_symmetric_pad(size: int, multiple: int) -> Tuple[int, int]:
@@ -72,6 +72,15 @@ def _crop_like_2d(x: torch.Tensor, ref_hw: Tuple[int, int]) -> torch.Tensor:
 
     return x[..., sl(h, h_ref), sl(w, w_ref)]
 
+def _create_tgt_mask_from_synth_anomaly(synth_anomaly_image: Union[np.ndarray, torch.Tensor]) -> Union[np.ndarray, torch.Tensor]:
+    if torch.is_tensor(synth_anomaly_image):
+        background_threshold = torch.nanmin(synth_anomaly_image) + 0.001
+        synth_projection = torch.amax(synth_anomaly_image, dim=0)
+        return (synth_projection > background_threshold).to(torch.uint8)
+
+    background_threshold = float(np.nanmin(synth_anomaly_image)) + 0.001
+    synth_projection = np.max(synth_anomaly_image, axis=0)
+    return (synth_projection > background_threshold).astype(np.uint8)
 
 # -------------------------
 # blocks (2D)
@@ -779,8 +788,10 @@ class ConvNeXtVAE2D(nn.Module):
  # (n,C,H,W)
 
         if return_torch:
-            return recon
-        return recon.detach().cpu().numpy().astype(np.float32, copy=False)
+            return recon, _create_tgt_mask_from_synth_anomaly(recon)
+
+        recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
+        return recon_np, _create_tgt_mask_from_synth_anomaly(recon_np)
 
 
     def warmup(self, shape, device=None, dtype=None):
@@ -901,9 +912,10 @@ class ConvNeXtVAE2D(nn.Module):
                 recon = recon.clamp(0.0, 1.0)
 
         if return_torch:
-            return recon
+            return recon, _create_tgt_mask_from_synth_anomaly(recon)
 
-        return recon.detach().cpu().numpy().astype(np.float32, copy=False)
+        recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
+        return recon_np, _create_tgt_mask_from_synth_anomaly(recon_np)
 
 if __name__ == "__main__":
     # Quick sanity check
