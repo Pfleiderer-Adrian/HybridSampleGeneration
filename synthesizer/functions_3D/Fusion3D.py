@@ -3,7 +3,7 @@ import scipy.ndimage
 from scipy.ndimage import zoom
 from tqdm import tqdm
 from skimage.feature import match_template
-from scipy.ndimage import binary_fill_holes
+from scipy.ndimage import binary_dilation
 
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_cube_clip
 
@@ -44,12 +44,22 @@ def _denormalize_anomaly(anom, normalization_meta):
     return anom
 
 
+def _spatial_label_mask(mask, spatial_ndim):
+    mask = np.asarray(mask)
+    if mask.ndim == spatial_ndim:
+        return mask
+    if mask.ndim == spatial_ndim + 1:
+        return np.max(mask, axis=0)
+    raise ValueError(f"target mask must have {spatial_ndim} or {spatial_ndim + 1} dims. Got {mask.shape}")
+
+
 def fusion3d(
     control_image,
     synth_anomaly_image,
     anomaly_meta,
     position_factor,
     config,
+    target_mask,
     background_threshold=None,
 ):
     """
@@ -120,10 +130,17 @@ def fusion3d(
 
     anom = synth_anomaly_image.astype(np.float32, copy=False)
     anom = _denormalize_anomaly(anom, anomaly_meta)
+    if target_mask is None:
+        raise ValueError("fusion3d requires target_mask. Create or load tgt_mask before calling fusion.")
+    target_mask = np.asarray(target_mask)
 
     # Validate dimensionality (expects channel-first 3D volumes)
     if ctrl.ndim != 4 or anom.ndim != 4:
         raise ValueError(f"Both images must be 4D (C,D,H,W). Got ctrl={ctrl.shape}, anom={anom.shape}")
+    if target_mask.ndim not in (3, 4):
+        raise ValueError(f"target mask must be 3D (D,H,W) or 4D (C,D,H,W). Got {target_mask.shape}")
+    if target_mask.shape[-3:] != anom.shape[-3:]:
+        raise ValueError(f"target mask spatial shape {target_mask.shape[-3:]} does not match anomaly {anom.shape[-3:]}")
 
     # Unpack control shape
     C, D, H, W = ctrl.shape
@@ -144,8 +161,8 @@ def fusion3d(
     # ------------------------------------------------------------
     # 3) Trim spatial padding by cropping to the foreground bounding box (same crop for all channels)
     # ------------------------------------------------------------
-    # Foreground mask over spatial dims: a voxel is foreground if ANY channel is above threshold
-    fg = np.any(anom > background_threshold, axis=0)  # (D,H,W)
+    # Foreground mask over spatial dims: target mask defines the intended label footprint.
+    fg = _spatial_label_mask(target_mask, spatial_ndim=3) > 0
 
     # Only crop if there is any foreground
     if np.any(fg):
@@ -154,6 +171,10 @@ def fusion3d(
         y0, y1 = yy.min(), yy.max() + 1
         x0, x1 = xx.min(), xx.max() + 1
         anom = anom[:, z0:z1, y0:y1, x0:x1]
+        if target_mask.ndim == 4:
+            target_mask = target_mask[:, z0:z1, y0:y1, x0:x1]
+        else:
+            target_mask = target_mask[z0:z1, y0:y1, x0:x1]
     # If no foreground exists, `anom` remains unchanged. (You may optionally early-return.)
 
     # ------------------------------------------------------------
@@ -163,6 +184,11 @@ def fusion3d(
 
     # Zoom factors: (C unchanged, spatial scaled)
     anom = zoom(anom, (1.0, sf[0], sf[1], sf[2]), order=1)
+    if target_mask.ndim == 4:
+        target_mask = zoom(target_mask, (1.0, sf[0], sf[1], sf[2]), order=0)
+    else:
+        target_mask = zoom(target_mask, sf, order=0)
+    target_mask = _spatial_label_mask(target_mask, spatial_ndim=3).astype(np.uint8, copy=False)
 
     # ------------------------------------------------------------
     # 5) Compute insertion offset from normalized position_factor
@@ -222,28 +248,36 @@ def fusion3d(
     valid_mask = anom_proj > background_threshold           # (d,h,w)
 
     # ------------------------------------------------------------
-    # 9) Locally normalize anomaly values (per channel) to match control region stats
-    #    - Only normalize values where valid_mask is True
-    #    - Match anomaly's foreground range to control region's per-channel range
+    # 9) Locally normalize anomaly values (per channel) to match the target area plus border
     # ------------------------------------------------------------
-    if np.any(valid_mask):
-        anom = anom.copy()  # we will modify in place
-        for c in range(C):
-            vp = anom[c][valid_mask]  # foreground values for this channel
-            if vp.size == 0:
-                continue
+    anom = anom.copy()
+    binary_mask = valid_mask > 0
 
-            a_min = float(vp.min())
-            a_max = float(vp.max())
-            src_range = a_max - a_min
-            if src_range == 0:
-                src_range = 1.0
+    if np.any(binary_mask):
+        dilation_kernel_size = config.fusion_normalization_border_width * 2 + 1
+        dilation_structure = np.ones((dilation_kernel_size, dilation_kernel_size, dilation_kernel_size), dtype=bool)
+        dilated_mask = binary_dilation(binary_mask, structure=dilation_structure)
 
-            tgt_range = float(img_region_max[c] - img_region_min[c])
+        if np.any(dilated_mask):
+            for c in range(C):
+                vp = anom[c][binary_mask]
+                if vp.size == 0:
+                    continue
 
-            # Map anomaly foreground values into control region intensity range
-            vp = ((vp - a_min) / src_range) * tgt_range + float(img_region_min[c])
-            anom[c][valid_mask] = vp
+                bg_local = bg_slice[c][dilated_mask]
+                if bg_local.size == 0:
+                    continue
+
+                a_mean = np.mean(vp)
+                a_std = np.std(vp)
+                if a_std == 0:
+                    a_std = 1e-5
+
+                bg_mean = np.mean(bg_local)
+                bg_std = np.std(bg_local)
+
+                vp_matched = ((vp - a_mean) / a_std) * bg_std + bg_mean
+                anom[c][binary_mask] = vp_matched
 
     # ------------------------------------------------------------
     # 10) Create alpha mask from per-slice Sobel+distance transform mask (edge-aware)
@@ -282,18 +316,14 @@ def fusion3d(
     # ------------------------------------------------------------
     segmentation = np.zeros((D, H, W), dtype=np.uint8)
 
-    # valid_mask is anomaly-local (d,h,w) -> crop to actual inserted region size
-    vm_crop = valid_mask[:dd, :hh, :ww]
-    segmentation[d0 : d0 + dd, h0 : h0 + hh, w0 : w0 + ww] = vm_crop.astype(np.uint8)
+    multiclass_seg_local = target_mask.astype(np.uint8, copy=False)
 
-    # Fill holes for a cleaner binary segmentation
-    segmentation = binary_fill_holes(segmentation).astype(np.uint8)
+    vm_crop = multiclass_seg_local[:dd, :hh, :ww]
+    segmentation[d0 : d0 + dd, h0 : h0 + hh, w0 : w0 + ww] = vm_crop
 
     segmentation = segmentation[None, ...]              # (1, D, H, W)
     if C != 1:
         segmentation = np.repeat(segmentation, C, axis=0)  # (C, D, H, W)
-
-    segmentation = np.where(segmentation > 0, 1, 0).astype(np.uint8)
 
     if np.sum(segmentation) == 0:        
         return ctrl, segmentation, None

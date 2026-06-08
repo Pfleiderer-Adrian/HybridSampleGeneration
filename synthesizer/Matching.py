@@ -572,78 +572,29 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
     return matching_data
 
 
-
-def combine_binary_masks(
+def combine_label_masks(
     mask_a: np.ndarray,
     mask_b: np.ndarray,
-    mode: str = "or",
+    *,
+    overwrite: bool = True,
     return_dtype=None,
 ) -> np.ndarray:
-    """
-    Combine two binary masks (NumPy arrays) with shape (C,H,W) or (C,D,H,W).
-
-    Parameters
-    ----------
-    mask_a, mask_b : np.ndarray
-        Binary masks of identical shape. Values may be boolean or {0,1}.
-        Any non-zero value is treated as True.
-    mode : str
-        "or"        : union (A ∪ B)
-        "and"       : intersection (A ∩ B)
-        "xor"       : exclusive OR
-        "a_minus_b" : A \\ B
-        "b_minus_a" : B \\ A
-    return_dtype : dtype or None
-        None => return dtype like mask_a, otherwise cast to this dtype (e.g. np.uint8 or bool).
-
-    Returns
-    -------
-    np.ndarray
-        Combined mask with the same shape as the inputs.
-    """
-    # Basic type checks
+    """Combine label masks without collapsing class ids to binary values."""
     if not isinstance(mask_a, np.ndarray) or not isinstance(mask_b, np.ndarray):
         raise TypeError("mask_a and mask_b must be NumPy arrays.")
-
-    # Require identical shapes
     if mask_a.shape != mask_b.shape:
         raise ValueError(f"Shapes must match, got {mask_a.shape} vs {mask_b.shape}.")
-
-    # Only allow (C,H,W) or (C,D,H,W)
     if mask_a.ndim not in (3, 4):
         raise ValueError(
             f"Expected ndim 3 or 4 for (C,H,W) or (C,D,H,W), got ndim={mask_a.ndim}."
         )
 
-    # Interpret any non-zero as True (robust to uint8/float/etc.)
-    a = mask_a.astype(bool, copy=False)
-    b = mask_b.astype(bool, copy=False)
+    out = mask_a.copy()
+    insert_fg = mask_b > 0
+    if not overwrite:
+        insert_fg = insert_fg & (out == 0)
+    out[insert_fg] = mask_b[insert_fg]
 
-    # Select combination operation
-    mode = mode.lower()
-    if mode == "or":
-        out = np.logical_or(a, b)
-    elif mode == "and":
-        out = np.logical_and(a, b)
-    elif mode == "xor":
-        out = np.logical_xor(a, b)
-    elif mode in ("a_minus_b", "a-b", "a\\b"):
-        out = np.logical_and(a, np.logical_not(b))
-    elif mode in ("b_minus_a", "b-a", "b\\a"):
-        out = np.logical_and(b, np.logical_not(a))
-    else:
-        raise ValueError(
-            f"Unknown mode='{mode}'. Supported: or/and/xor/a_minus_b/b_minus_a."
-        )
-
-
-    out = np.where(out > 0, 1, 0)
-    return out
-    # Control output dtype
     if return_dtype is None:
-        # Return as bool if original was bool, otherwise cast to mask_a dtype
-        if mask_a.dtype == bool:
-            return out
-        return out.astype(mask_a.dtype, copy=False)
-    else:
-        return out.astype(return_dtype, copy=False)
+        return out
+    return out.astype(return_dtype, copy=False)

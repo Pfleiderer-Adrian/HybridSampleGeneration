@@ -761,6 +761,7 @@ class ConvNeXtcVAE2D(nn.Module):
             tgt_mask = ori_mask
         else:
             tgt_mask = torch.as_tensor(target_mask)
+        tgt_mask_return = tgt_mask
 
         single = False
         if x.ndim == 3:
@@ -828,8 +829,11 @@ class ConvNeXtcVAE2D(nn.Module):
                 recon = recon.squeeze(0)
 
         if return_torch:
-            return recon
-        return recon.detach().cpu().numpy().astype(np.float32, copy=False)
+            return recon, tgt_mask_return.to(recon.device)
+
+        recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
+        tgt_mask_np = tgt_mask_return.cpu().numpy().astype(np.uint8, copy=False)
+        return recon_np, tgt_mask_np
 
     def warmup(self, shape, device=None, dtype=None):
         if not (isinstance(shape, (tuple, list)) and len(shape) == 3):
@@ -890,6 +894,7 @@ class ConvNeXtcVAE2D(nn.Module):
                 raise KeyError("Conditional prior sample dict must contain 'tgt_mask' or 'ori_mask'.")
 
         tgt_mask = torch.as_tensor(target_mask)
+        tgt_mask_return = tgt_mask
         single = False
 
         if tgt_mask.ndim in [2, 3]:
@@ -941,9 +946,11 @@ class ConvNeXtcVAE2D(nn.Module):
                 recon = recon.squeeze(0)
 
         if return_torch:
-            return recon
+            return recon, tgt_mask_return.to(recon.device)
 
-        return recon.detach().cpu().numpy().astype(np.float32, copy=False)
+        recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
+        tgt_mask_np = tgt_mask_return.cpu().numpy().astype(np.uint8, copy=False)
+        return recon_np, tgt_mask_np
 
 if __name__ == "__main__":
     # Quick sanity check

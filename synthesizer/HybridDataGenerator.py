@@ -17,7 +17,7 @@ from synthesizer.functions_2D.Fusion2D import fusion2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
 from synthesizer.Configuration import Configuration
 from synthesizer.functions_3D.Fusion3D import fusion3d
-from synthesizer.Matching import center_foreground_com, combine_binary_masks, create_matching_dictionary, crop_border, ssim_01, template_matching
+from synthesizer.Matching import center_foreground_com, combine_label_masks, create_matching_dictionary, crop_border, ssim_01, template_matching
 from synthesizer.Trainer import optimize
 from synthesizer.Evaluation import evaluation_pipeline
 from data_handler.Visualizer import run_hybrid_visualizer
@@ -315,7 +315,9 @@ class HybridDataGenerator:
             raise ValueError(f"No Model Loaded: Run train_generator or load_generator first")
         paths = self._config.get_paths()
         synth_anomaly_folder = paths.synth_anomaly_data
+        tgt_mask_folder = paths.anomaly_tgt_mask_data
         paths.confirm_and_clear_artifact_dirs(synth_anomaly_folder)
+        os.makedirs(tgt_mask_folder, exist_ok=True)
         self._anomaly_dataset.numpy_mode = True
 
 
@@ -329,17 +331,19 @@ class HybridDataGenerator:
 
                 best = -1
                 best_image = None
+                best_mask = None
                 syn_anomaly_sample = None
+                syn_anomaly_mask = None
                 i = 0
                 while best < self._config.feedback_threshold:
                     if self._config.prior_sampling:
-                        syn_anomaly_sample = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output)
+                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output)
                     else:
-                        syn_anomaly_sample = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
+                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
 
                     if best_image is None:
                         best_image = syn_anomaly_sample
-
+                        best_mask = syn_anomaly_mask
 
                     if syn_anomaly_sample.shape != img.shape:
                         raise ValueError(str(syn_anomaly_sample.shape)+"vs"+str(img.shape))
@@ -355,6 +359,7 @@ class HybridDataGenerator:
                     if similarity_score > best:
                         best = similarity_score
                         best_image = syn_anomaly_sample
+                        best_mask = syn_anomaly_mask
                         print("New best Score: "+str(best))
                     
                     if i % 100 == 0:
@@ -365,6 +370,7 @@ class HybridDataGenerator:
                     bad_anomalies.append(basename)
                 print("Generated "+str(i)+" anomalies and save at threshold: "+str(best))
                 save_numpy_as_npy(best_image, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
+                save_numpy_as_npy(best_mask, str(os.path.join(tgt_mask_folder, basename)), overwrite=True)
             print("Summary")
             print("No-of bad Anomalies:"+ str(len(bad_anomalies)))
             for name in bad_anomalies:
@@ -375,10 +381,11 @@ class HybridDataGenerator:
             for sample in tqdm(self._anomaly_dataset):
                 basename = sample["fname"]
                 if self._config.prior_sampling:
-                    syn_anomaly_sample = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output)
+                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output)
                 else:
-                    syn_anomaly_sample = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
+                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
                 save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
+                save_numpy_as_npy(syn_anomaly_mask, str(os.path.join(tgt_mask_folder, basename)), overwrite=True)
 
         self.load_synth_anomalies()
 
@@ -522,7 +529,7 @@ class HybridDataGenerator:
             else:
                 seg_final = base_mask.copy()
         else:
-            seg_final = np.zeros_like(control_samples_array)
+            seg_final = np.zeros_like(control_samples_array, dtype=np.uint8)
 
         anomalies = self._config.matching_dict[basename_of_control_sample]
         img = control_samples_array.copy()
@@ -549,6 +556,11 @@ class HybridDataGenerator:
                         f"Re-extract anomalies to populate norm_* fields (and re-generate synth anomalies)."
                     )
 
+            target_mask = self._synth_anomaly_dataset.load_numpy_by_basename(
+                anomaly_basename,
+                artifact="tgt_mask",
+            )
+
             if control_samples_array.ndim == 3:
                 img, seg, roi = fusion2d(
                     img,
@@ -556,6 +568,7 @@ class HybridDataGenerator:
                     anomaly_meta,
                     fusion_position,
                     self._config,
+                    target_mask=target_mask,
                 )
             elif control_samples_array.ndim == 4:
                 img, seg, roi = fusion3d(
@@ -564,6 +577,7 @@ class HybridDataGenerator:
                     anomaly_meta,
                     fusion_position,
                     self._config,
+                    target_mask=target_mask,
                 )
             else:
                 raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
@@ -571,7 +585,7 @@ class HybridDataGenerator:
             if seg_final is None:
                 seg_final = seg
             else:
-                seg_final = combine_binary_masks(seg_final, seg, mode = "or")
+                seg_final = combine_label_masks(seg_final, seg, overwrite=True)
 
             if roi is None:
                 print(f"Warning: roi is None for {anomaly_basename} in {basename_of_control_sample}. (Empty synthetic segmentation) => skip fusion")
