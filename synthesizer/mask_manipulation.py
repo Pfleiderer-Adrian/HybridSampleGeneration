@@ -198,7 +198,6 @@ LOCAL_TRANSFORM_PROBS = {
     "dilate": 0.5,
 }
 
-
 DEFAULT_TRANSFORM_PARAMS = {
     "elastic": {
         "sigma": 70,
@@ -228,11 +227,11 @@ class TransformGenerator:
     def __init__(
         self,
         global_transforms: Dict[str, float] | None = None,
-        local_transforms: Dict[int, Dict[str, float]] | None = None,
+        local_transforms: Dict[int | str, Any] | None = None,
         *,
         use_mask_augmentation: bool = False,
         transform_params: Dict[str, Dict[str, Any]] | None = None,
-        class_transform_params: Dict[int, Dict[str, Dict[str, Any]]] | None = None,
+        class_transform_params: Dict[int | str, Dict[str, Dict[str, Any]]] | None = None,
         priorities: list[int] | tuple[int, ...] | None = None,
         num_anomaly_classes: int | None = None,
         rng: np.random.Generator | None = None,
@@ -241,9 +240,41 @@ class TransformGenerator:
         if use_mask_augmentation:
             self.global_transforms.update(GLOBAL_TRANSFORM_PROBS)
         self.global_transforms.update(global_transforms or {})
+        for transform_name, probability in self.global_transforms.items():
+            if transform_name not in self.GLOBAL_TRANSFORMS:
+                raise KeyError(f"Unknown global transform {transform_name!r}. Available: {sorted(self.GLOBAL_TRANSFORMS)}")
+            self.global_transforms[transform_name] = self._validate_probability(probability)
 
         self.default_local_transforms = dict(LOCAL_TRANSFORM_PROBS) if use_mask_augmentation else {}
-        self.local_transforms = dict(local_transforms or {})
+        self.local_transforms = {}
+        for key, value in (local_transforms or {}).items():
+            if isinstance(key, str) and key in self.LOCAL_TRANSFORMS:
+                self.default_local_transforms[key] = self._validate_probability(value)
+            else:
+                try:
+                    class_id = int(key)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        "local_mask_transforms keys must be local transform names "
+                        f"or integer class ids, got {key!r}."
+                    ) from exc
+                if not isinstance(value, dict):
+                    raise TypeError(
+                        "Class-specific local transform config must be a dict, "
+                        f"got {value!r} for class {class_id}."
+                    )
+                self.local_transforms[class_id] = {}
+                for transform_name, probability in value.items():
+                    if transform_name not in self.LOCAL_TRANSFORMS:
+                        raise KeyError(
+                            f"Unknown local transform {transform_name!r}. "
+                            f"Available: {sorted(self.LOCAL_TRANSFORMS)}"
+                        )
+                    self.local_transforms[class_id][transform_name] = self._validate_probability(probability)
+        for transform_name, probability in self.default_local_transforms.items():
+            if transform_name not in self.LOCAL_TRANSFORMS:
+                raise KeyError(f"Unknown local transform {transform_name!r}. Available: {sorted(self.LOCAL_TRANSFORMS)}")
+            self.default_local_transforms[transform_name] = self._validate_probability(probability)
         self.transform_params = deepcopy(DEFAULT_TRANSFORM_PARAMS)
         self.class_transform_params = {}
         self.num_anomaly_classes = None if num_anomaly_classes is None else int(num_anomaly_classes)
@@ -280,12 +311,13 @@ class TransformGenerator:
 
     def set_class_transform_params(
         self,
-        params: Dict[int, Dict[str, Dict[str, Any]]] | None = None,
+        params: Dict[int | str, Dict[str, Dict[str, Any]]] | None = None,
         **kwargs,
     ) -> None:
         updates = {} if params is None else dict(params)
         updates.update(kwargs)
         for class_id, class_updates in updates.items():
+            class_id = int(class_id)
             self.class_transform_params.setdefault(class_id, {})
             for transform_name, transform_updates in class_updates.items():
                 self.class_transform_params[class_id].setdefault(transform_name, {})
@@ -309,10 +341,13 @@ class TransformGenerator:
             params=params,
         )
 
-    def _should_apply(self, probability: float) -> bool:
+    def _validate_probability(self, probability) -> float:
         probability = float(probability)
         if not 0 <= probability <= 1:
             raise ValueError(f"Transform probability must be between 0 and 1, got {probability}.")
+        return probability
+
+    def _should_apply(self, probability: float) -> bool:
         return bool(self.rng.random() < probability)
 
     def _local_class_order(self, mask_np: np.ndarray) -> list[int]:
