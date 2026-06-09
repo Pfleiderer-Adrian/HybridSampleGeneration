@@ -21,7 +21,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from synthesizer.mask_augmentation import to_one_hot_3D
+from HybridSampleGeneration_fork.synthesizer.mask_manipulation import to_one_hot_3D
 
 
 # -------------------------
