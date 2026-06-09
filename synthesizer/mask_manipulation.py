@@ -68,18 +68,6 @@ def to_one_hot_2D(mask: torch.Tensor, num_anomaly_classes: int) -> torch.Tensor:
     return mask_oh.permute(0, 3, 1, 2).float()
 
 
-def augment_mask(mask_np: np.ndarray, transform_generator=None):
-    """
-    Apply mask augmentation through a TransformGenerator-like orchestrator.
-
-    Keeping this small wrapper lets older call sites keep importing
-    `augment_mask`, while the execution/probability logic lives centrally in
-    the generator.
-    """
-    if transform_generator is None:
-        return mask_np
-    return transform_generator.augment_mask(mask_np)
-
 def random_global_stretch_transform(mask_np: np.ndarray, stretch_min=0.95, stretch_max=1.05):
     """Apply nearest-neighbour scaling around the mask center while preserving shape."""
     original_dtype = mask_np.dtype

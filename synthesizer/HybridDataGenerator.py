@@ -11,7 +11,7 @@ from tqdm import tqdm
 from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
 
 from models.model_loader import model_loader
-from HybridSampleGeneration_fork.synthesizer.mask_manipulation import TransformGenerator, augment_mask
+from HybridSampleGeneration_fork.synthesizer.mask_manipulation import TransformGenerator
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
 from synthesizer.functions_2D.Fusion2D import fusion2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
@@ -179,7 +179,7 @@ class HybridDataGenerator:
             tgt_masks = []
             if self._config.conditional and org_masks is not None:
                 for org_mask in org_masks:
-                    tgt_mask = augment_mask(org_mask, transform_generator)
+                    tgt_mask = transform_generator.augment_mask(org_mask)
                     tgt_masks.append(tgt_mask)
             for i, mask_sample in enumerate(tgt_masks):
                 artifact_name = basename + "_" + str(i) + ".npy"
