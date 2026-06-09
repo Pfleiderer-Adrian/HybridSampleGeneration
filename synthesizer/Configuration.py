@@ -84,10 +84,22 @@ class Configuration:
         self.anomaly_size = anomaly_size
         self.separated_anomaly = True
 
-        # mask augmentation parameter (fitting for Random Elastic Transformation for 3D)
-        sigma = 5
-        magnitude = 200
-        # evtl bool rand_elastic_trans und dann wird es angewandt wenn True; gleiches für weitere augmentation Funktionen -> kombination möglich
+        # mask augmentation parameter
+        self.morph_transform = False
+        self.morph_classes = None
+        self.morph_priorities = None
+        self.morph_params = {
+            "global_stretch_prob": 1,
+            "stretch_min": 0.95,
+            "stretch_max": 1.05,
+            # parameter for separate class transformations:
+            "max_morph_iterations": 2,
+            "operations": ("dilate", "none"),
+        }
+
+        self.elastic_transform = False
+        self.sigma = 5
+        self.magnitude = 200
 
         # Random offsets are applied dynamically during training augmentation.
         # Persisted anomaly cutouts stay centered, which keeps later fusion stable.
