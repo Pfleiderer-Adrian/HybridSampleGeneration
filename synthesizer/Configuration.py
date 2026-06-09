@@ -85,11 +85,7 @@ class Configuration:
         self.separated_anomaly = True
 
         # mask augmentation parameter
-        # Global transforms are applied to the whole mask
-        # local transforms are keyed by anomaly class and applied only if that class is present
-        self.use_default_morph_transforms = False
-        self.use_default_elastic_transform = False
-
+        self.use_mask_transform = False
         # override dicts for changing parameters manually
         self.global_mask_transforms = {}
         self.local_mask_transforms = {}
@@ -394,16 +390,6 @@ class Configuration:
             "sobel_threshold": sobel_threshold,
             "dilation_size": dilation_size,
             "shave_pixels": shave_pixels
-        }
-
-    def set_local_mask_transforms_for_all_classes(self, transform_probs, num_classes=None):
-        """Create the local transform dictionary for classes 1..num_classes."""
-        if num_classes is None:
-            num_classes = self.num_anomaly_classes
-        if num_classes is None:
-            raise ValueError("num_classes must be provided if config.num_anomaly_classes is not set yet.")
-        self.local_mask_transforms = {
-            int(class_id): dict(transform_probs) for class_id in range(1, int(num_classes) + 1)
         }
 
     # print all values of config instance

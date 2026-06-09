@@ -94,16 +94,18 @@ class HybridDataGenerator:
             Side effects: writes .npy files, updates config transformation file, sets self._anomaly_dataset.
         """
         self._log_step("Step 1/9: Extracting anomaly cutouts and ROI samples.")
+
         transform_generator = TransformGenerator(
             self._config.global_mask_transforms,
             self._config.local_mask_transforms,
-            use_default_morph_transforms=getattr(self._config, "use_default_morph_transforms", False),
-            use_default_elastic_transform=getattr(self._config, "use_default_elastic_transform", False),
+            use_mask_transform=getattr(self._config, "use_mask_transform", False),
             transform_params=getattr(self._config, "mask_transform_params", None),
             class_transform_params=getattr(self._config, "class_mask_transform_params", None),
             priorities=getattr(self._config, "mask_transform_priorities", None),
+            num_anomaly_classes=getattr(self._config, "num_anomaly_classes", None),
             rng=getattr(self._config, "rng", None),
         )
+
         paths = self._config.get_paths()
         anomaly_folder = paths.anomaly_data
         anomaly_roi_folder = paths.anomaly_roi_data
@@ -222,7 +224,7 @@ class HybridDataGenerator:
                 "num_anomaly_classes",
                 self._config.num_anomaly_classes,
             )
-            
+
         self._config.load_anomaly_transformations()
 
     def train_generator(self, no_of_trails):
@@ -301,7 +303,7 @@ class HybridDataGenerator:
         # load model from study
         params = t.user_attrs['params']
         model_name = t.user_attrs['model_name']
-        self._model = model_loader(model_name, params) 
+        self._model = model_loader(model_name, params)
         self._model.warmup(self._config.anomaly_size)
         self._model.load_state_dict(torch.load(t.user_attrs['model_path']))
 
@@ -371,7 +373,7 @@ class HybridDataGenerator:
                         best_image = syn_anomaly_sample
                         best_mask = syn_anomaly_mask
                         print("New best Score: "+str(best))
-                    
+
                     if i % 100 == 0:
                         if self._config.feedback_threshold > 0.15:
                             self._config.feedback_threshold = self._config.feedback_threshold * self._config.threshold_relaxation_factor
@@ -591,7 +593,7 @@ class HybridDataGenerator:
                 )
             else:
                 raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
-            
+
             if seg_final is None:
                 seg_final = seg
             else:
@@ -608,7 +610,7 @@ class HybridDataGenerator:
                 )
                 os.makedirs(os.path.dirname(roi_path), exist_ok=True)
                 save_numpy_as_npy(roi, roi_path, overwrite=True)
-            
+
         if save_npy:
             paths = self._config.get_paths()
             img_folder = paths.generated_images_npy
@@ -617,12 +619,12 @@ class HybridDataGenerator:
             os.makedirs(seg_folder, exist_ok=True)
 
             img_path = os.path.join(img_folder, basename_of_control_sample)
-            seg_path = os.path.join(seg_folder, basename_of_control_sample)   
+            seg_path = os.path.join(seg_folder, basename_of_control_sample)
             save_numpy_as_npy(img, img_path, overwrite=True)
             save_numpy_as_npy(seg_final, seg_path, overwrite=True)
 
         return img, seg_final
-    
+
     def run_evaluation_pipeline(self, sample_dataloader: Iterator[Tuple[np.ndarray, np.ndarray, str]]):
         self._log_step("Evaluation 1/2: Starting evaluation pipeline.")
         evaluation_pipeline(sample_dataloader, self._config)

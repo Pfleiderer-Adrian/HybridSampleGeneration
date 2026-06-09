@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Any, Callable, Dict
+from typing import Any, Dict
 
 import numpy as np
 import scipy.ndimage as ndi
@@ -113,7 +113,6 @@ def random_global_stretch_transform(mask_np: np.ndarray, stretch_min=0.95, stret
     return np.repeat(transformed_mask[None, ...], mask_np.shape[0], axis=0)
 
 
-
 def _sample_iterations(iterations):
     if isinstance(iterations, (tuple, list)):
         if len(iterations) != 2:
@@ -155,7 +154,7 @@ def random_dilate_transform(mask_np: np.ndarray, classes=None, priorities=None, 
     final_mask = transformed_mask.copy()
     for cls in classes:
         final_mask[final_mask == cls] = 0
-    for cls in priorities:
+    for cls in reversed(priorities):
         if cls in class_masks:
             final_mask[class_masks[cls]] = cls
 
@@ -163,6 +162,7 @@ def random_dilate_transform(mask_np: np.ndarray, classes=None, priorities=None, 
     if mask_np.shape[0] == 1:
         return final_mask[None, ...]
     return np.repeat(final_mask[None, ...], mask_np.shape[0], axis=0)
+
 
 def random_elastic_transform(mask_np: np.ndarray, sigma=5, magnitude=200):
     """
@@ -201,23 +201,20 @@ def random_elastic_transform(mask_np: np.ndarray, sigma=5, magnitude=200):
     return transformed_tensor.numpy().astype(original_dtype)
 
 
-DEFAULT_MORPH_GLOBAL_TRANSFORMS = {
-    "stretch": 0.5,
+GLOBAL_TRANSFORM_PROBS = {
+    "stretch": 1,
+    "elastic": 1,
 }
 
-DEFAULT_MORPH_LOCAL_TRANSFORMS = {
+LOCAL_TRANSFORM_PROBS = {
     "dilate": 0.5,
-}
-
-DEFAULT_ELASTIC_TRANSFORMS = {
-    "elastic": 0.5,
 }
 
 
 DEFAULT_TRANSFORM_PARAMS = {
     "elastic": {
-        "sigma": 5,
-        "magnitude": 200,
+        "sigma": 70,
+        "magnitude": 2,
     },
     "dilate": {
         "iterations": (1, 2),
@@ -242,32 +239,26 @@ class TransformGenerator:
 
     def __init__(
         self,
-        global_transforms: Dict[str | Callable, float] | None = None,
-        local_transforms: Dict[int | str, Dict[str | Callable, float]] | None = None,
+        global_transforms: Dict[str, float] | None = None,
+        local_transforms: Dict[int, Dict[str, float]] | None = None,
         *,
-        use_default_morph_transforms: bool = False,
-        use_default_elastic_transform: bool = False,
+        use_mask_transform: bool = False,
         transform_params: Dict[str, Dict[str, Any]] | None = None,
-        class_transform_params: Dict[int | str, Dict[str, Dict[str, Any]]] | None = None,
+        class_transform_params: Dict[int, Dict[str, Dict[str, Any]]] | None = None,
         priorities: list[int] | tuple[int, ...] | None = None,
+        num_anomaly_classes: int | None = None,
         rng: np.random.Generator | None = None,
     ) -> None:
-        global_transform_probs = {}
-        if use_default_morph_transforms:
-            global_transform_probs.update(DEFAULT_MORPH_GLOBAL_TRANSFORMS)
-        if use_default_elastic_transform:
-            global_transform_probs.update(DEFAULT_ELASTIC_TRANSFORMS)
-        global_transform_probs.update(global_transforms or {})
-        self.global_transforms = self._normalize_transform_probs(global_transform_probs, self.GLOBAL_TRANSFORMS)
+        self.global_transforms = {}
+        if use_mask_transform:
+            self.global_transforms.update(GLOBAL_TRANSFORM_PROBS)
+        self.global_transforms.update(global_transforms or {})
 
-        local_transform_probs = dict(DEFAULT_MORPH_LOCAL_TRANSFORMS) if use_default_morph_transforms else {}
-        self.default_local_transforms = self._normalize_transform_probs(local_transform_probs, self.LOCAL_TRANSFORMS)
-        self.local_transforms = {
-            self._normalize_class_id(class_id): self._normalize_transform_probs(class_transforms, self.LOCAL_TRANSFORMS)
-            for class_id, class_transforms in (local_transforms or {}).items()
-        }
+        self.default_local_transforms = dict(LOCAL_TRANSFORM_PROBS) if use_mask_transform else {}
+        self.local_transforms = dict(local_transforms or {})
         self.transform_params = deepcopy(DEFAULT_TRANSFORM_PARAMS)
         self.class_transform_params = {}
+        self.num_anomaly_classes = None if num_anomaly_classes is None else int(num_anomaly_classes)
         self.priorities = None if priorities is None else [int(class_id) for class_id in priorities]
         if transform_params:
             self.set_transform_params(transform_params)
@@ -282,7 +273,7 @@ class TransformGenerator:
             if self._should_apply(probability):
                 augmented = self._apply_global_transform(augmented, transform_name)
 
-        for class_id in self._present_classes(augmented):
+        for class_id in self._local_class_order(augmented):
             class_transforms = dict(self.default_local_transforms)
             class_transforms.update(self.local_transforms.get(class_id, {}))
             for transform_name, probability in class_transforms.items():
@@ -295,25 +286,22 @@ class TransformGenerator:
         updates = {} if params is None else dict(params)
         updates.update(kwargs)
         for transform_name, transform_updates in updates.items():
-            normalized_name = self._normalize_transform_name(transform_name)
-            if normalized_name not in self.transform_params:
-                self.transform_params[normalized_name] = {}
-            self.transform_params[normalized_name].update(dict(transform_updates))
+            if transform_name not in self.transform_params:
+                self.transform_params[transform_name] = {}
+            self.transform_params[transform_name].update(dict(transform_updates))
 
     def set_class_transform_params(
         self,
-        params: Dict[int | str, Dict[str, Dict[str, Any]]] | None = None,
+        params: Dict[int, Dict[str, Dict[str, Any]]] | None = None,
         **kwargs,
     ) -> None:
         updates = {} if params is None else dict(params)
         updates.update(kwargs)
         for class_id, class_updates in updates.items():
-            normalized_class_id = self._normalize_class_id(class_id)
-            self.class_transform_params.setdefault(normalized_class_id, {})
+            self.class_transform_params.setdefault(class_id, {})
             for transform_name, transform_updates in class_updates.items():
-                normalized_name = self._normalize_transform_name(transform_name)
-                self.class_transform_params[normalized_class_id].setdefault(normalized_name, {})
-                self.class_transform_params[normalized_class_id][normalized_name].update(dict(transform_updates))
+                self.class_transform_params[class_id].setdefault(transform_name, {})
+                self.class_transform_params[class_id][transform_name].update(dict(transform_updates))
 
     def _apply_global_transform(self, mask_np: np.ndarray, transform_name: str) -> np.ndarray:
         transform = self.GLOBAL_TRANSFORMS[transform_name]
@@ -329,7 +317,7 @@ class TransformGenerator:
         return transform(
             mask_np,
             classes=[class_id] if classes is None else classes,
-            priorities=self._priorities_for(mask_np, class_id, priorities),
+            priorities=self._local_class_order(mask_np) if priorities is None else priorities,
             params=params,
         )
 
@@ -339,44 +327,14 @@ class TransformGenerator:
             raise ValueError(f"Transform probability must be between 0 and 1, got {probability}.")
         return bool(self.rng.random() < probability)
 
-    def _priorities_for(self, mask_np: np.ndarray, class_id: int, priorities) -> list[int]:
-        if priorities is not None:
-            return list(priorities)
+    def _local_class_order(self, mask_np: np.ndarray) -> list[int]:
+        present_classes = [int(class_id) for class_id in np.unique(mask_np[0]) if class_id != 0]
         if self.priorities is not None:
-            configured = [cls for cls in self.priorities if np.any(mask_np[0] == cls) or cls == class_id]
-            missing = [int(cls) for cls in np.unique(mask_np[0]) if cls != 0 and int(cls) not in configured]
-            return missing + configured
-        present_classes = [int(cls) for cls in np.unique(mask_np[0]) if cls != 0 and int(cls) != int(class_id)]
-        return present_classes + [int(class_id)]
-
-    def _present_classes(self, mask_np: np.ndarray) -> list[int]:
-        return [int(class_id) for class_id in np.unique(mask_np[0]) if class_id != 0]
-
-    def _normalize_transform_probs(self, transforms, allowed_transforms: Dict[str, Callable]) -> Dict[str, float]:
-        normalized_probs = {}
-        for transform, probability in (transforms or {}).items():
-            transform_name = self._normalize_transform_name(transform)
-            if transform_name not in allowed_transforms:
-                available = sorted(allowed_transforms)
-                raise KeyError(f"Transform {transform_name!r} is not valid here. Available transforms: {available}")
-            normalized_probs[transform_name] = float(probability)
-        return normalized_probs
-
-    def _normalize_transform_name(self, transform: str | Callable) -> str:
-        name = transform if isinstance(transform, str) else transform.__name__
-        aliases = {
-            "random_elastic_transform": "elastic",
-            "random_global_stretch_transform": "stretch",
-            "random_dilate_transform": "dilate",
-        }
-        normalized = aliases.get(name, name)
-        if normalized not in self.GLOBAL_TRANSFORMS and normalized not in self.LOCAL_TRANSFORMS:
-            available = sorted(set(self.GLOBAL_TRANSFORMS) | set(self.LOCAL_TRANSFORMS))
-            raise KeyError(f"Unknown mask transform {name!r}. Available transforms: {available}")
-        return normalized
-
-    def _normalize_class_id(self, class_id: int | str) -> int:
-        try:
-            return int(class_id)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"Class keys in local mask transforms must be integer-like, got {class_id!r}.") from exc
+            configured = [class_id for class_id in self.priorities if class_id in present_classes]
+            missing = [class_id for class_id in present_classes if class_id not in configured]
+            return configured + sorted(missing)
+        if self.num_anomaly_classes is not None:
+            priority_order = list(range(1, self.num_anomaly_classes + 1))
+        else:
+            priority_order = list(range(1, int(mask_np[0].max()) + 1))
+        return [class_id for class_id in priority_order if class_id in present_classes]
