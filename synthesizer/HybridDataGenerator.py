@@ -11,7 +11,7 @@ from tqdm import tqdm
 from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
 
 from models.model_loader import model_loader
-from HybridSampleGeneration_fork.synthesizer.mask_manipulation import augment_mask
+from HybridSampleGeneration_fork.synthesizer.mask_manipulation import TransformGenerator, augment_mask
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
 from synthesizer.functions_2D.Fusion2D import fusion2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
@@ -94,6 +94,16 @@ class HybridDataGenerator:
             Side effects: writes .npy files, updates config transformation file, sets self._anomaly_dataset.
         """
         self._log_step("Step 1/9: Extracting anomaly cutouts and ROI samples.")
+        transform_generator = TransformGenerator(
+            self._config.global_mask_transforms,
+            self._config.local_mask_transforms,
+            use_default_morph_transforms=getattr(self._config, "use_default_morph_transforms", False),
+            use_default_elastic_transform=getattr(self._config, "use_default_elastic_transform", False),
+            transform_params=getattr(self._config, "mask_transform_params", None),
+            class_transform_params=getattr(self._config, "class_mask_transform_params", None),
+            priorities=getattr(self._config, "mask_transform_priorities", None),
+            rng=getattr(self._config, "rng", None),
+        )
         paths = self._config.get_paths()
         anomaly_folder = paths.anomaly_data
         anomaly_roi_folder = paths.anomaly_roi_data
@@ -167,7 +177,7 @@ class HybridDataGenerator:
             tgt_masks = []
             if self._config.conditional and org_masks is not None:
                 for org_mask in org_masks:
-                    tgt_mask = augment_mask(org_mask)
+                    tgt_mask = augment_mask(org_mask, transform_generator)
                     tgt_masks.append(tgt_mask)
             for i, mask_sample in enumerate(tgt_masks):
                 artifact_name = basename + "_" + str(i) + ".npy"
