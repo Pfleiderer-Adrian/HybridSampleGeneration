@@ -1,0 +1,49 @@
+import numpy as np
+import torch
+import torch.nn.functional as F
+from monai.transforms import Rand2DElastic, Rand3DElastic
+
+def augment_mask(mask_np):  # hier vermultich config als input -> HDG anpassen (nach rebase)
+    # hier kann dann zwischen verschiedenen Funktionen für Transformation je nach config params unterschieden werden
+    augmented_mask = random_elastic_transform(mask_np)
+    return augmented_mask
+
+# vermutlich noch trennen (2D und 3D) dass ich die richtige shape habe? oder one_hot auch 2D und 3D zusammenlegen?
+# passt für 3D (Gehirn) sehr gut; ob für 2D optimal ist ka
+def random_elastic_transform(mask_np, sigma=5, magnitude=200):
+    """
+    Nimmt ein 2D oder 3D NumPy-Array, wählt dynamisch die richtige 
+    MONAI-Transformation (2D oder 3D) und gibt das verzerrte Array zurück.
+    """
+    original_dtype = mask_np.dtype
+    ndim = mask_np.ndim  # Prüft, ob es 2D oder 3D ist
+    
+    # MONAI erwartet das Format [Kanal, Raumdimensionen] -> [1, (D), H, W]
+    mask_tensor = torch.from_numpy(mask_np).float() 
+
+    if ndim == 3:
+        # Für 2D (PNG) -> Steuerung der Gitterdichte über 'spacing'
+        re_deform = Rand2DElastic(
+            spacing=(sigma, sigma), # abstand der kontrollpunkte
+            magnitude_range=(magnitude, magnitude),
+            prob=1.0,
+            mode="nearest",
+            padding_mode="reflection"
+        )
+    elif ndim == 4:
+        # Für 3D (NIfTI) -> Steuerung der Gitterglättung über 'sigma_range'
+        re_deform = Rand3DElastic(
+            sigma_range=(sigma, sigma), # std von gaußfilter
+            magnitude_range=(magnitude, magnitude),
+            prob=1.0,
+            mode="nearest",
+            padding_mode="reflection"
+        )
+    else:
+        raise ValueError(f"Unterstützt nur 2D oder 3D Daten. Deine Maske hat {ndim} Dimensionen.")
+
+    # Transformation ausführen
+    transformed_tensor = re_deform(mask_tensor)
+
+    # Kanal entfernen und zurück zu NumPy mit Original-Datentyp
+    return transformed_tensor.squeeze(0).numpy().astype(original_dtype)

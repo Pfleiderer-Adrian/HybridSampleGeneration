@@ -83,6 +83,12 @@ class Configuration:
         # anomaly extraction parameter
         self.anomaly_size = anomaly_size
         self.separated_anomaly = True
+
+        # mask augmentation parameter (fitting for Random Elastic Transformation for 3D)
+        sigma = 5
+        magnitude = 200
+        # evtl bool rand_elastic_trans und dann wird es angewandt wenn True; gleiches für weitere augmentation Funktionen -> kombination möglich
+
         # Random offsets are applied dynamically during training augmentation.
         # Persisted anomaly cutouts stay centered, which keeps later fusion stable.
         self.random_offset = True
