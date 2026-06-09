@@ -11,7 +11,7 @@ from tqdm import tqdm
 from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
 
 from models.model_loader import model_loader
-from HybridSampleGeneration_fork.synthesizer.mask_manipulation import TransformGenerator
+from synthesizer.mask_manipulation import TransformGenerator
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
 from synthesizer.functions_2D.Fusion2D import fusion2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
@@ -98,7 +98,7 @@ class HybridDataGenerator:
         transform_generator = TransformGenerator(
             self._config.global_mask_transforms,
             self._config.local_mask_transforms,
-            use_mask_transform=getattr(self._config, "use_mask_transform", False),
+            use_mask_augmentation=getattr(self._config, "use_mask_augmentation", False),
             transform_params=getattr(self._config, "mask_transform_params", None),
             class_transform_params=getattr(self._config, "class_mask_transform_params", None),
             priorities=getattr(self._config, "mask_transform_priorities", None),
@@ -303,7 +303,7 @@ class HybridDataGenerator:
         # load model from study
         params = t.user_attrs['params']
         model_name = t.user_attrs['model_name']
-        self._model = model_loader(model_name, params)
+        self._model = model_loader(model_name, params) 
         self._model.warmup(self._config.anomaly_size)
         self._model.load_state_dict(torch.load(t.user_attrs['model_path']))
 
@@ -593,7 +593,7 @@ class HybridDataGenerator:
                 )
             else:
                 raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
-
+            
             if seg_final is None:
                 seg_final = seg
             else:
@@ -624,7 +624,7 @@ class HybridDataGenerator:
             save_numpy_as_npy(seg_final, seg_path, overwrite=True)
 
         return img, seg_final
-
+    
     def run_evaluation_pipeline(self, sample_dataloader: Iterator[Tuple[np.ndarray, np.ndarray, str]]):
         self._log_step("Evaluation 1/2: Starting evaluation pipeline.")
         evaluation_pipeline(sample_dataloader, self._config)

@@ -230,7 +230,7 @@ class TransformGenerator:
         global_transforms: Dict[str, float] | None = None,
         local_transforms: Dict[int, Dict[str, float]] | None = None,
         *,
-        use_mask_transform: bool = False,
+        use_mask_augmentation: bool = False,
         transform_params: Dict[str, Dict[str, Any]] | None = None,
         class_transform_params: Dict[int, Dict[str, Dict[str, Any]]] | None = None,
         priorities: list[int] | tuple[int, ...] | None = None,
@@ -238,11 +238,11 @@ class TransformGenerator:
         rng: np.random.Generator | None = None,
     ) -> None:
         self.global_transforms = {}
-        if use_mask_transform:
+        if use_mask_augmentation:
             self.global_transforms.update(GLOBAL_TRANSFORM_PROBS)
         self.global_transforms.update(global_transforms or {})
 
-        self.default_local_transforms = dict(LOCAL_TRANSFORM_PROBS) if use_mask_transform else {}
+        self.default_local_transforms = dict(LOCAL_TRANSFORM_PROBS) if use_mask_augmentation else {}
         self.local_transforms = dict(local_transforms or {})
         self.transform_params = deepcopy(DEFAULT_TRANSFORM_PARAMS)
         self.class_transform_params = {}

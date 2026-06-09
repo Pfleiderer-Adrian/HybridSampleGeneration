@@ -85,7 +85,7 @@ class Configuration:
         self.separated_anomaly = True
 
         # mask augmentation parameter
-        self.use_mask_transform = False
+        self.use_mask_augmentation = False
         # override dicts for changing parameters manually
         self.global_mask_transforms = {}
         self.local_mask_transforms = {}
