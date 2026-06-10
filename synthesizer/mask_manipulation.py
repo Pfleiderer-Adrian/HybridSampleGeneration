@@ -5,7 +5,7 @@ import numpy as np
 import scipy.ndimage as ndi
 import torch
 import torch.nn.functional as F
-from monai.transforms import Rand2DElastic, Rand3DElastic
+#import monai.transforms import Rand2DElastic, Rand3DElastic
 
 def to_one_hot_3D(mask: torch.Tensor, num_anomaly_classes: int) -> torch.Tensor:
     """Converts 3D/4D/5D integer masks to 5D one-hot float tensors of shape (B, C, D, H, W)."""
