@@ -8,6 +8,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
+from models.model_inferface import HybridModelInterface
+
 # -------------------------
 # helpers: padding/cropping (2D only)
 # -------------------------
@@ -410,7 +412,7 @@ class Config:
     fg_threshold: float = 0.0
 
 
-class ResNetVAE2D(nn.Module):
+class ResNetVAE2D(HybridModelInterface):
     """
     2D ResNet-VAE.
 
@@ -496,27 +498,6 @@ class ResNetVAE2D(nn.Module):
         # Map bottleneck vector -> flattened latent feature map
         self.fc_decode = nn.Linear(self.cfg.bottleneck_dim, flat).to(device)
 
-    @staticmethod
-    def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
-        """
-        Reparameterization trick: sample z ~ N(mu, sigma^2) using mu + eps*sigma.
-
-        Inputs
-        ------
-        mu:
-            torch.Tensor (B, bottleneck_dim)
-        logvar:
-            torch.Tensor (B, bottleneck_dim)
-
-        Outputs
-        -------
-        torch.Tensor
-            z: (B, bottleneck_dim)
-        """
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + eps * std
-
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
         Forward pass through encoder -> bottleneck -> decoder.
@@ -577,75 +558,6 @@ class ResNetVAE2D(nn.Module):
         x_ref = _crop_like_2d(x_pad, ref_hw) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
-
-    def loss(self, out: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """
-        Compute VAE loss = recon_weight * ReconLoss(recon,x) + beta_kl * KL(mu,logvar).
-
-        Inputs
-        ------
-        out:
-            dict from forward() containing:
-              - recon, x_ref, mu, logvar
-
-        Outputs
-        -------
-        dict:
-          - total: torch.Tensor scalar
-          - recon: torch.Tensor scalar (reconstruction loss)
-          - kl: torch.Tensor scalar
-        """
-        recon = out["recon"]
-        x = out["x_ref"]
-        mu, logvar = out["mu"], out["logvar"]
-
-        # Reconstruction loss (mean over all pixels)
-        loss_name = str(getattr(self.cfg, "recon_loss", "smoothl1")).lower()
-        if loss_name in ("smoothl1", "huber", "smooth_l1"):
-            beta = float(getattr(self.cfg, "recon_smoothl1_beta", 1.0))
-            try:
-                recon_per_pixel = F.smooth_l1_loss(recon, x, reduction="none", beta=beta)
-            except TypeError:
-                # Older PyTorch without beta parameter
-                recon_per_pixel = F.smooth_l1_loss(recon, x, reduction="none")
-        elif loss_name in ("mse", "l2"):
-            recon_per_pixel = (recon - x) ** 2
-        else:
-            raise ValueError(
-                f"Unknown cfg.recon_loss={self.cfg.recon_loss!r}. Supported: 'smoothl1' | 'mse'"
-            )
-
-        # Foreground-weighted loss to reduce background dominance.
-        fg_weight = float(getattr(self.cfg, "fg_weight", 1.0))
-        fg_threshold = float(getattr(self.cfg, "fg_threshold", 0.0))
-        if fg_weight != 1.0:
-            fg_mask = (x > fg_threshold).float()
-            weights = torch.where(fg_mask > 0, fg_weight, 1.0)
-            recon_loss = (recon_per_pixel * weights).mean()
-        else:
-            recon_loss = recon_per_pixel.mean()
-        # KL divergence term (mean over batch)
-        kl_per_dim = 0.5 * (mu.pow(2) + logvar.exp() - 1.0 - logvar)
-        kl_raw = kl_per_dim.sum(dim=1).mean()
-
-        free_bits = float(getattr(self.cfg, "free_bits", 0.0) or 0.0)
-        if free_bits > 0.0:
-            # clamp each latent dim's KL to at least free_bits
-            kl_used = kl_per_dim.clamp(min=free_bits).sum(dim=1).mean()
-        else:
-            kl_used = kl_raw
-
-        recon_weighted = self.cfg.recon_weight * recon_loss
-        kl_weighted = self.cfg.beta_kl * kl_used
-
-        total = recon_weighted + kl_weighted
-        return {"total": total,
-                "recon": recon_loss,
-                "kl": kl_used,
-                "kl_raw": kl_raw,
-                "recon_weighted": recon_weighted,
-                "kl_weighted": kl_weighted
-        }
 
     def _extract_x(self, batch) -> torch.Tensor:
         """

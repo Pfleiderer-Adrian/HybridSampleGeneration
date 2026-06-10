@@ -27,6 +27,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 from synthesizer.mask_augmentation import to_one_hot_2D
+from models.model_inferface import HybridModelInterface
 
 def _compute_symmetric_pad(size: int, multiple: int) -> Tuple[int, int]:
     """Compute symmetric (left,right) padding so that `size` becomes divisible by `multiple`."""
@@ -478,7 +479,7 @@ class Config:
     skip_alpha: float = 1.0      # Scale skips (0.0 disables skips, 0.2 keeps small guidance)
 
 
-class ConvNeXtcVAE2D(nn.Module):
+class ConvNeXtcVAE2D(HybridModelInterface):
     """2D ConvNeXt-U-Net VAE with SPADE for conditional generation."""
 
     def __init__(self, cfg: Config):
@@ -534,12 +535,6 @@ class ConvNeXtcVAE2D(nn.Module):
         self.fc_logvar = nn.Linear(flat, self.cfg.bottleneck_dim).to(device)
         self.fc_decode = nn.Linear(self.cfg.bottleneck_dim, flat).to(device)
 
-    @staticmethod
-    def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + eps * std
-
     def forward(self, x: torch.Tensor, ori_mask: torch.Tensor, tgt_mask: Optional[torch.Tensor]=None) -> Dict[str, torch.Tensor]:
         if tgt_mask is None:
             tgt_mask = ori_mask
@@ -589,53 +584,6 @@ class ConvNeXtcVAE2D(nn.Module):
         x_ref = _crop_like_2d(x_pad, ref_hw) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
-
-    def loss(self, out: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """VAE loss with Free-Bits support."""
-        recon = out["recon"]
-        x = out["x_ref"]
-        mu, logvar = out["mu"], out["logvar"]
-
-        loss_name = getattr(self.cfg, "recon_loss", "smoothl1").lower()
-        if loss_name == "mse":
-            recon_per_pixel = (recon - x) ** 2
-        else:
-            beta = float(getattr(self.cfg, "recon_smoothl1_beta", 1.0))
-            try:
-                recon_per_pixel = F.smooth_l1_loss(recon, x, reduction="none", beta=beta)
-            except TypeError:
-                recon_per_pixel = F.smooth_l1_loss(recon, x, reduction="none")
-
-        fg_weight = float(getattr(self.cfg, "fg_weight", 1.0))
-        fg_threshold = float(getattr(self.cfg, "fg_threshold", 0.0))
-        if fg_weight != 1.0:
-            fg_mask = (x > fg_threshold).float()
-            weights = torch.where(fg_mask > 0, fg_weight, 1.0)
-            recon_loss = (recon_per_pixel * weights).mean()
-        else:
-            recon_loss = recon_per_pixel.mean()
-
-        kl_per_dim = 0.5 * (mu.pow(2) + logvar.exp() - 1.0 - logvar)
-        kl_raw = kl_per_dim.sum(dim=1).mean()
-
-        free_bits = float(getattr(self.cfg, "free_bits", 0.0) or 0.0)
-        if free_bits > 0.0:
-            kl_used = kl_per_dim.clamp(min=free_bits).sum(dim=1).mean()
-        else:
-            kl_used = kl_raw
-
-        recon_weighted = self.cfg.recon_weight * recon_loss
-        kl_weighted = self.cfg.beta_kl * kl_used
-        total = recon_weighted + kl_weighted
-
-        return {
-            "total": total,
-            "recon": recon_loss,
-            "kl": kl_used,
-            "kl_raw": kl_raw,
-            "recon_weighted": recon_weighted,
-            "kl_weighted": kl_weighted,
-        }
 
     def _extract_inputs(self, batch) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Extract x, ori_mask, and tgt_mask from batch."""

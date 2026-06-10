@@ -21,6 +21,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
+from models.model_inferface import HybridModelInterface
 from synthesizer.mask_augmentation import to_one_hot_3D
 
 
@@ -487,7 +488,7 @@ class Config:
     # 1.0 disables gating (default). Typical values for encouraging latent usage: 0.2 - 0.6
     skip_alpha: float = 1.0
 
-class ConvNeXtcVAE3D(nn.Module):
+class ConvNeXtcVAE3D(HybridModelInterface):
     """3D ConvNeXt-U-Net VAE with SPADE."""
 
     def __init__(self, cfg: Config):
@@ -540,13 +541,6 @@ class ConvNeXtcVAE3D(nn.Module):
         self.fc_mu = nn.Linear(flat, self.cfg.bottleneck_dim).to(device)
         self.fc_logvar = nn.Linear(flat, self.cfg.bottleneck_dim).to(device)
         self.fc_decode = nn.Linear(self.cfg.bottleneck_dim, flat).to(device)
-
-    @staticmethod
-    def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
-        """Reparameterization trick: sample z ~ N(mu, sigma^2) using mu + eps*sigma."""
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + eps * std
 
     def forward(self, x: torch.Tensor, ori_mask: torch.Tensor, tgt_mask: Optional[torch.Tensor]=None) -> Dict[str, torch.Tensor]:
         """Forward pass through encoder (x and ori_mask) -> bottleneck -> decoder with SPADE using tgt_mask."""
@@ -602,47 +596,6 @@ class ConvNeXtcVAE3D(nn.Module):
         x_ref = _crop_like_3d(x_pad, ref_dhw) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
-
-    def loss(self, out: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """VAE loss = recon_weight * ReconLoss(recon,x) + beta_kl * KL(mu,logvar)."""
-        recon = out["recon"]
-        x = out["x_ref"]
-        mu, logvar = out["mu"], out["logvar"]
-
-        loss_name = getattr(self.cfg, "recon_loss", "smoothl1").lower()
-        if loss_name == "mse":
-            recon_per_voxel = (recon - x) ** 2
-        else:
-            beta = float(getattr(self.cfg, "recon_smoothl1_beta", 1.0))
-            try:
-                recon_per_voxel = F.smooth_l1_loss(recon, x, reduction="none", beta=beta)
-            except TypeError:
-                recon_per_voxel = F.smooth_l1_loss(recon, x, reduction="none")
-
-        fg_weight = float(getattr(self.cfg, "fg_weight", 1.0))
-        fg_threshold = float(getattr(self.cfg, "fg_threshold", 0.0))
-        if fg_weight != 1.0:
-            fg_mask = (x > fg_threshold).float()
-            weights = torch.where(fg_mask > 0, fg_weight, 1.0)
-            recon_loss = (recon_per_voxel * weights).mean()
-        else:
-            recon_loss = recon_per_voxel.mean()
-
-        kl = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
-        kl_raw = kl
-
-        recon_weighted = self.cfg.recon_weight * recon_loss
-        kl_weighted = self.cfg.beta_kl * kl
-        total = recon_weighted + kl_weighted
-
-        return {
-            "total": total,
-            "recon": recon_loss,
-            "kl": kl,
-            "kl_raw": kl_raw,
-            "recon_weighted": recon_weighted,
-            "kl_weighted": kl_weighted,
-        }
 
     def _extract_inputs(self, batch) -> Tuple[torch.Tensor, torch.Tensor]:
         """Extract the input tensor x and the mask from a batch (unchanged from original)."""
