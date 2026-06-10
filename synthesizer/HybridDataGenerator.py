@@ -96,11 +96,9 @@ class HybridDataGenerator:
         self._log_step("Step 1/9: Extracting anomaly cutouts and ROI samples.")
 
         transform_generator = TransformGenerator(
-            self._config.global_mask_transforms,
-            self._config.local_mask_transforms,
+            getattr(self._config, "mask_transform_probs", None),
             use_mask_augmentation=getattr(self._config, "use_mask_augmentation", False),
             transform_params=getattr(self._config, "mask_transform_params", None),
-            class_transform_params=getattr(self._config, "class_mask_transform_params", None),
             priorities=getattr(self._config, "mask_transform_priorities", None),
             num_anomaly_classes=getattr(self._config, "num_anomaly_classes", None),
             rng=getattr(self._config, "rng", None),

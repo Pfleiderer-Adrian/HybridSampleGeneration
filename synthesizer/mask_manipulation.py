@@ -71,10 +71,9 @@ def to_one_hot_2D(mask: torch.Tensor, num_anomaly_classes: int) -> torch.Tensor:
 def random_global_stretch_transform(mask_np: np.ndarray, stretch_min=0.95, stretch_max=1.05):
     """Apply nearest-neighbour scaling around the mask center while preserving shape."""
     original_dtype = mask_np.dtype
-    ndim = mask_np.ndim
 
-    if ndim not in (3, 4):
-        raise ValueError(f"Unterstuetzt nur 2D oder 3D Daten. Deine Maske hat {ndim} Dimensionen.")
+    if mask_np.ndim not in (3, 4) or mask_np.shape[0] != 1:
+        raise ValueError(f"Expected mask with shape (1, H, W) or (1, D, H, W), got {mask_np.shape}.")
 
     transformed_mask = mask_np[0].copy()
     spatial_ndim = transformed_mask.ndim
@@ -96,10 +95,8 @@ def random_global_stretch_transform(mask_np: np.ndarray, stretch_min=0.95, stret
         cval=0,
     ).astype(original_dtype)
 
-    if mask_np.shape[0] == 1:
-        return transformed_mask[None, ...]
-    return np.repeat(transformed_mask[None, ...], mask_np.shape[0], axis=0)
-
+    return transformed_mask[None, ...]
+    
 
 def _sample_iterations(iterations):
     if isinstance(iterations, (tuple, list)):
@@ -115,10 +112,9 @@ def _sample_iterations(iterations):
 def random_dilate_transform(mask_np: np.ndarray, classes=None, priorities=None, params=None):
     """Dilate selected classes in a 2D or 3D channel-first label mask."""
     original_dtype = mask_np.dtype
-    ndim = mask_np.ndim
 
-    if ndim not in (3, 4):
-        raise ValueError(f"Unterstuetzt nur 2D oder 3D Daten. Deine Maske hat {ndim} Dimensionen.")
+    if mask_np.ndim not in (3, 4) or mask_np.shape[0] != 1:
+        raise ValueError(f"Expected mask with shape (1, H, W) or (1, D, H, W), got {mask_np.shape}.")
 
     params = {} if params is None else params
     transformed_mask = mask_np[0].copy()
@@ -147,33 +143,32 @@ def random_dilate_transform(mask_np: np.ndarray, classes=None, priorities=None, 
             final_mask[class_masks[cls]] = cls
 
     final_mask = final_mask.astype(original_dtype)
-    if mask_np.shape[0] == 1:
-        return final_mask[None, ...]
-    return np.repeat(final_mask[None, ...], mask_np.shape[0], axis=0)
+    
+    return final_mask[None, ...]
 
 
 def random_elastic_transform(mask_np: np.ndarray, sigma=5, magnitude=200):
-    """
-    Nimmt ein 2D oder 3D NumPy-Array, wählt dynamisch die richtige 
-    MONAI-Transformation (2D oder 3D) und gibt das verzerrte Array zurück.
-    """
+    """Apply the matching MONAI elastic transform for a 2D or 3D NumPy mask."""
     original_dtype = mask_np.dtype
     ndim = mask_np.ndim
 
-    # MONAI erwartet das Format [Kanal, Raumdimensionen] -> [1, (D), H, W]
+    if ndim not in (3, 4) or mask_np.shape[0] != 1:
+        raise ValueError(f"Expected mask with shape (1, H, W) or (1, D, H, W), got {mask_np.shape}.")
+
+    # MONAI expects [1, (D), H, W]
     mask_tensor = torch.from_numpy(mask_np).float()
 
     if ndim == 3:
-        # Fuer 2D (PNG) -> Steuerung der Gitterdichte ueber 'spacing'
+        # 2D: control grid density via 'spacing'
         re_deform = Rand2DElastic(
-            spacing=(sigma, sigma), # abstand der kontrollpunkte
+            spacing=(sigma, sigma),
             magnitude_range=(magnitude, magnitude),
             prob=1.0,
             mode="nearest",
             padding_mode="reflection",
         )
     elif ndim == 4:
-        # Fuer 3D (NIfTI) -> Steuerung der Gitterglaettung ueber 'sigma_range'
+        # 3D: control grid smoothing via 'sigma_range'
         re_deform = Rand3DElastic(
             sigma_range=(sigma, sigma),
             magnitude_range=(magnitude, magnitude),
@@ -181,20 +176,15 @@ def random_elastic_transform(mask_np: np.ndarray, sigma=5, magnitude=200):
             mode="nearest",
             padding_mode="reflection",
         )
-    else:
-        raise ValueError(f"Unterstützt nur 2D oder 3D Daten. Deine Maske hat {ndim} Dimensionen.")
 
     transformed_tensor = re_deform(mask_tensor)
 
     return transformed_tensor.numpy().astype(original_dtype)
 
 
-GLOBAL_TRANSFORM_PROBS = {
+DEFAULT_TRANSFORM_PROBS = {
     "stretch": 1,
     "elastic": 1,
-}
-
-LOCAL_TRANSFORM_PROBS = {
     "dilate": 0.5,
 }
 
@@ -226,102 +216,111 @@ class TransformGenerator:
 
     def __init__(
         self,
-        global_transforms: Dict[str, float] | None = None,
-        local_transforms: Dict[int | str, Any] | None = None,
+        transform_probs: Dict[int | str, Any] | None = None,
         *,
         use_mask_augmentation: bool = False,
-        transform_params: Dict[str, Dict[str, Any]] | None = None,
-        class_transform_params: Dict[int | str, Dict[str, Dict[str, Any]]] | None = None,
+        transform_params: Dict[int | str, Dict[str, Any]] | None = None,
         priorities: list[int] | tuple[int, ...] | None = None,
         num_anomaly_classes: int | None = None,
         rng: np.random.Generator | None = None,
     ) -> None:
-        self.global_transforms = {}
+        self.global_transform_probs = {}
+        self.default_local_transform_probs = {}
+        self.class_transform_probs = {}
         if use_mask_augmentation:
-            self.global_transforms.update(GLOBAL_TRANSFORM_PROBS)
-        self.global_transforms.update(global_transforms or {})
-        for transform_name, probability in self.global_transforms.items():
-            if transform_name not in self.GLOBAL_TRANSFORMS:
-                raise KeyError(f"Unknown global transform {transform_name!r}. Available: {sorted(self.GLOBAL_TRANSFORMS)}")
-            self.global_transforms[transform_name] = self._validate_probability(probability)
-
-        self.default_local_transforms = dict(LOCAL_TRANSFORM_PROBS) if use_mask_augmentation else {}
-        self.local_transforms = {}
-        for key, value in (local_transforms or {}).items():
-            if isinstance(key, str) and key in self.LOCAL_TRANSFORMS:
-                self.default_local_transforms[key] = self._validate_probability(value)
-            else:
-                try:
-                    class_id = int(key)
-                except (TypeError, ValueError) as exc:
-                    raise ValueError(
-                        "local_mask_transforms keys must be local transform names "
-                        f"or integer class ids, got {key!r}."
-                    ) from exc
-                if not isinstance(value, dict):
-                    raise TypeError(
-                        "Class-specific local transform config must be a dict, "
-                        f"got {value!r} for class {class_id}."
-                    )
-                self.local_transforms[class_id] = {}
-                for transform_name, probability in value.items():
-                    if transform_name not in self.LOCAL_TRANSFORMS:
-                        raise KeyError(
-                            f"Unknown local transform {transform_name!r}. "
-                            f"Available: {sorted(self.LOCAL_TRANSFORMS)}"
-                        )
-                    self.local_transforms[class_id][transform_name] = self._validate_probability(probability)
-        for transform_name, probability in self.default_local_transforms.items():
-            if transform_name not in self.LOCAL_TRANSFORMS:
-                raise KeyError(f"Unknown local transform {transform_name!r}. Available: {sorted(self.LOCAL_TRANSFORMS)}")
-            self.default_local_transforms[transform_name] = self._validate_probability(probability)
+            self.set_transform_probs(DEFAULT_TRANSFORM_PROBS)
+        if transform_probs:
+            self.set_transform_probs(transform_probs)
         self.transform_params = deepcopy(DEFAULT_TRANSFORM_PARAMS)
         self.class_transform_params = {}
         self.num_anomaly_classes = None if num_anomaly_classes is None else int(num_anomaly_classes)
         self.priorities = None if priorities is None else [int(class_id) for class_id in priorities]
         if transform_params:
             self.set_transform_params(transform_params)
-        if class_transform_params:
-            self.set_class_transform_params(class_transform_params)
         self.rng = rng if rng is not None else np.random.default_rng()
 
     def augment_mask(self, mask_np: np.ndarray) -> np.ndarray:
         augmented = mask_np.copy()
 
-        for transform_name, probability in self.global_transforms.items():
+        for transform_name, probability in self.global_transform_probs.items():
             if self._should_apply(probability):
                 augmented = self._apply_global_transform(augmented, transform_name)
 
         for class_id in self._local_class_order(augmented):
-            class_transforms = dict(self.default_local_transforms)
-            class_transforms.update(self.local_transforms.get(class_id, {}))
+            class_transforms = dict(self.default_local_transform_probs)
+            class_transforms.update(self.class_transform_probs.get(class_id, {}))
             for transform_name, probability in class_transforms.items():
                 if self._should_apply(probability):
                     augmented = self._apply_local_transform(augmented, class_id, transform_name)
 
         return augmented
 
-    def set_transform_params(self, params: Dict[str, Dict[str, Any]] | None = None, **kwargs) -> None:
-        updates = {} if params is None else dict(params)
+    def set_transform_probs(self, probs: Dict[int | str, Any] | None = None, **kwargs) -> None:
+        updates = {} if probs is None else dict(probs)
         updates.update(kwargs)
-        for transform_name, transform_updates in updates.items():
-            if transform_name not in self.transform_params:
-                self.transform_params[transform_name] = {}
-            self.transform_params[transform_name].update(dict(transform_updates))
+        for key, value in updates.items():
+            if isinstance(key, str) and key in self.GLOBAL_TRANSFORMS:
+                self.global_transform_probs[key] = self._validate_probability(value)
+            elif isinstance(key, str) and key in self.LOCAL_TRANSFORMS:
+                self.default_local_transform_probs[key] = self._validate_probability(value)
+            else:
+                try:
+                    class_id = int(key)
+                except (TypeError, ValueError) as exc:
+                    available = sorted({*self.GLOBAL_TRANSFORMS, *self.LOCAL_TRANSFORMS})
+                    raise ValueError(
+                        "mask_transform_probs keys must be transform names "
+                        f"or integer class ids, got {key!r}. Available transforms: {available}."
+                    ) from exc
+                if not isinstance(value, dict):
+                    raise TypeError(
+                        "Class-specific transform probabilities must be a dict, "
+                        f"got {value!r} for class {class_id}."
+                    )
+                self.class_transform_probs.setdefault(class_id, {})
+                for transform_name, probability in value.items():
+                    if transform_name not in self.LOCAL_TRANSFORMS:
+                        raise KeyError(
+                            f"Class-specific transform probabilities are only supported for local transforms. "
+                            f"Got {transform_name!r}. Available: {sorted(self.LOCAL_TRANSFORMS)}"
+                        )
+                    self.class_transform_probs[class_id][transform_name] = self._validate_probability(probability)
 
-    def set_class_transform_params(
-        self,
-        params: Dict[int | str, Dict[str, Dict[str, Any]]] | None = None,
-        **kwargs,
-    ) -> None:
+    def set_transform_params(self, params: Dict[int | str, Dict[str, Any]] | None = None, **kwargs) -> None:
         updates = {} if params is None else dict(params)
         updates.update(kwargs)
-        for class_id, class_updates in updates.items():
-            class_id = int(class_id)
-            self.class_transform_params.setdefault(class_id, {})
-            for transform_name, transform_updates in class_updates.items():
-                self.class_transform_params[class_id].setdefault(transform_name, {})
-                self.class_transform_params[class_id][transform_name].update(dict(transform_updates))
+        for key, value in updates.items():
+            if isinstance(key, str) and key in self.transform_params:
+                if not isinstance(value, dict):
+                    raise TypeError(f"Transform params for {key!r} must be a dict, got {value!r}.")
+                self.transform_params[key].update(dict(value))
+            else:
+                try:
+                    class_id = int(key)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        "mask_transform_params keys must be transform names "
+                        f"or integer class ids, got {key!r}."
+                    ) from exc
+                if not isinstance(value, dict):
+                    raise TypeError(
+                        "Class-specific transform params must be a dict, "
+                        f"got {value!r} for class {class_id}."
+                    )
+                self.class_transform_params.setdefault(class_id, {})
+                for transform_name, transform_updates in value.items():
+                    if transform_name not in self.LOCAL_TRANSFORMS:
+                        raise KeyError(
+                            f"Class-specific transform params are only supported for local transforms. "
+                            f"Got {transform_name!r}. Available: {sorted(self.LOCAL_TRANSFORMS)}"
+                        )
+                    if not isinstance(transform_updates, dict):
+                        raise TypeError(
+                            f"Class-specific transform params for {transform_name!r} must be a dict, "
+                            f"got {transform_updates!r}."
+                        )
+                    self.class_transform_params[class_id].setdefault(transform_name, {})
+                    self.class_transform_params[class_id][transform_name].update(dict(transform_updates))
 
     def _apply_global_transform(self, mask_np: np.ndarray, transform_name: str) -> np.ndarray:
         transform = self.GLOBAL_TRANSFORMS[transform_name]

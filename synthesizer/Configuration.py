@@ -86,13 +86,11 @@ class Configuration:
 
         # mask augmentation parameter
         self.use_mask_augmentation = False
-        # override dicts for changing parameters manually
-        self.global_mask_transforms = {}
-        self.local_mask_transforms = {}
+        # override dicts for changing transform probabilities and parameters manually
+        self.mask_transform_probs = {}
         self.mask_transform_params = {}
-        self.class_mask_transform_params = {}
 
-        self.mask_transform_priorities = None
+        self.mask_transform_priorities = None   # dominant class first; default: [1,2,...,num_anomaly_classes] (if None)
 
         # Random offsets are applied dynamically during training augmentation.
         # Persisted anomaly cutouts stay centered, which keeps later fusion stable.
