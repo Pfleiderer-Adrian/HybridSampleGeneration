@@ -1,0 +1,145 @@
+from abc import ABC, abstractmethod
+from typing import Any, Optional, Tuple, Union
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torch import nn
+
+
+class HybridModelInterface(nn.Module, ABC):
+    """
+    Abstract interface for models used by Trainer and HybridDataGenerator.
+
+    This class documents the external contract and hosts behavior shared by all
+    current generator models.
+    """
+
+    cfg: Any
+
+    @staticmethod
+    def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+        """
+        Reparameterization trick: sample z ~ N(mu, sigma^2) using mu + eps*sigma.
+        """
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def loss(self, out: dict) -> dict:
+        """
+        Compute the shared VAE loss for all hybrid generator models.
+
+        Expected forward output:
+            recon, x_ref, mu, logvar
+
+        Returned metrics are intentionally stable because synthesizer.Trainer
+        logs these keys for every model.
+        """
+        recon = out["recon"]
+        x = out["x_ref"]
+        mu, logvar = out["mu"], out["logvar"]
+
+        loss_name = str(getattr(self.cfg, "recon_loss", "smoothl1")).lower()
+        if loss_name in ("smoothl1", "smooth_l1", "huber"):
+            beta = float(getattr(self.cfg, "recon_smoothl1_beta", 1.0))
+            try:
+                recon_per_element = F.smooth_l1_loss(recon, x, reduction="none", beta=beta)
+            except TypeError:
+                recon_per_element = F.smooth_l1_loss(recon, x, reduction="none")
+        elif loss_name in ("mse", "l2"):
+            recon_per_element = (recon - x) ** 2
+        else:
+            raise ValueError(
+                f"Unknown cfg.recon_loss={getattr(self.cfg, 'recon_loss', None)!r}. "
+                "Supported: 'smoothl1' | 'mse'"
+            )
+
+        fg_weight = float(getattr(self.cfg, "fg_weight", 1.0))
+        fg_threshold = float(getattr(self.cfg, "fg_threshold", 0.0))
+        if fg_weight != 1.0:
+            fg_mask = (x > fg_threshold).float()
+            weights = torch.where(fg_mask > 0, fg_weight, 1.0)
+            recon_loss = (recon_per_element * weights).mean()
+        else:
+            recon_loss = recon_per_element.mean()
+
+        kl_per_dim = 0.5 * (mu.pow(2) + logvar.exp() - 1.0 - logvar)
+        kl_raw = kl_per_dim.sum(dim=1).mean()
+
+        free_bits = float(getattr(self.cfg, "free_bits", 0.0) or 0.0)
+        if free_bits > 0.0:
+            kl_used = kl_per_dim.clamp(min=free_bits).sum(dim=1).mean()
+        else:
+            kl_used = kl_raw
+
+        recon_weighted = self.cfg.recon_weight * recon_loss
+        kl_weighted = self.cfg.beta_kl * kl_used
+        total = recon_weighted + kl_weighted
+
+        return {
+            "total": total,
+            "recon": recon_loss,
+            "kl": kl_used,
+            "kl_raw": kl_raw,
+            "recon_weighted": recon_weighted,
+            "kl_weighted": kl_weighted,
+        }
+
+    @abstractmethod
+    def warmup(self, shape, device=None, dtype=None):
+        """
+        Initialize shape-dependent or lazy layers before optimizer creation or checkpoint loading.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def fit_epoch(
+        self,
+        train_dataloader,
+        val_dataloader,
+        optimizer,
+        *,
+        log_every=1,
+        grad_clip_norm: Optional[float] = None,
+        device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
+    ) -> Tuple[dict, dict]:
+        """
+        Train one epoch and optionally validate.
+
+        Expected by synthesizer.Trainer.train().
+        Implementations should return train_metrics and val_metrics. Both dicts
+        should include at least "total", "recon", "kl", "recon_weighted",
+        "kl_weighted", and "kl_raw" when validation is used by the trainer.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def generate_synth_sample(
+        self,
+        sample: Union[dict, np.ndarray, torch.Tensor],
+        *,
+        clamp_01: bool = True,
+        **kwargs,
+    ):
+        """
+        Generate a synthetic anomaly sample from an existing anomaly sample.
+
+        Expected by synthesizer.HybridDataGenerator.generate_synth_anomalies().
+        Implementations should return synthetic_image and target_mask.
+        """
+        raise NotImplementedError
+
+    def generate_synth_sample_prior(
+        self,
+        sample: Union[dict, np.ndarray, torch.Tensor, None] = None,
+        *,
+        clamp_01: bool = True,
+        **kwargs,
+    ):
+        """
+        Optional prior-sampling entry point used when config.prior_sampling is true.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement prior sampling."
+        )

@@ -1690,7 +1690,10 @@ class AnomalyGenerationTab(_ArrayTabBase):
                     meta=anomaly_meta, window_path=roi_path,
                 ),
                 _array_item("Extracted ROI", roi_path, roi_expected),
-                _array_item("Generated anomaly", synth_path, synth_expected, meta=anomaly_meta),
+                _array_item(
+                    "Generated anomaly", synth_path, synth_expected,
+                    meta=anomaly_meta, window_path=roi_path,
+                ),
                 _array_item("Future mask", mask_path, mask_expected),
             ]
             self.fig.suptitle(f"anomaly generation: {selected}", fontsize=13, fontweight="bold")

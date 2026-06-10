@@ -9,6 +9,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
+from models.model_inferface import HybridModelInterface
+
 # -------------------------
 # helpers: padding/cropping
 # -------------------------
@@ -429,7 +431,7 @@ class Config:
     fg_threshold: float = 0.0
 
 
-class ResNetVAE3D(nn.Module):
+class ResNetVAE3D(HybridModelInterface):
     """
     3D ResNet-VAE.
 
@@ -524,27 +526,6 @@ class ResNetVAE3D(nn.Module):
         # Map bottleneck vector -> flattened latent feature map
         self.fc_decode = nn.Linear(self.cfg.bottleneck_dim, flat).to(device)
 
-    @staticmethod
-    def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
-        """
-        Reparameterization trick: sample z ~ N(mu, sigma^2) using mu + eps*sigma.
-
-        Inputs
-        ------
-        mu:
-            torch.Tensor (B, bottleneck_dim)
-        logvar:
-            torch.Tensor (B, bottleneck_dim)
-
-        Outputs
-        -------
-        torch.Tensor
-            z: (B, bottleneck_dim)
-        """
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + eps * std
-
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
         Forward pass through encoder -> bottleneck -> decoder.
@@ -607,61 +588,6 @@ class ResNetVAE3D(nn.Module):
         x_ref = _crop_like_3d(x_pad, ref_dhw) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
-
-
-    def loss(self, out: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """
-        Compute VAE loss = recon_weight * ReconLoss(recon,x) + beta_kl * KL(mu,logvar).
-
-        Inputs
-        ------
-        out:
-            dict from forward() containing:
-              - recon, x_ref, mu, logvar
-
-        Outputs
-        -------
-        dict:
-          - total: torch.Tensor scalar
-          - recon: torch.Tensor scalar (BCE)
-          - kl: torch.Tensor scalar
-        """
-        recon = out["recon"]
-        x = out["x_ref"]
-        mu, logvar = out["mu"], out["logvar"]
-
-        # Reconstruction loss (mean over all voxels)
-        loss_name = getattr(self.cfg, "recon_loss", "smoothl1").lower()
-        if loss_name == "mse":
-            recon_per_voxel = (recon - x) ** 2
-        else:
-            # SmoothL1 (Huber) is usually a good default for medical volumes (robust to outliers).
-            beta = float(getattr(self.cfg, "recon_smoothl1_beta", 1.0))
-            try:
-                recon_per_voxel = F.smooth_l1_loss(recon, x, reduction="none", beta=beta)
-            except TypeError:
-                # Older PyTorch without 'beta' argument
-                recon_per_voxel = F.smooth_l1_loss(recon, x, reduction="none")
-
-        # Foreground-weighted loss to reduce background dominance.
-        fg_weight = float(getattr(self.cfg, "fg_weight", 1.0))
-        fg_threshold = float(getattr(self.cfg, "fg_threshold", 0.0))
-        if fg_weight != 1.0:
-            fg_mask = (x > fg_threshold).float()
-            weights = torch.where(fg_mask > 0, fg_weight, 1.0)
-            recon_loss = (recon_per_voxel * weights).mean()
-        else:
-            recon_loss = recon_per_voxel.mean()
-
-
-        # KL divergence term (mean over batch)
-        kl = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
-
-        recon_weighted = self.cfg.recon_weight * recon_loss
-        kl_weighted = self.cfg.beta_kl * kl
-
-        total = recon_weighted + kl_weighted
-        return {"total": total, "recon": recon_loss, "kl": kl, "recon_weighted": recon_weighted, "kl_weighted": kl_weighted}
 
     def _extract_x(self, batch) -> torch.Tensor:
         """
@@ -766,7 +692,7 @@ class ResNetVAE3D(nn.Module):
             model.train(training)
 
             # Accumulators for averaged metrics
-            run = {"total": 0.0, "recon": 0.0, "kl": 0.0, "recon_weighted":0.0, "kl_weighted":0.0}
+            run = {"total": 0.0, "recon": 0.0, "kl": 0.0, "kl_raw": 0.0, "recon_weighted": 0.0, "kl_weighted": 0.0}
             n = 0
 
             # Progress bar over batches
