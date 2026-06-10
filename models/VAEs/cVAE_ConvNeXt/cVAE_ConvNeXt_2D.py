@@ -26,8 +26,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
-from synthesizer.mask_augmentation import to_one_hot_2D
 from models.model_inferface import HybridModelInterface
+from synthesizer.mask_manipulation import to_one_hot_2D
 
 def _compute_symmetric_pad(size: int, multiple: int) -> Tuple[int, int]:
     """Compute symmetric (left,right) padding so that `size` becomes divisible by `multiple`."""

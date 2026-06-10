@@ -22,7 +22,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from models.model_inferface import HybridModelInterface
-from synthesizer.mask_augmentation import to_one_hot_3D
+from synthesizer.mask_manipulation import to_one_hot_3D
 
 
 # -------------------------

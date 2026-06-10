@@ -83,6 +83,15 @@ class Configuration:
         # anomaly extraction parameter
         self.anomaly_size = anomaly_size
         self.separated_anomaly = True
+
+        # mask augmentation parameter
+        self.use_default_mask_transforms = False
+        # override dicts for changing transform probabilities and parameters manually
+        self.mask_transform_probs = {}
+        self.mask_transform_params = {}
+
+        self.mask_transform_priorities = None   # dominant class first; default: present classes sorted by id
+
         # Random offsets are applied dynamically during training augmentation.
         # Persisted anomaly cutouts stay centered, which keeps later fusion stable.
         self.random_offset = True

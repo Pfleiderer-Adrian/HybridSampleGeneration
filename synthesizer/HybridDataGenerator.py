@@ -11,7 +11,7 @@ from tqdm import tqdm
 from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
 
 from models.model_loader import model_loader
-from synthesizer.mask_augmentation import augment_mask
+from synthesizer.mask_manipulation import TransformGenerator
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
 from synthesizer.functions_2D.Fusion2D import fusion2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
@@ -108,6 +108,8 @@ class HybridDataGenerator:
         )
         self._config.syn_anomaly_transformations = {}
 
+        transform_generator = TransformGenerator.from_config(self._config) if self._config.conditional else None
+
         for img, seg, basename in sample_dataloader:
             # check if sample has no anomaly
             if not np.any(seg):
@@ -165,9 +167,9 @@ class HybridDataGenerator:
 
             # nur erstellen wen conditional
             tgt_masks = []
-            if self._config.conditional and org_masks is not None:
+            if transform_generator is not None and org_masks is not None:
                 for org_mask in org_masks:
-                    tgt_mask = augment_mask(org_mask)
+                    tgt_mask = transform_generator.augment_mask(org_mask)
                     tgt_masks.append(tgt_mask)
             for i, mask_sample in enumerate(tgt_masks):
                 artifact_name = basename + "_" + str(i) + ".npy"
@@ -212,7 +214,7 @@ class HybridDataGenerator:
                 "num_anomaly_classes",
                 self._config.num_anomaly_classes,
             )
-            
+
         self._config.load_anomaly_transformations()
 
     def train_generator(self, no_of_trails):
@@ -361,7 +363,7 @@ class HybridDataGenerator:
                         best_image = syn_anomaly_sample
                         best_mask = syn_anomaly_mask
                         print("New best Score: "+str(best))
-                    
+
                     if i % 100 == 0:
                         if self._config.feedback_threshold > 0.15:
                             self._config.feedback_threshold = self._config.feedback_threshold * self._config.threshold_relaxation_factor
@@ -598,7 +600,7 @@ class HybridDataGenerator:
                 )
                 os.makedirs(os.path.dirname(roi_path), exist_ok=True)
                 save_numpy_as_npy(roi, roi_path, overwrite=True)
-            
+
         if save_npy:
             paths = self._config.get_paths()
             img_folder = paths.generated_images_npy
@@ -607,7 +609,7 @@ class HybridDataGenerator:
             os.makedirs(seg_folder, exist_ok=True)
 
             img_path = os.path.join(img_folder, basename_of_control_sample)
-            seg_path = os.path.join(seg_folder, basename_of_control_sample)   
+            seg_path = os.path.join(seg_folder, basename_of_control_sample)
             save_numpy_as_npy(img, img_path, overwrite=True)
             save_numpy_as_npy(seg_final, seg_path, overwrite=True)
 
