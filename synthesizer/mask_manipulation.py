@@ -68,7 +68,7 @@ def to_one_hot_2D(mask: torch.Tensor, num_anomaly_classes: int) -> torch.Tensor:
     return mask_oh.permute(0, 3, 1, 2).float()
 
 
-def random_global_stretch_transform(mask_np: np.ndarray, stretch_min=0.95, stretch_max=1.05):
+def random_global_stretch_transform(mask_np: np.ndarray, stretch_min=0.95, stretch_max=1.05, rng=None):
     """Apply nearest-neighbour scaling around the mask center while preserving shape."""
     original_dtype = mask_np.dtype
 
@@ -77,7 +77,8 @@ def random_global_stretch_transform(mask_np: np.ndarray, stretch_min=0.95, stret
 
     transformed_mask = mask_np[0].copy()
     spatial_ndim = transformed_mask.ndim
-    scales = [np.random.uniform(stretch_min, stretch_max) for _ in range(spatial_ndim)]
+    rng = rng if rng is not None else np.random.default_rng()
+    scales = [rng.uniform(stretch_min, stretch_max) for _ in range(spatial_ndim)]
 
     inv_scales = 1.0 / np.array(scales)
     matrix = np.diag(inv_scales)
@@ -98,18 +99,19 @@ def random_global_stretch_transform(mask_np: np.ndarray, stretch_min=0.95, stret
     return transformed_mask[None, ...]
     
 
-def _sample_iterations(iterations):
+def _sample_iterations(iterations, rng=None):
     if isinstance(iterations, (tuple, list)):
         if len(iterations) != 2:
             raise ValueError(f"iterations range must contain exactly two values, got {iterations!r}.")
         low, high = int(iterations[0]), int(iterations[1])
         if low > high:
             raise ValueError(f"iterations range must be ordered as (min, max), got {iterations!r}.")
-        return int(np.random.randint(low, high + 1))
+        rng = rng if rng is not None else np.random.default_rng()
+        return int(rng.integers(low, high + 1))
     return int(iterations)
 
 
-def random_dilate_transform(mask_np: np.ndarray, classes=None, priorities=None, params=None):
+def random_dilate_transform(mask_np: np.ndarray, classes=None, priorities=None, params=None, rng=None):
     """Dilate selected classes in a 2D or 3D channel-first label mask."""
     original_dtype = mask_np.dtype
 
@@ -125,7 +127,7 @@ def random_dilate_transform(mask_np: np.ndarray, classes=None, priorities=None, 
         priorities = classes
 
     class_masks = {}
-    iterations = _sample_iterations(params.get("iterations", 1))
+    iterations = _sample_iterations(params.get("iterations", 1), rng=rng)
 
     for cls in classes:
         binary_mask = transformed_mask == cls
@@ -147,7 +149,7 @@ def random_dilate_transform(mask_np: np.ndarray, classes=None, priorities=None, 
     return final_mask[None, ...]
 
 
-def random_elastic_transform(mask_np: np.ndarray, sigma=5, magnitude=200):
+def random_elastic_transform(mask_np: np.ndarray, sigma=5, magnitude=200, rng=None):
     """Apply the matching MONAI elastic transform for a 2D or 3D NumPy mask."""
     original_dtype = mask_np.dtype
     ndim = mask_np.ndim
@@ -176,6 +178,9 @@ def random_elastic_transform(mask_np: np.ndarray, sigma=5, magnitude=200):
             mode="nearest",
             padding_mode="reflection",
         )
+
+    if rng is not None and hasattr(re_deform, "set_random_state"):
+        re_deform.set_random_state(seed = int(rng.integers(0, np.iinfo(np.uint32).max)))
 
     transformed_tensor = re_deform(mask_tensor)
 
@@ -224,7 +229,7 @@ class TransformGenerator:
         rng: np.random.Generator | None = None,
     ) -> None:
         self.global_transform_probs = {}
-        self.default_local_transform_probs = {}
+        self.local_transform_probs = {}
         self.class_transform_probs = {}
         if use_default_mask_transforms:
             self.set_transform_probs(DEFAULT_TRANSFORM_PROBS)
@@ -232,7 +237,7 @@ class TransformGenerator:
             self.set_transform_probs(transform_probs)
         self.transform_params = deepcopy(DEFAULT_TRANSFORM_PARAMS)
         self.class_transform_params = {}
-        self.priorities = None if priorities is None else [int(class_id) for class_id in priorities]
+        self.priorities = priorities
         if transform_params:
             self.set_transform_params(transform_params)
         self.rng = rng if rng is not None else np.random.default_rng()
@@ -244,32 +249,27 @@ class TransformGenerator:
             if self._should_apply(probability):
                 augmented = self._apply_global_transform(augmented, transform_name)
 
-        for class_id in self._local_class_order(augmented):
-            class_transforms = dict(self.default_local_transform_probs)
+        class_order = self._local_class_order(augmented)
+        for class_id in class_order:
+            class_transforms = dict(self.local_transform_probs)
             class_transforms.update(self.class_transform_probs.get(class_id, {}))
             for transform_name, probability in class_transforms.items():
                 if self._should_apply(probability):
-                    augmented = self._apply_local_transform(augmented, class_id, transform_name)
+                    augmented = self._apply_local_transform(augmented, class_id, transform_name, class_order)
 
         return augmented
 
-    def set_transform_probs(self, probs: Dict[int | str, Any] | None = None, **kwargs) -> None:
-        updates = {} if probs is None else dict(probs)
-        updates.update(kwargs)
-        for key, value in updates.items():
+    def set_transform_probs(self, probs: Dict[int | str, Any] | None = None) -> None:
+        if probs is None:
+            return
+        for key, value in probs.items():
             if isinstance(key, str) and key in self.GLOBAL_TRANSFORMS:
                 self.global_transform_probs[key] = self._validate_probability(value)
             elif isinstance(key, str) and key in self.LOCAL_TRANSFORMS:
-                self.default_local_transform_probs[key] = self._validate_probability(value)
-            else:
-                try:
-                    class_id = int(key)
-                except (TypeError, ValueError) as exc:
-                    available = sorted({*self.GLOBAL_TRANSFORMS, *self.LOCAL_TRANSFORMS})
-                    raise ValueError(
-                        "mask_transform_probs keys must be transform names "
-                        f"or integer class ids, got {key!r}. Available transforms: {available}."
-                    ) from exc
+                self.local_transform_probs[key] = self._validate_probability(value)
+            elif isinstance(key, int):
+                # class specific
+                class_id = key
                 if not isinstance(value, dict):
                     raise TypeError(
                         "Class-specific transform probabilities must be a dict, "
@@ -283,23 +283,24 @@ class TransformGenerator:
                             f"Got {transform_name!r}. Available: {sorted(self.LOCAL_TRANSFORMS)}"
                         )
                     self.class_transform_probs[class_id][transform_name] = self._validate_probability(probability)
+            else:
+                available = sorted({*self.GLOBAL_TRANSFORMS, *self.LOCAL_TRANSFORMS})
+                raise ValueError(
+                    "mask_transform_probs keys must be transform names "
+                    f"or integer class ids, got {key!r}. Available transforms: {available}."
+                )
 
-    def set_transform_params(self, params: Dict[int | str, Dict[str, Any]] | None = None, **kwargs) -> None:
-        updates = {} if params is None else dict(params)
-        updates.update(kwargs)
-        for key, value in updates.items():
+    def set_transform_params(self, params: Dict[int | str, Dict[str, Any]] | None = None) -> None:
+        if params is None:
+            return
+        for key, value in params.items():
             if isinstance(key, str) and key in self.transform_params:
                 if not isinstance(value, dict):
                     raise TypeError(f"Transform params for {key!r} must be a dict, got {value!r}.")
                 self.transform_params[key].update(dict(value))
-            else:
-                try:
-                    class_id = int(key)
-                except (TypeError, ValueError) as exc:
-                    raise ValueError(
-                        "mask_transform_params keys must be transform names "
-                        f"or integer class ids, got {key!r}."
-                    ) from exc
+            elif isinstance(key, int):
+                # class specific
+                class_id = key
                 if not isinstance(value, dict):
                     raise TypeError(
                         "Class-specific transform params must be a dict, "
@@ -319,23 +320,33 @@ class TransformGenerator:
                         )
                     self.class_transform_params[class_id].setdefault(transform_name, {})
                     self.class_transform_params[class_id][transform_name].update(dict(transform_updates))
+            else:
+                raise ValueError(
+                    "mask_transform_params keys must be transform names "
+                    f"or integer class ids, got {key!r}."
+                )
 
     def _apply_global_transform(self, mask_np: np.ndarray, transform_name: str) -> np.ndarray:
         transform = self.GLOBAL_TRANSFORMS[transform_name]
         params = dict(self.transform_params.get(transform_name, {}))
-        return transform(mask_np, **params)
+        return transform(mask_np, rng=self.rng, **params)
 
-    def _apply_local_transform(self, mask_np: np.ndarray, class_id: int, transform_name: str) -> np.ndarray:
+    def _apply_local_transform(
+        self,
+        mask_np: np.ndarray,
+        class_id: int,
+        transform_name: str,
+        priorities: list[int],
+    ) -> np.ndarray:
         transform = self.LOCAL_TRANSFORMS[transform_name]
         params = dict(self.transform_params.get(transform_name, {}))
         params.update(self.class_transform_params.get(class_id, {}).get(transform_name, {}))
-        classes = params.pop("classes", None)
-        priorities = params.pop("priorities", None)
         return transform(
             mask_np,
-            classes=[class_id] if classes is None else classes,
-            priorities=self._local_class_order(mask_np) if priorities is None else priorities,
+            classes=[class_id],
+            priorities=priorities,
             params=params,
+            rng=self.rng,
         )
 
     def _validate_probability(self, probability) -> float:
