@@ -97,10 +97,9 @@ class HybridDataGenerator:
 
         transform_generator = TransformGenerator(
             getattr(self._config, "mask_transform_probs", None),
-            use_mask_augmentation=getattr(self._config, "use_mask_augmentation", False),
+            use_default_mask_transforms=getattr(self._config, "use_default_mask_transforms", False),
             transform_params=getattr(self._config, "mask_transform_params", None),
             priorities=getattr(self._config, "mask_transform_priorities", None),
-            num_anomaly_classes=getattr(self._config, "num_anomaly_classes", None),
             rng=getattr(self._config, "rng", None),
         )
 

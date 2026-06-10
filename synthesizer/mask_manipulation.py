@@ -218,22 +218,20 @@ class TransformGenerator:
         self,
         transform_probs: Dict[int | str, Any] | None = None,
         *,
-        use_mask_augmentation: bool = False,
+        use_default_mask_transforms: bool = False,
         transform_params: Dict[int | str, Dict[str, Any]] | None = None,
         priorities: list[int] | tuple[int, ...] | None = None,
-        num_anomaly_classes: int | None = None,
         rng: np.random.Generator | None = None,
     ) -> None:
         self.global_transform_probs = {}
         self.default_local_transform_probs = {}
         self.class_transform_probs = {}
-        if use_mask_augmentation:
+        if use_default_mask_transforms:
             self.set_transform_probs(DEFAULT_TRANSFORM_PROBS)
         if transform_probs:
             self.set_transform_probs(transform_probs)
         self.transform_params = deepcopy(DEFAULT_TRANSFORM_PARAMS)
         self.class_transform_params = {}
-        self.num_anomaly_classes = None if num_anomaly_classes is None else int(num_anomaly_classes)
         self.priorities = None if priorities is None else [int(class_id) for class_id in priorities]
         if transform_params:
             self.set_transform_params(transform_params)
@@ -355,8 +353,4 @@ class TransformGenerator:
             configured = [class_id for class_id in self.priorities if class_id in present_classes]
             missing = [class_id for class_id in present_classes if class_id not in configured]
             return configured + sorted(missing)
-        if self.num_anomaly_classes is not None:
-            priority_order = list(range(1, self.num_anomaly_classes + 1))
-        else:
-            priority_order = list(range(1, int(mask_np[0].max()) + 1))
-        return [class_id for class_id in priority_order if class_id in present_classes]
+        return sorted(present_classes)
