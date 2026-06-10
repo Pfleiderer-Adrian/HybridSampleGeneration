@@ -94,15 +94,6 @@ class HybridDataGenerator:
             Side effects: writes .npy files, updates config transformation file, sets self._anomaly_dataset.
         """
         self._log_step("Step 1/9: Extracting anomaly cutouts and ROI samples.")
-
-        transform_generator = TransformGenerator(
-            getattr(self._config, "mask_transform_probs", None),
-            use_default_mask_transforms=getattr(self._config, "use_default_mask_transforms", False),
-            transform_params=getattr(self._config, "mask_transform_params", None),
-            priorities=getattr(self._config, "mask_transform_priorities", None),
-            rng=getattr(self._config, "rng", None),
-        )
-
         paths = self._config.get_paths()
         anomaly_folder = paths.anomaly_data
         anomaly_roi_folder = paths.anomaly_roi_data
@@ -116,6 +107,8 @@ class HybridDataGenerator:
             anomaly_tgt_mask_folder,
         )
         self._config.syn_anomaly_transformations = {}
+
+        transform_generator = TransformGenerator.from_config(self._config) if self._config.conditional else None
 
         for img, seg, basename in sample_dataloader:
             # check if sample has no anomaly
@@ -174,7 +167,7 @@ class HybridDataGenerator:
 
             # nur erstellen wen conditional
             tgt_masks = []
-            if self._config.conditional and org_masks is not None:
+            if transform_generator is not None and org_masks is not None:
                 for org_mask in org_masks:
                     tgt_mask = transform_generator.augment_mask(org_mask)
                     tgt_masks.append(tgt_mask)

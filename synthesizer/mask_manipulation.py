@@ -211,6 +211,16 @@ DEFAULT_TRANSFORM_PARAMS = {
 class TransformGenerator:
     """Central orchestration object for mask augmentation."""
 
+    @classmethod
+    def from_config(cls, config):
+        return cls(
+            getattr(config, "mask_transform_probs", None),
+            use_default_mask_transforms=getattr(config, "use_default_mask_transforms", False),
+            transform_params=getattr(config, "mask_transform_params", None),
+            priorities=getattr(config, "mask_transform_priorities", None),
+            rng=getattr(config, "rng", None),
+        )
+
     GLOBAL_TRANSFORMS = {
         "elastic": random_elastic_transform,
         "stretch": random_global_stretch_transform,
