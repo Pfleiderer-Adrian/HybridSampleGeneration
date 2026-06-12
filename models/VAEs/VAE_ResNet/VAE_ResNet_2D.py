@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from models.model_inferface import HybridModelInterface
+from models.model_interface import HybridModelInterface
 
 
 def _create_tgt_mask_from_synth_anomaly(synth_anomaly_image: Union[np.ndarray, torch.Tensor]) -> Union[np.ndarray, torch.Tensor]:

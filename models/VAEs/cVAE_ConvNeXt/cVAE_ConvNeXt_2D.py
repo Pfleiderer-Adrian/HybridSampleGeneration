@@ -26,7 +26,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
-from models.model_inferface import HybridModelInterface
+from models.model_interface import HybridModelInterface
 from synthesizer.mask_manipulation import to_one_hot_2D
 
 
