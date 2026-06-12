@@ -9,110 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from models.model_inferface import HybridModelInterface
-
-# -------------------------
-# helpers: padding/cropping
-# -------------------------
-def _compute_symmetric_pad(size: int, multiple: int) -> Tuple[int, int]:
-    """
-    Compute symmetric (left,right) padding so that `size` becomes divisible by `multiple`.
-
-    Inputs
-    ------
-    size:
-        Current length of one spatial axis (e.g., D or H or W).
-    multiple:
-        The required divisibility constraint (e.g., 2**n_levels).
-
-    Outputs
-    -------
-    (left_pad, right_pad):
-        Tuple[int,int] indicating how many zeros to pad on each side.
-    """
-    if multiple <= 1:
-        return (0, 0)
-
-    # Remainder when dividing by 'multiple'
-    r = size % multiple
-    if r == 0:
-        return (0, 0)
-
-    # We need to add 'need' voxels to reach the next divisible size
-    need = multiple - r
-    left = need // 2
-    right = need - left
-    return left, right
-
-
-def _pad_to_multiple_3d(x: torch.Tensor, multiple: int) -> Tuple[torch.Tensor, Tuple[int, ...]]:
-    """
-    Pad a 5D tensor (B, C, D, H, W) so that D/H/W are divisible by `multiple`.
-
-    PyTorch F.pad order for 5D is: (wL, wR, hL, hR, dL, dR)
-
-    Inputs
-    ------
-    x:
-        torch.Tensor of shape (B, C, D, H, W).
-    multiple:
-        Integer constraint for D/H/W divisibility.
-
-    Outputs
-    -------
-    x_padded:
-        torch.Tensor padded with zeros to meet divisibility.
-    pad:
-        Tuple[int,...] length 6: (wL,wR,hL,hR,dL,dR)
-        Useful to decide whether cropping back is needed.
-    """
-    # Extract spatial sizes
-    d, h, w = x.shape[-3:]
-
-    # Compute symmetric padding per axis
-    dL, dR = _compute_symmetric_pad(d, multiple)
-    hL, hR = _compute_symmetric_pad(h, multiple)
-    wL, wR = _compute_symmetric_pad(w, multiple)
-
-    # F.pad expects (wL,wR,hL,hR,dL,dR)
-    pad = (wL, wR, hL, hR, dL, dR)
-
-    # If no padding needed, return as-is
-    if sum(pad) == 0:
-        return x, pad
-
-    # Pad with constant zeros (background)
-    return F.pad(x, pad, mode="constant", value=0.0), pad
-
-
-def _crop_like_3d(x: torch.Tensor, ref_dhw: Tuple[int, int, int]) -> torch.Tensor:
-    """
-    Center-crop a tensor spatially to match a reference size (D,H,W).
-
-    Inputs
-    ------
-    x:
-        torch.Tensor of shape (..., D, H, W)
-    ref_dhw:
-        Tuple (D_ref, H_ref, W_ref) to crop to.
-
-    Outputs
-    -------
-    torch.Tensor:
-        Cropped tensor with spatial shape exactly ref_dhw.
-    """
-    d_ref, h_ref, w_ref = ref_dhw
-    d, h, w = x.shape[-3:]
-
-    # Helper: build a slice that center-crops from `cur` to `ref`
-    def sl(cur: int, ref: int):
-        if cur == ref:
-            return slice(None)
-        start = (cur - ref) // 2
-        return slice(start, start + ref)
-
-    # Apply slices on the last 3 axes
-    return x[..., sl(d, d_ref), sl(h, h_ref), sl(w, w_ref)]
+from models.model_interface import HybridModelInterface
 
 
 def _create_tgt_mask_from_synth_anomaly(synth_anomaly_image: Union[np.ndarray, torch.Tensor]) -> Union[np.ndarray, torch.Tensor]:
@@ -560,7 +457,7 @@ class ResNetVAE3D(HybridModelInterface):
 
         # Pad spatial dims so they are divisible by 2**n_levels (required by stride-2 downsamples)
         multiple = 2 ** self.cfg.n_levels
-        x_pad, pad = _pad_to_multiple_3d(x, multiple)
+        x_pad, pad = self._pad_to_multiple(x, multiple)
 
         # Encode into latent feature map
         h = self.encoder(x_pad)  # (B, z_channels, d', h', w')
@@ -582,10 +479,10 @@ class ResNetVAE3D(HybridModelInterface):
         recon = self.decoder(h_dec)  # linear output for continuous intensities
 
         # Crop recon back to original spatial size
-        recon = _crop_like_3d(recon, ref_dhw)
+        recon = self._crop_like(recon, ref_dhw)
 
         # x_ref is the reference input used for loss (cropped/padded consistently)
-        x_ref = _crop_like_3d(x_pad, ref_dhw) if sum(pad) else x
+        x_ref = self._crop_like(x_pad, ref_dhw) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
 
