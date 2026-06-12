@@ -436,7 +436,7 @@ class ConvNeXtVAE3D(HybridModelInterface):
 
         # Pad so D/H/W divisible by 2**n_levels
         multiple = 2 ** self.cfg.n_levels
-        x_pad, pad = HybridModelInterface._pad_to_multiple(x, multiple)
+        x_pad, pad = self._pad_to_multiple(x, multiple)
 
         # Encode -> (latent feature map, skips)
         h, skips = self.encoder(x_pad)
@@ -459,8 +459,8 @@ class ConvNeXtVAE3D(HybridModelInterface):
         recon = self.decoder(h_dec)
 
         # Crop recon back to original spatial size
-        recon = HybridModelInterface._crop_like(recon, ref_dhw)
-        x_ref = HybridModelInterface._crop_like(x_pad, ref_dhw) if sum(pad) else x
+        recon = self._crop_like(recon, ref_dhw)
+        x_ref = self._crop_like(x_pad, ref_dhw) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
 
@@ -624,7 +624,7 @@ class ConvNeXtVAE3D(HybridModelInterface):
             # --- same preprocessing as forward() ---
             ref_dhw = tuple(x.shape[-3:])
             multiple = 2 ** self.cfg.n_levels
-            x_pad, pad = HybridModelInterface._pad_to_multiple(x, multiple)
+            x_pad, pad = self._pad_to_multiple(x, multiple)
 
             # Encode once
             h, skips = model.encoder(x_pad)
@@ -655,7 +655,7 @@ class ConvNeXtVAE3D(HybridModelInterface):
             model.decoder.set_skips(rep_skips)
 
             recon = model.decoder(h_dec)
-            recon = HybridModelInterface._crop_like(recon, ref_dhw)
+            recon = self._crop_like(recon, ref_dhw)
 
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)

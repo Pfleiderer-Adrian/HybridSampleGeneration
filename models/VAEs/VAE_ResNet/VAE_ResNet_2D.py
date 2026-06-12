@@ -437,7 +437,7 @@ class ResNetVAE2D(HybridModelInterface):
 
         # Pad spatial dims so they are divisible by 2**n_levels (required by stride-2 downsamples)
         multiple = 2 ** self.cfg.n_levels
-        x_pad, pad = HybridModelInterface._pad_to_multiple(x, multiple)
+        x_pad, pad = self._pad_to_multiple(x, multiple)
 
         # Encode into latent feature map
         h = self.encoder(x_pad)  # (B, z_channels, h', w')
@@ -460,9 +460,9 @@ class ResNetVAE2D(HybridModelInterface):
         recon = self.decoder(h_dec)
 
         # Crop recon back to original spatial size
-        recon = HybridModelInterface._crop_like(recon, ref_hw)
+        recon = self._crop_like(recon, ref_hw)
         # x_ref is the reference input used for loss (cropped/padded consistently)
-        x_ref = HybridModelInterface._crop_like(x_pad, ref_hw) if sum(pad) else x
+        x_ref = self._crop_like(x_pad, ref_hw) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
 

@@ -510,7 +510,7 @@ class ConvNeXtcVAE3D(HybridModelInterface):
 
         # Pad so D/H/W divisible by 2**n_levels
         multiple = 2 ** self.cfg.n_levels
-        x_pad, pad = HybridModelInterface._pad_to_multiple(x, multiple)
+        x_pad, pad = self._pad_to_multiple(x, multiple)
         if sum(pad) > 0:
             ori_mask_pad = F.pad(ori_mask, pad, mode="constant", value=0.0)
             tgt_mask_pad = F.pad(tgt_mask, pad, mode="constant", value=0.0)
@@ -542,8 +542,8 @@ class ConvNeXtcVAE3D(HybridModelInterface):
         recon = self.decoder(h_dec, tgt_mask_pad)
 
         # Crop recon back to original spatial size
-        recon = HybridModelInterface._crop_like(recon, ref_dhw)
-        x_ref = HybridModelInterface._crop_like(x_pad, ref_dhw) if sum(pad) else x
+        recon = self._crop_like(recon, ref_dhw)
+        x_ref = self._crop_like(x_pad, ref_dhw) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
 
@@ -730,7 +730,7 @@ class ConvNeXtcVAE3D(HybridModelInterface):
             # --- same preprocessing as forward() ---
             ref_dhw = tuple(x.shape[-3:])
             multiple = 2 ** self.cfg.n_levels
-            x_pad, pad = HybridModelInterface._pad_to_multiple(x, multiple)
+            x_pad, pad = self._pad_to_multiple(x, multiple)
             if sum(pad) > 0:
                 ori_mask_pad = F.pad(ori_mask, pad, mode="constant", value=0.0)
                 tgt_mask_pad = F.pad(tgt_mask, pad, mode="constant", value=0.0)
@@ -770,7 +770,7 @@ class ConvNeXtcVAE3D(HybridModelInterface):
             # need tgt_mask n times for for n reconstructions
             tgt_mask_pad_rep = tgt_mask_pad.repeat_interleave(n, dim=0)
             recon = model.decoder(h_dec, tgt_mask_pad_rep)  # decoder gets tgt_mask
-            recon = HybridModelInterface._crop_like(recon, ref_dhw)
+            recon = self._crop_like(recon, ref_dhw)
 
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)
@@ -893,7 +893,7 @@ class ConvNeXtcVAE3D(HybridModelInterface):
             multiple = 2 ** self.cfg.n_levels
             
             # Pad the target mask so spatial dims are divisible by the downsampling factor
-            tgt_mask_pad, pad = HybridModelInterface._pad_to_multiple(tgt_mask_oh, multiple)
+            tgt_mask_pad, pad = self._pad_to_multiple(tgt_mask_oh, multiple)
 
             # Calculate latent dimensions based on the padded mask
             latent_dhw = (
@@ -920,7 +920,7 @@ class ConvNeXtcVAE3D(HybridModelInterface):
             recon = model.decoder(h_dec, tgt_mask_pad)
             
             # Crop back to exact requested size
-            recon = HybridModelInterface._crop_like(recon, ref_dhw)
+            recon = self._crop_like(recon, ref_dhw)
 
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)

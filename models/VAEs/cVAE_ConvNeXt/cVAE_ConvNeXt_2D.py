@@ -509,7 +509,7 @@ class ConvNeXtcVAE2D(HybridModelInterface):
         ref_hw = tuple(x.shape[-2:])
 
         multiple = 2 ** self.cfg.n_levels
-        x_pad, pad = HybridModelInterface._pad_to_multiple(x, multiple)
+        x_pad, pad = self._pad_to_multiple(x, multiple)
         if sum(pad) > 0:
             ori_mask_pad = F.pad(ori_mask, pad, mode="constant", value=0.0)
             tgt_mask_pad = F.pad(tgt_mask, pad, mode="constant", value=0.0)
@@ -536,8 +536,8 @@ class ConvNeXtcVAE2D(HybridModelInterface):
         
         recon = self.decoder(h_dec, tgt_mask_pad)
 
-        recon = HybridModelInterface._crop_like(recon, ref_hw)
-        x_ref = HybridModelInterface._crop_like(x_pad, ref_hw) if sum(pad) else x
+        recon = self._crop_like(recon, ref_hw)
+        x_ref = self._crop_like(x_pad, ref_hw) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
 
@@ -685,7 +685,7 @@ class ConvNeXtcVAE2D(HybridModelInterface):
         with torch.no_grad():
             ref_hw = tuple(x.shape[-2:])
             multiple = 2 ** self.cfg.n_levels
-            x_pad, pad = HybridModelInterface._pad_to_multiple(x, multiple)
+            x_pad, pad = self._pad_to_multiple(x, multiple)
             if sum(pad) > 0:
                 ori_mask_pad = F.pad(ori_mask, pad, mode="constant", value=0.0)
                 tgt_mask_pad = F.pad(tgt_mask, pad, mode="constant", value=0.0)
@@ -721,7 +721,7 @@ class ConvNeXtcVAE2D(HybridModelInterface):
 
             tgt_mask_pad_rep = tgt_mask_pad.repeat_interleave(n, dim=0)
             recon = model.decoder(h_dec, tgt_mask_pad_rep)
-            recon = HybridModelInterface._crop_like(recon, ref_hw)
+            recon = self._crop_like(recon, ref_hw)
 
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)
@@ -821,7 +821,7 @@ class ConvNeXtcVAE2D(HybridModelInterface):
             ref_hw = tuple(tgt_mask_oh.shape[-2:])
             multiple = 2 ** self.cfg.n_levels
             
-            tgt_mask_pad, pad = HybridModelInterface._pad_to_multiple(tgt_mask_oh, multiple)
+            tgt_mask_pad, pad = self._pad_to_multiple(tgt_mask_oh, multiple)
 
             latent_hw = (
                 tgt_mask_pad.shape[2] // multiple,
@@ -841,7 +841,7 @@ class ConvNeXtcVAE2D(HybridModelInterface):
             h_dec = model.fc_decode(z).reshape(B, int(self.cfg.z_channels), *latent_hw)
 
             recon = model.decoder(h_dec, tgt_mask_pad)
-            recon = HybridModelInterface._crop_like(recon, ref_hw)
+            recon = self._crop_like(recon, ref_hw)
 
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)

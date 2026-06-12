@@ -462,7 +462,7 @@ class ConvNeXtVAE2D(HybridModelInterface):
         ref_hw = tuple(x.shape[-2:])
 
         multiple = 2 ** self.cfg.n_levels
-        x_pad, pad = HybridModelInterface._pad_to_multiple(x, multiple)
+        x_pad, pad = self._pad_to_multiple(x, multiple)
 
         h, skips = self.encoder(x_pad)
         latent_hw = tuple(h.shape[-2:])
@@ -478,8 +478,8 @@ class ConvNeXtVAE2D(HybridModelInterface):
         self.decoder.set_skips(skips)
         recon = self.decoder(h_dec)
 
-        recon = HybridModelInterface._crop_like(recon, ref_hw)
-        x_ref = HybridModelInterface._crop_like(x_pad, ref_hw) if sum(pad) else x
+        recon = self._crop_like(recon, ref_hw)
+        x_ref = self._crop_like(x_pad, ref_hw) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
 
@@ -636,7 +636,7 @@ class ConvNeXtVAE2D(HybridModelInterface):
         with torch.no_grad():
             ref_hw = tuple(x.shape[-2:])
             multiple = 2 ** self.cfg.n_levels
-            x_pad, pad = HybridModelInterface._pad_to_multiple(x, multiple)
+            x_pad, pad = self._pad_to_multiple(x, multiple)
 
             h, skips = model.encoder(x_pad)
             latent_hw = tuple(h.shape[-2:])
@@ -668,7 +668,7 @@ class ConvNeXtVAE2D(HybridModelInterface):
 
             
             recon = model.decoder(h_dec)
-            recon = HybridModelInterface._crop_like(recon, ref_hw)
+            recon = self._crop_like(recon, ref_hw)
 
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)
