@@ -113,7 +113,8 @@ class Configuration:
         self.normalization_eps = 1e-6
         self.matching_dict= {}
         self.syn_anomaly_transformations = {}
-        self.background_threshold = None
+        # relative threshold for creating target mask (try 0.01 or 0.1)
+        self.background_threshold = 0.01
 
         # feedback system
         self.use_feedback = False

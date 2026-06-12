@@ -12,17 +12,6 @@ from tqdm import tqdm
 from models.model_interface import HybridModelInterface
 
 
-def _create_tgt_mask_from_synth_anomaly(synth_anomaly_image: Union[np.ndarray, torch.Tensor]) -> Union[np.ndarray, torch.Tensor]:
-    if torch.is_tensor(synth_anomaly_image):
-        background_threshold = torch.nanmin(synth_anomaly_image) + 0.001
-        synth_projection = torch.amax(synth_anomaly_image, dim=0)
-        return (synth_projection > background_threshold).to(torch.uint8)
-
-    background_threshold = float(np.nanmin(synth_anomaly_image)) + 0.001
-    synth_projection = np.max(synth_anomaly_image, axis=0)
-    return (synth_projection > background_threshold).astype(np.uint8)
-
-
 # -------------------------
 # blocks (3D only)
 # -------------------------
@@ -665,6 +654,7 @@ class ResNetVAE3D(HybridModelInterface):
             *,
             device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
             clamp_01: bool = True,
+            background_threshold: float = 0.01,
     ) -> np.ndarray:
         """
         Generate a synthetic sample (reconstruction) for a SINGLE input sample.
@@ -723,7 +713,7 @@ class ResNetVAE3D(HybridModelInterface):
 
         # Remove batch dimension: (1,C,...) -> (C,...)
         recon_np = recon.squeeze(0).numpy().astype(np.float32, copy=False)
-        return recon_np, _create_tgt_mask_from_synth_anomaly(recon_np)
+        return recon_np, self._create_tgt_mask_from_synth_anomaly(recon_np, background_threshold)
 
     def warmup(self, shape, device=None, dtype=None):
         """

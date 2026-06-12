@@ -60,7 +60,6 @@ def fusion3d(
     position_factor,
     config,
     target_mask,
-    background_threshold=None,
 ):
     """
     Fuse a synthetic anomaly into a control image/volume using alpha blending.
@@ -148,15 +147,13 @@ def fusion3d(
     # ------------------------------------------------------------
     # 1) Choose background threshold if not provided
     # ------------------------------------------------------------
-    if background_threshold is None:
-        background_threshold = float(np.nanmin(anom)) + 0.001
 
     # ------------------------------------------------------------
     # 2) Remove anomaly background by pushing values below threshold to global min
     #    This increases contrast between foreground and background and stabilizes mask creation.
     # ------------------------------------------------------------
     anom_min = float(np.nanmin(anom))
-    anom = np.where(anom > background_threshold, anom, anom_min)
+    anom = np.where(target_mask > 0, anom, anom_min)
 
     # ------------------------------------------------------------
     # 3) Trim spatial padding by cropping to the foreground bounding box (same crop for all channels)
@@ -245,7 +242,7 @@ def fusion3d(
     # ------------------------------------------------------------
     # Use max projection over channels to define foreground robustly
     anom_proj = np.max(anom, axis=0)                        # (d,h,w)
-    valid_mask = anom_proj > background_threshold           # (d,h,w)
+    valid_mask = target_mask > 0                            # (d,h,w)
 
     # ------------------------------------------------------------
     # 9) Locally normalize anomaly values (per channel) to match the target area plus border
@@ -283,7 +280,7 @@ def fusion3d(
     # 10) Create alpha mask from per-slice Sobel+distance transform mask (edge-aware)
     # ------------------------------------------------------------
     alpha_mask = get_alpha_mask_sobel_final(
-        anom_proj, config, background_threshold
+        anom_proj, config
     )  # (d,h,w)
 
     # Broadcast alpha from (d,h,w) to (1,d,h,w); it will broadcast across channels during blending
@@ -351,7 +348,7 @@ def fusion3d(
     return fused_image, segmentation, fused_roi
 
 
-def get_alpha_mask_sobel_final(anomaly_arr, config, background_threshold):
+def get_alpha_mask_sobel_final(anomaly_arr, config, valid_mask):
     """
     Build a per-slice alpha blending mask for a 3D anomaly volume using:
       - Sobel edges to detect boundaries
@@ -427,7 +424,7 @@ def get_alpha_mask_sobel_final(anomaly_arr, config, background_threshold):
         slice_img = anomaly_arr[z, :, :]
 
         # Skip slices with no foreground content
-        if not np.any(slice_img > background_threshold):
+        if not np.any(0 < valid_mask):
             continue
 
         # ------------------------------------------------------------
@@ -472,7 +469,7 @@ def get_alpha_mask_sobel_final(anomaly_arr, config, background_threshold):
 
         # Enforce background threshold after morphology:
         # Remove any pixels that are still background in the original slice.
-        bg_mask = slice_img <= background_threshold
+        bg_mask = valid_mask <= 0
         final_clean_mask[bg_mask] = False
 
         # ------------------------------------------------------------
