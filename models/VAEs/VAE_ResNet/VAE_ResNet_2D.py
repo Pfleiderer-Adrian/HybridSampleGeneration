@@ -622,7 +622,7 @@ class ResNetVAE2D(HybridModelInterface):
         *,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
-        background_threshold: float = 0.1,
+        background_threshold: float = 0.01,
     ) -> np.ndarray:
         """
         Generate a synthetic sample (reconstruction) for a SINGLE input sample.

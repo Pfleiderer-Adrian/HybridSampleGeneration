@@ -134,7 +134,7 @@ def configure_mvtecad2_defaults(
     config.clamp01_output = False
     config.normalization = "z-score"
     config.normalization_eps = 1e-6
-    config.background_threshold = 0.01
+    config.background_threshold = 0.1
 
     config.use_feedback = False
     config.feedback_threshold = 0.01

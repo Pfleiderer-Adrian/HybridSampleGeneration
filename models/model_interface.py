@@ -209,19 +209,36 @@ class HybridModelInterface(nn.Module, ABC):
     @staticmethod
     def _create_tgt_mask_from_synth_anomaly(
         synth_anomaly_image: Union[np.ndarray, torch.Tensor],
-        background_threshold: Optional[float] = 0.001
+        background_threshold: Optional[float] = 0.01
     ) -> Union[np.ndarray, torch.Tensor]:
+        """
+        Create a channel-first target mask from a synthetic anomaly image.
+
+        `background_threshold` is relative to the image dynamic range:
+        threshold = min + background_threshold * (max - min)
+        """
+        threshold_rel = 0.0 if background_threshold is None else float(background_threshold)
+        if threshold_rel < 0.0:
+            raise ValueError(f"background_threshold must be >= 0, got {background_threshold}.")
+
         if torch.is_tensor(synth_anomaly_image):
-            threshold = torch.nanmin(synth_anomaly_image) + background_threshold
-            threshold = torch.as_tensor(
-                    threshold,
-                    dtype=synth_anomaly_image.dtype,
-                    device=synth_anomaly_image.device,
-                )
-            synth_projection = torch.amax(synth_anomaly_image, dim=0)
+            threshold_source = synth_anomaly_image
+            if not torch.is_floating_point(threshold_source):
+                threshold_source = threshold_source.to(torch.float32)
+
+            finite_values = threshold_source[torch.isfinite(threshold_source)]
+            if finite_values.numel() == 0:
+                return torch.zeros_like(torch.amax(threshold_source, dim=0), dtype=torch.uint8)
+
+            min_val = torch.min(finite_values)
+            max_val = torch.max(finite_values)
+            threshold = min_val + threshold_rel * (max_val - min_val)
+            synth_projection = torch.amax(threshold_source, dim=0)
             return (synth_projection > threshold).to(torch.uint8)
 
         else:
-            threshold = float(np.nanmin(synth_anomaly_image)) + background_threshold
-        synth_projection = np.max(synth_anomaly_image, axis=0)
-        return (synth_projection > threshold).astype(np.uint8)
+            min_val = float(np.nanmin(synth_anomaly_image))
+            max_val = float(np.nanmax(synth_anomaly_image))
+            threshold = min_val + threshold_rel * (max_val - min_val)
+            synth_projection = np.max(synth_anomaly_image, axis=0)
+            return (synth_projection > threshold).astype(np.uint8)

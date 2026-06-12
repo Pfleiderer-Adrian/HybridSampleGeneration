@@ -558,7 +558,7 @@ class ConvNeXtVAE3D(HybridModelInterface):
         s: float = 0.8,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
-        background_threshold: float = 0.1,
+        background_threshold: float = 0.01,
         return_torch: bool = False,
     ) -> Union[np.ndarray, torch.Tensor]:
         """Generate *n* slightly varied variants around a given sample.
@@ -709,7 +709,7 @@ class ConvNeXtVAE3D(HybridModelInterface):
         s: float = 0.5,
         device: str | torch.device = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
-        background_threshold: float = 0.1,
+        background_threshold: float = 0.01,
         return_torch: bool = False,
     ) -> np.ndarray | torch.Tensor:
         """
