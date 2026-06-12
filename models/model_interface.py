@@ -209,23 +209,19 @@ class HybridModelInterface(nn.Module, ABC):
     @staticmethod
     def _create_tgt_mask_from_synth_anomaly(
         synth_anomaly_image: Union[np.ndarray, torch.Tensor],
-        background_threshold: Optional[float] = None
+        background_threshold: Optional[float] = 0.001
     ) -> Union[np.ndarray, torch.Tensor]:
         if torch.is_tensor(synth_anomaly_image):
-            if background_threshold is None:
-                threshold = torch.nanmin(synth_anomaly_image) + 0.001
-            else:
-                threshold = torch.as_tensor(
-                    background_threshold,
+            threshold = torch.nanmin(synth_anomaly_image) + background_threshold
+            threshold = torch.as_tensor(
+                    threshold,
                     dtype=synth_anomaly_image.dtype,
                     device=synth_anomaly_image.device,
                 )
             synth_projection = torch.amax(synth_anomaly_image, dim=0)
             return (synth_projection > threshold).to(torch.uint8)
 
-        if background_threshold is None:
-            threshold = float(np.nanmin(synth_anomaly_image)) + 0.001
         else:
-            threshold = float(background_threshold)
+            threshold = float(np.nanmin(synth_anomaly_image)) + background_threshold
         synth_projection = np.max(synth_anomaly_image, axis=0)
         return (synth_projection > threshold).astype(np.uint8)

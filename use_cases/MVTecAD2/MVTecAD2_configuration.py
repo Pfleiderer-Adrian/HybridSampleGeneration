@@ -149,12 +149,12 @@ def configure_mvtecad2_defaults(
     config.fixed_roi_size = (256, 256)
     config.update_fusion_params(
         max_alpha=1.0,
-        sq=2,
-        steepness_factor=1,
+        sq=0.1,
+        steepness_factor=5.0,
         upsampling_factor=2,
-        sobel_threshold=0.05,
-        dilation_size=5,
-        shave_pixels=1,
+        sobel_threshold=0.01,
+        dilation_size=1,
+        shave_pixels=0,
     )
     config.fusion_variation = True
     config.fusion_variation_params = {
