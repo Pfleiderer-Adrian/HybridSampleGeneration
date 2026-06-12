@@ -27,52 +27,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from models.model_inferface import HybridModelInterface
-
-
-# -------------------------
-# helpers: padding/cropping, tgt_mask creation
-# -------------------------
-
-def _compute_symmetric_pad(size: int, multiple: int) -> Tuple[int, int]:
-    """Compute symmetric (left,right) padding so that `size` becomes divisible by `multiple`."""
-    if multiple <= 1:
-        return (0, 0)
-    r = size % multiple
-    if r == 0:
-        return (0, 0)
-    need = multiple - r
-    left = need // 2
-    right = need - left
-    return left, right
-
-
-def _pad_to_multiple_2d(x: torch.Tensor, multiple: int) -> Tuple[torch.Tensor, Tuple[int, ...]]:
-    """Pad (B,C,H,W) so H/W are divisible by `multiple` (symmetric, constant=0)."""
-    h, w = x.shape[-2:]
-
-    hL, hR = _compute_symmetric_pad(h, multiple)
-    wL, wR = _compute_symmetric_pad(w, multiple)
-
-    pad = (wL, wR, hL, hR)
-    if sum(pad) == 0:
-        return x, pad
-
-    return F.pad(x, pad, mode="constant", value=0.0), pad
-
-
-def _crop_like_2d(x: torch.Tensor, ref_hw: Tuple[int, int]) -> torch.Tensor:
-    """Center-crop last 2 dims of x to ref_hw."""
-    h_ref, w_ref = ref_hw
-    h, w = x.shape[-2:]
-
-    def sl(cur: int, ref: int):
-        if cur == ref:
-            return slice(None)
-        start = (cur - ref) // 2
-        return slice(start, start + ref)
-
-    return x[..., sl(h, h_ref), sl(w, w_ref)]
+from models.model_interface import HybridModelInterface
 
 
 # -------------------------
@@ -362,8 +317,8 @@ class ConvNeXtUNetDecoder2D(nn.Module):
             # Align spatial sizes (off-by-1 for odd inputs)
             if x.shape[-2:] != skip.shape[-2:]:
                 target = (min(x.shape[-2], skip.shape[-2]), min(x.shape[-1], skip.shape[-1]))
-                x = _crop_like_2d(x, target)
-                skip = _crop_like_2d(skip, target)
+                x = HybridModelInterface._crop_like(x, target)
+                skip = HybridModelInterface._crop_like(skip, target)
 
             # Apply skip scaling (can be used to weaken or disable skips)
             if self.skip_alpha != 1.0:
@@ -497,7 +452,7 @@ class ConvNeXtVAE2D(HybridModelInterface):
         ref_hw = tuple(x.shape[-2:])
 
         multiple = 2 ** self.cfg.n_levels
-        x_pad, pad = _pad_to_multiple_2d(x, multiple)
+        x_pad, pad = self._pad_to_multiple(x, multiple)
 
         h, skips = self.encoder(x_pad)
         latent_hw = tuple(h.shape[-2:])
@@ -513,8 +468,8 @@ class ConvNeXtVAE2D(HybridModelInterface):
         self.decoder.set_skips(skips)
         recon = self.decoder(h_dec)
 
-        recon = _crop_like_2d(recon, ref_hw)
-        x_ref = _crop_like_2d(x_pad, ref_hw) if sum(pad) else x
+        recon = self._crop_like(recon, ref_hw)
+        x_ref = self._crop_like(x_pad, ref_hw) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
 
@@ -672,7 +627,7 @@ class ConvNeXtVAE2D(HybridModelInterface):
         with torch.no_grad():
             ref_hw = tuple(x.shape[-2:])
             multiple = 2 ** self.cfg.n_levels
-            x_pad, pad = _pad_to_multiple_2d(x, multiple)
+            x_pad, pad = self._pad_to_multiple(x, multiple)
 
             h, skips = model.encoder(x_pad)
             latent_hw = tuple(h.shape[-2:])
@@ -704,7 +659,7 @@ class ConvNeXtVAE2D(HybridModelInterface):
 
             
             recon = model.decoder(h_dec)
-            recon = _crop_like_2d(recon, ref_hw)
+            recon = self._crop_like(recon, ref_hw)
 
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)

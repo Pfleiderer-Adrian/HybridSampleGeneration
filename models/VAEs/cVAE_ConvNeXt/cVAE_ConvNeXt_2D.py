@@ -26,53 +26,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
-from models.model_inferface import HybridModelInterface
+from models.model_interface import HybridModelInterface
 from synthesizer.mask_manipulation import to_one_hot_2D
 
-def _compute_symmetric_pad(size: int, multiple: int) -> Tuple[int, int]:
-    """Compute symmetric (left,right) padding so that `size` becomes divisible by `multiple`."""
-    if multiple <= 1:
-        return (0, 0)
-    r = size % multiple
-    if r == 0:
-        return (0, 0)
-    need = multiple - r
-    left = need // 2
-    right = need - left
-    return left, right
-
-
-def _pad_to_multiple_2d(x: torch.Tensor, multiple: int) -> Tuple[torch.Tensor, Tuple[int, ...]]:
-    """Pad (B,C,H,W) so H/W are divisible by `multiple` (symmetric, constant=0)."""
-    h, w = x.shape[-2:]
-
-    hL, hR = _compute_symmetric_pad(h, multiple)
-    wL, wR = _compute_symmetric_pad(w, multiple)
-
-    pad = (wL, wR, hL, hR)
-    if sum(pad) == 0:
-        return x, pad
-
-    return F.pad(x, pad, mode="constant", value=0.0), pad
-
-
-def _crop_like_2d(x: torch.Tensor, ref_hw: Tuple[int, int]) -> torch.Tensor:
-    """Center-crop last 2 dims of x to ref_hw."""
-    h_ref, w_ref = ref_hw
-    h, w = x.shape[-2:]
-
-    def sl(cur: int, ref: int):
-        if cur == ref:
-            return slice(None)
-        start = (cur - ref) // 2
-        return slice(start, start + ref)
-
-    return x[..., sl(h, h_ref), sl(w, w_ref)]
-
-
-# -------------------------
-# blocks (2D)
-# -------------------------
 
 class SPADE2D(nn.Module):
     """Spatially-Adaptive Normalization (SPADE) for 2D data."""
@@ -413,8 +369,8 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
             # Align spatial sizes
             if x.shape[-2:] != skip.shape[-2:]:
                 target = (min(x.shape[-2], skip.shape[-2]), min(x.shape[-1], skip.shape[-1]))
-                x = _crop_like_2d(x, target)
-                skip = _crop_like_2d(skip, target)
+                x = HybridModelInterface._crop_like(x, target)
+                skip = HybridModelInterface._crop_like(skip, target)
 
             # Apply skip scaling
             if self.skip_alpha != 1.0:
@@ -553,7 +509,7 @@ class ConvNeXtcVAE2D(HybridModelInterface):
         ref_hw = tuple(x.shape[-2:])
 
         multiple = 2 ** self.cfg.n_levels
-        x_pad, pad = _pad_to_multiple_2d(x, multiple)
+        x_pad, pad = self._pad_to_multiple(x, multiple)
         if sum(pad) > 0:
             ori_mask_pad = F.pad(ori_mask, pad, mode="constant", value=0.0)
             tgt_mask_pad = F.pad(tgt_mask, pad, mode="constant", value=0.0)
@@ -580,8 +536,8 @@ class ConvNeXtcVAE2D(HybridModelInterface):
         
         recon = self.decoder(h_dec, tgt_mask_pad)
 
-        recon = _crop_like_2d(recon, ref_hw)
-        x_ref = _crop_like_2d(x_pad, ref_hw) if sum(pad) else x
+        recon = self._crop_like(recon, ref_hw)
+        x_ref = self._crop_like(x_pad, ref_hw) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
 
@@ -729,7 +685,7 @@ class ConvNeXtcVAE2D(HybridModelInterface):
         with torch.no_grad():
             ref_hw = tuple(x.shape[-2:])
             multiple = 2 ** self.cfg.n_levels
-            x_pad, pad = _pad_to_multiple_2d(x, multiple)
+            x_pad, pad = self._pad_to_multiple(x, multiple)
             if sum(pad) > 0:
                 ori_mask_pad = F.pad(ori_mask, pad, mode="constant", value=0.0)
                 tgt_mask_pad = F.pad(tgt_mask, pad, mode="constant", value=0.0)
@@ -765,7 +721,7 @@ class ConvNeXtcVAE2D(HybridModelInterface):
 
             tgt_mask_pad_rep = tgt_mask_pad.repeat_interleave(n, dim=0)
             recon = model.decoder(h_dec, tgt_mask_pad_rep)
-            recon = _crop_like_2d(recon, ref_hw)
+            recon = self._crop_like(recon, ref_hw)
 
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)
@@ -865,7 +821,7 @@ class ConvNeXtcVAE2D(HybridModelInterface):
             ref_hw = tuple(tgt_mask_oh.shape[-2:])
             multiple = 2 ** self.cfg.n_levels
             
-            tgt_mask_pad, pad = _pad_to_multiple_2d(tgt_mask_oh, multiple)
+            tgt_mask_pad, pad = self._pad_to_multiple(tgt_mask_oh, multiple)
 
             latent_hw = (
                 tgt_mask_pad.shape[2] // multiple,
@@ -885,7 +841,7 @@ class ConvNeXtcVAE2D(HybridModelInterface):
             h_dec = model.fc_decode(z).reshape(B, int(self.cfg.z_channels), *latent_hw)
 
             recon = model.decoder(h_dec, tgt_mask_pad)
-            recon = _crop_like_2d(recon, ref_hw)
+            recon = self._crop_like(recon, ref_hw)
 
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)

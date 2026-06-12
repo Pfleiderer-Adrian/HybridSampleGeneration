@@ -18,6 +18,68 @@ class HybridModelInterface(nn.Module, ABC):
     cfg: Any
 
     @staticmethod
+    def _compute_symmetric_pad(size: int, multiple: int) -> Tuple[int, int]:
+        """Compute symmetric padding so that size becomes divisible by multiple."""
+        if multiple <= 1:
+            return (0, 0)
+
+        remainder = size % multiple
+        if remainder == 0:
+            return (0, 0)
+
+        needed = multiple - remainder
+        left = needed // 2
+        right = needed - left
+        return left, right
+
+    @staticmethod
+    def _pad_to_multiple(x: torch.Tensor, multiple: int) -> Tuple[torch.Tensor, Tuple[int, ...]]:
+        """
+        Pad spatial dimensions symmetrically so each is divisible by multiple.
+        Supports tensors shaped (B, C, H, W) and (B, C, D, H, W).
+        """
+        spatial_dims = x.ndim - 2
+        if spatial_dims not in (2, 3):
+            raise ValueError(
+                f"Expected a 4D or 5D tensor with batch/channel axes, got shape {tuple(x.shape)}."
+            )
+
+        pad_per_dim = [
+            HybridModelInterface._compute_symmetric_pad(size, multiple)
+            for size in x.shape[-spatial_dims:]
+        ]
+        pad = tuple(value for pair in reversed(pad_per_dim) for value in pair)
+        if sum(pad) == 0:
+            return x, pad
+
+        return F.pad(x, pad, mode="constant", value=0.0), pad
+
+    @staticmethod
+    def _crop_like(x: torch.Tensor, ref_shape: Tuple[int, ...]) -> torch.Tensor:
+        """Center-crop the last len(ref_shape) dimensions of x to ref_shape."""
+        spatial_dims = len(ref_shape)
+        if spatial_dims not in (2, 3):
+            raise ValueError(f"Expected a 2D or 3D reference shape, got {ref_shape!r}.")
+
+        if x.ndim - 2 != spatial_dims:
+            raise ValueError(
+                f"Expected tensor shape (B, C, *ref_shape), got shape {tuple(x.shape)} "
+                f"for ref_shape={ref_shape!r}."
+            )
+
+        def center_slice(current: int, target: int):
+            if current == target:
+                return slice(None)
+            start = (current - target) // 2
+            return slice(start, start + target)
+
+        slices = [
+            center_slice(current, target)
+            for current, target in zip(x.shape[-spatial_dims:], ref_shape)
+        ]
+        return x[(..., *slices)]
+
+    @staticmethod
     def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
         """
         Reparameterization trick: sample z ~ N(mu, sigma^2) using mu + eps*sigma.
