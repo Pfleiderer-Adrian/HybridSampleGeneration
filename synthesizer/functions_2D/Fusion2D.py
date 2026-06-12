@@ -276,7 +276,7 @@ def fusion2d(
     # 10) Create alpha mask from Sobel+distance transform mask (edge-aware)
     # ------------------------------------------------------------
     alpha_mask = get_alpha_mask_sobel_final_2d(
-        anom_proj, config
+        anom_proj, config, target_mask
     )  # (h,w)
 
     # Broadcast alpha from (h,w) to (1,h,w); it will broadcast across channels during blending
