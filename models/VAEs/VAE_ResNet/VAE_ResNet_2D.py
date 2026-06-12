@@ -10,99 +10,6 @@ from tqdm import tqdm
 
 from models.model_inferface import HybridModelInterface
 
-# -------------------------
-# helpers: padding/cropping (2D only)
-# -------------------------
-def _compute_symmetric_pad(size: int, multiple: int) -> Tuple[int, int]:
-    """
-    Compute symmetric (left,right) padding so that `size` becomes divisible by `multiple`.
-
-    Inputs
-    ------
-    size:
-        Current length of one spatial axis (e.g., H or W).
-    multiple:
-        The required divisibility constraint (e.g., 2**n_levels).
-
-    Outputs
-    -------
-    (left_pad, right_pad):
-        Tuple[int,int] indicating how many zeros to pad on each side.
-    """
-    if multiple <= 1:
-        return (0, 0)
-
-    r = size % multiple
-    if r == 0:
-        return (0, 0)
-
-    need = multiple - r
-    left = need // 2
-    right = need - left
-    return left, right
-
-
-def _pad_to_multiple_2d(x: torch.Tensor, multiple: int) -> Tuple[torch.Tensor, Tuple[int, ...]]:
-    """
-    Pad a 4D tensor (B, C, H, W) so that H/W are divisible by `multiple`.
-
-    PyTorch F.pad order for 4D is: (wL, wR, hL, hR)
-
-    Inputs
-    ------
-    x:
-        torch.Tensor of shape (B, C, H, W).
-    multiple:
-        Integer constraint for H/W divisibility.
-
-    Outputs
-    -------
-    x_padded:
-        torch.Tensor padded with zeros to meet divisibility.
-    pad:
-        Tuple[int,...] length 4: (wL,wR,hL,hR)
-        Useful to decide whether cropping back is needed.
-    """
-    h, w = x.shape[-2:]
-
-    hL, hR = _compute_symmetric_pad(h, multiple)
-    wL, wR = _compute_symmetric_pad(w, multiple)
-
-    pad = (wL, wR, hL, hR)
-    if sum(pad) == 0:
-        return x, pad
-
-    return F.pad(x, pad, mode="constant", value=0.0), pad
-
-
-def _crop_like_2d(x: torch.Tensor, ref_hw: Tuple[int, int]) -> torch.Tensor:
-    """
-    Center-crop a tensor spatially to match a reference size (H,W).
-    Works for tensors shaped (..., H, W).
-
-    Inputs
-    ------
-    x:
-        torch.Tensor of shape (..., H, W)
-    ref_hw:
-        Tuple (H_ref, W_ref) to crop to.
-
-    Outputs
-    -------
-    torch.Tensor:
-        Cropped tensor with spatial shape exactly ref_hw.
-    """
-    h_ref, w_ref = ref_hw
-    h, w = x.shape[-2:]
-
-    def sl(cur: int, ref: int):
-        if cur == ref:
-            return slice(None)
-        start = (cur - ref) // 2
-        return slice(start, start + ref)
-
-    return x[..., sl(h, h_ref), sl(w, w_ref)]
-
 
 def _create_tgt_mask_from_synth_anomaly(synth_anomaly_image: Union[np.ndarray, torch.Tensor]) -> Union[np.ndarray, torch.Tensor]:
     if torch.is_tensor(synth_anomaly_image):
@@ -530,7 +437,7 @@ class ResNetVAE2D(HybridModelInterface):
 
         # Pad spatial dims so they are divisible by 2**n_levels (required by stride-2 downsamples)
         multiple = 2 ** self.cfg.n_levels
-        x_pad, pad = _pad_to_multiple_2d(x, multiple)
+        x_pad, pad = HybridModelInterface._pad_to_multiple(x, multiple)
 
         # Encode into latent feature map
         h = self.encoder(x_pad)  # (B, z_channels, h', w')
@@ -553,9 +460,9 @@ class ResNetVAE2D(HybridModelInterface):
         recon = self.decoder(h_dec)
 
         # Crop recon back to original spatial size
-        recon = _crop_like_2d(recon, ref_hw)
+        recon = HybridModelInterface._crop_like(recon, ref_hw)
         # x_ref is the reference input used for loss (cropped/padded consistently)
-        x_ref = _crop_like_2d(x_pad, ref_hw) if sum(pad) else x
+        x_ref = HybridModelInterface._crop_like(x_pad, ref_hw) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
 
