@@ -147,6 +147,8 @@ def fusion2d(
     # 1) Choose background threshold if not provided
     # ------------------------------------------------------------
     if background_threshold is None:
+        background_threshold = getattr(config, "background_threshold", None)
+    if background_threshold is None:
         background_threshold = float(np.nanmin(anom)) + 0.001
 
     # ------------------------------------------------------------
@@ -196,8 +198,8 @@ def fusion2d(
     # Offset is chosen so anomaly center is placed at position_factor * control_size
     offset = np.array(
         [
-        int(round((H - 1) * position_factor[0] - anom_spatial[0] / 2)),
-        int(round((W - 1) * position_factor[1] - anom_spatial[1] / 2)),
+            int(round(ctrl_spatial[0] * position_factor[0] - anom_spatial[0] / 2)),
+            int(round(ctrl_spatial[1] * position_factor[1] - anom_spatial[1] / 2)),
         ],
         dtype=int,
     )

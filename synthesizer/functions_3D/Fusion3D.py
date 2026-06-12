@@ -149,6 +149,8 @@ def fusion3d(
     # 1) Choose background threshold if not provided
     # ------------------------------------------------------------
     if background_threshold is None:
+        background_threshold = getattr(config, "background_threshold", None)
+    if background_threshold is None:
         background_threshold = float(np.nanmin(anom)) + 0.001
 
     # ------------------------------------------------------------

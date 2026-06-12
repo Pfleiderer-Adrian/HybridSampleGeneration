@@ -27,8 +27,8 @@ CATEGORY_ALIASES = {
 
 DEFAULT_MODEL_NAME = "VAE_ConvNeXt_2D"
 DEFAULT_CHANNELS = 3
-DEFAULT_ANOMALY_PATCH_SIZE = 64
-DEFAULT_FIXED_ROI_SIZE = (64, 64)
+DEFAULT_ANOMALY_PATCH_SIZE = 128
+DEFAULT_FIXED_ROI_SIZE = (256, 256)
 
 
 def create_mvtecad2_configuration(
@@ -126,8 +126,7 @@ def configure_mvtecad2_defaults(
     config.random_offset = True
     config.random_offset_max_fraction = 0.8
     config.random_offset_foreground_threshold_rel = 0.01
-    config.add_bg_noise = True
-    config.prior_sampling = True
+    config.add_bg_noise = False
     config.min_anomaly_percentage = 0.01
     config.min_pad = (20, 20, 20)
 
@@ -135,7 +134,7 @@ def configure_mvtecad2_defaults(
     config.clamp01_output = False
     config.normalization = "z-score"
     config.normalization_eps = 1e-6
-    config.background_threshold = None
+    config.background_threshold = 0.01
 
     config.use_feedback = False
     config.feedback_threshold = 0.01
@@ -147,21 +146,21 @@ def configure_mvtecad2_defaults(
     config.fusions_per_control = 2
     config.max_fusions_per_control_deviation = 1
 
-    config.fixed_roi_size = fixed_roi_size
+    config.fixed_roi_size = (256, 256)
     config.update_fusion_params(
-        max_alpha=0.8,
+        max_alpha=1.0,
         sq=2,
-        steepness_factor=3,
+        steepness_factor=1,
         upsampling_factor=2,
         sobel_threshold=0.05,
-        dilation_size=2,
+        dilation_size=5,
         shave_pixels=1,
     )
     config.fusion_variation = True
     config.fusion_variation_params = {
         "alpha_variation": 0.05,
         "sq_variation": 0.1,
-        "steepness_variation": 0.1,
+        "steepness_variation": 1.0,
     }
     config.selected_confidence = "90%"
     config.confidence_z_score = config.confidence_levels[config.selected_confidence]
@@ -183,14 +182,44 @@ def configure_mvtecad2_defaults(
         "threshold": 1e-5,
     }
 
-    config.model_params.update_model_param_ranges(
-        {
-            "n_res_blocks": (3, 5),
-            "n_levels": (3, 5),
-            "z_channels": (16, 64),
-            "bottleneck_dim": (16, 128),
-            "recon_weight": (5.0, 100.0),
-            "beta_kl": (0.1, 0.5),
+    config.normalization = None      # wenn deine Inputs schon RGB/[0,1] sind
+    config.clamp01_output = True
+    config.normalization = "z-score"
+    config.clamp01_output = False
+    config.random_offset = False     # erst Rekonstruktion stabil bekommen
+    config.prior_sampling = False
+""" 
+
+    #config.model_params.update_model_param_ranges(
+    #    {
+    #        "n_res_blocks": (3, 3),
+    #        "n_levels": (3, 3),
+    #        "z_channels": (64, 64),
+    #        "bottleneck_dim": (128, 128),
+    #        "use_multires_skips": (False, False),
+    #        "recon_loss": ("mse", "mse"),
+    #        "recon_weight": (50.0, 50.0),
+    #        "recon_weight": (20.0, 20.0),
+    #        "drop_path_rate": (0.0, 0.0),
+    #        "dropout": (0.0, 0.0),
+    #        "skip_dropout_p": (0.2, 0.2),
+    #        "skip_alpha": (0.5, 0.5),
+    #        "skip_dropout_p": (0.0, 0.0),
+    #        "skip_alpha": (0.7, 0.7),
+    #        "use_transpose_conv": (False, False),
+            "beta_kl": (0.0, 0.0),               # wird im Trainer überschrieben
+            "beta_kl_start": (0.0, 0.0),
+            "beta_kl_max": (0.005, 0.005),
+            "beta_kl_warmup_start": (200, 200),
+            "beta_kl_warmup_epochs": (800, 800),
+            "beta_kl_max": (0.001, 0.001),
+            "beta_kl_warmup_start": (300, 300),
+            "beta_kl_warmup_epochs": (1000, 1000),
+
+            "free_bits": (0.0, 0.0),
+
+            "fg_weight": (1.0, 1.0),
+            "fg_threshold": (0.0, 0.0),
         }
     )
     config.model_params.set_model_params(
@@ -199,7 +228,7 @@ def configure_mvtecad2_defaults(
             "use_transpose_conv": False,
         }
     )
-
+"""
 
 def configure_can(config: Configuration) -> None:
     pass

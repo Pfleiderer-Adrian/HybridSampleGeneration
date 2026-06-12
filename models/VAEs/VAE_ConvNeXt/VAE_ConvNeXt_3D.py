@@ -68,16 +68,6 @@ def _crop_like_3d(x: torch.Tensor, ref_dhw: Tuple[int, int, int]) -> torch.Tenso
     return x[..., sl(d, d_ref), sl(h, h_ref), sl(w, w_ref)]
 
 
-def _create_tgt_mask_from_synth_anomaly(synth_anomaly_image: Union[np.ndarray, torch.Tensor]) -> Union[np.ndarray, torch.Tensor]:
-    if torch.is_tensor(synth_anomaly_image):
-        background_threshold = torch.nanmin(synth_anomaly_image) + 0.001
-        synth_projection = torch.amax(synth_anomaly_image, dim=0)
-        return (synth_projection > background_threshold).to(torch.uint8)
-
-    background_threshold = float(np.nanmin(synth_anomaly_image)) + 0.001
-    synth_projection = np.max(synth_anomaly_image, axis=0)
-    return (synth_projection > background_threshold).astype(np.uint8)
-
 
 # -------------------------
 # blocks (3D)
@@ -614,6 +604,7 @@ class ConvNeXtVAE3D(HybridModelInterface):
         s: float = 0.8,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
+        background_threshold: float = 0.1,
         return_torch: bool = False,
     ) -> Union[np.ndarray, torch.Tensor]:
         """Generate *n* slightly varied variants around a given sample.
@@ -714,10 +705,10 @@ class ConvNeXtVAE3D(HybridModelInterface):
                 recon = recon.squeeze(0)
 
         if return_torch:
-            return recon, _create_tgt_mask_from_synth_anomaly(recon)
+            return recon, self._create_tgt_mask_from_synth_anomaly(recon, background_threshold)
 
         recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
-        return recon_np, _create_tgt_mask_from_synth_anomaly(recon_np)
+        return recon_np, self._create_tgt_mask_from_synth_anomaly(recon_np, background_threshold)
 
     def warmup(self, shape, device=None, dtype=None):
         """Warm up the model to initialize lazy FC layers (unchanged API)."""
@@ -764,6 +755,7 @@ class ConvNeXtVAE3D(HybridModelInterface):
         s: float = 0.5,
         device: str | torch.device = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
+        background_threshold: float = 0.1,
         return_torch: bool = False,
     ) -> np.ndarray | torch.Tensor:
         """
@@ -837,10 +829,10 @@ class ConvNeXtVAE3D(HybridModelInterface):
                 recon = recon.clamp(0.0, 1.0)
 
         if return_torch:
-            return recon, _create_tgt_mask_from_synth_anomaly(recon)
+            return recon, self._create_tgt_mask_from_synth_anomaly(recon, background_threshold)
 
         recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
-        return recon_np, _create_tgt_mask_from_synth_anomaly(recon_np)
+        return recon_np, self._create_tgt_mask_from_synth_anomaly(recon_np, background_threshold)
 
 
 if __name__ == "__main__":
