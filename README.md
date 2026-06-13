@@ -170,7 +170,7 @@ Each iteration must yield:
 
   Fusion parameters in config:
   - fusion_mask_params:
-      max_alpha controls the maximum blending weight of the anomaly.
+      max_alpha controls the maximum blending weight of the anomaly. For example, max_alpha = 0.8 means that fully weighted pixels use 0.8 * anomaly intensity + 0.2 * background intensity.
       sq and steepness_factor shape the alpha falloff from anomaly interior to boundary.
       upsampling_factor increases mask resolution during distance-transform computation for smoother alpha masks.
       sobel_threshold controls which gradients are treated as anomaly edges.
