@@ -148,7 +148,7 @@ def random_dilate_transform(mask_np: np.ndarray, classes=None, priorities=None, 
     return final_mask[None, ...]
 
 
-def _as_axis_tuple(value, ndim, name):  # todo: check ob notwendig?
+def _as_axis_tuple(value, ndim, name):
     if np.isscalar(value):
         return (float(value),) * ndim
     if len(value) != ndim:
@@ -156,8 +156,13 @@ def _as_axis_tuple(value, ndim, name):  # todo: check ob notwendig?
     return tuple(float(v) for v in value)
 
 
-# todo: check ob alles passt
-def random_elastic_transform(mask_np: np.ndarray, sigma=40, magnitude=40, rng=None):
+def random_elastic_transform(
+    mask_np: np.ndarray,
+    sigma=40,
+    magnitude=40,
+    rng=None,
+    padding_mode="constant",
+):
     """Apply a smooth random displacement field to a 2D or 3D channel-first label mask."""
     original_dtype = mask_np.dtype
 
@@ -191,7 +196,8 @@ def random_elastic_transform(mask_np: np.ndarray, sigma=40, magnitude=40, rng=No
         transformed_mask,
         displaced_coordinates,
         order=0,
-        mode="reflect",
+        mode=padding_mode,
+        cval=0, # bg value for constant padding
         prefilter=False,
     ).astype(original_dtype)
 
@@ -208,6 +214,7 @@ DEFAULT_TRANSFORM_PARAMS = {
     "elastic": {
         "sigma": 40,
         "magnitude": 40,
+        "padding_mode": "constant",
     },
     "dilate": {
         "iterations": (1, 2),
