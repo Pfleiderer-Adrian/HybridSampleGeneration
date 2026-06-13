@@ -148,7 +148,7 @@ def random_dilate_transform(mask_np: np.ndarray, classes=None, priorities=None, 
     return final_mask[None, ...]
 
 
-def _as_axis_tuple(value, ndim, name):
+def _as_axis_tuple(value, ndim, name):  # todo: check ob notwendig?
     if np.isscalar(value):
         return (float(value),) * ndim
     if len(value) != ndim:
@@ -156,6 +156,7 @@ def _as_axis_tuple(value, ndim, name):
     return tuple(float(v) for v in value)
 
 
+# todo: check ob alles passt
 def random_elastic_transform(mask_np: np.ndarray, sigma=40, magnitude=40, rng=None):
     """Apply a smooth random displacement field to a 2D or 3D channel-first label mask."""
     original_dtype = mask_np.dtype
@@ -218,6 +219,27 @@ DEFAULT_TRANSFORM_PARAMS = {
 }
 
 
+def default_elastic_params_from_anomaly_size(anomaly_size):
+    """Derive conservative elastic defaults from a channel-first anomaly size."""
+    if anomaly_size is None:
+        return {}
+
+    spatial_shape = tuple(int(size) for size in anomaly_size)
+    if len(spatial_shape) in (3, 4):
+        spatial_shape = spatial_shape[1:]
+
+    if len(spatial_shape) not in (2, 3) or any(size <= 0 for size in spatial_shape):
+        return {}
+
+    sigma = tuple(max(2, int(round(size * 0.2))) for size in spatial_shape)
+    magnitude = tuple(max(1, int(round(size * 0.2))) for size in spatial_shape)
+
+    return {
+        "sigma": sigma,
+        "magnitude": magnitude,
+    }
+
+
 class TransformGenerator:
     """Central orchestration object for mask augmentation."""
 
@@ -229,6 +251,7 @@ class TransformGenerator:
             transform_params=getattr(config, "mask_transform_params", None),
             priorities=getattr(config, "mask_transform_priorities", None),
             rng=getattr(config, "rng", None),
+            anomaly_size=getattr(config, "anomaly_size", None),
         )
 
     GLOBAL_TRANSFORMS = {
@@ -247,6 +270,7 @@ class TransformGenerator:
         transform_params: Dict[int | str, Dict[str, Any]] | None = None,
         priorities: list[int] | tuple[int, ...] | None = None,
         rng: np.random.Generator | None = None,
+        anomaly_size: tuple[int, ...] | list[int] | None = None,
     ) -> None:
         self.global_transform_probs = {}
         self.local_transform_probs = {}
@@ -256,6 +280,8 @@ class TransformGenerator:
         if transform_probs:
             self.set_transform_probs(transform_probs)
         self.transform_params = deepcopy(DEFAULT_TRANSFORM_PARAMS)
+        if use_default_mask_transforms:
+            self.transform_params["elastic"].update(default_elastic_params_from_anomaly_size(anomaly_size))
         self.class_transform_params = {}
         self.priorities = priorities
         if transform_params:
