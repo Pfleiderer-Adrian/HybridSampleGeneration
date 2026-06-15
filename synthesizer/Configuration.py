@@ -178,8 +178,8 @@ class Configuration:
 
         # set to None for variable roi size
         self.fixed_roi_size = None
-        # define min size for every dimension to improve template matching for small anomalies; use None for dimensions without min
-        self.min_roi_size = None
+        # define min size for every dimension to improve template matching for small anomalies
+        self.min_roi_size = 0
 
         # evaluation parameter
         # (optional) absolute thresholds

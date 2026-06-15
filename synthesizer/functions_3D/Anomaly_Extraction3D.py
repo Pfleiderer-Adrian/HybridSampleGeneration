@@ -2,31 +2,27 @@ import numpy as np
 from scipy.ndimage import zoom, label, find_objects, center_of_mass
 
 
-def _as_axis_tuple(value, ndim, name, default=None):
-    if value is None:
-        return (default,) * ndim
+def _as_axis_tuple(value, ndim, name):
     if np.isscalar(value):
         return (value,) * ndim
 
     values = tuple(value)
-    if len(values) != ndim:
-        raise ValueError(f"{name} must have len {ndim}. Got {value!r}")
-    return values
+    if len(values) < ndim:
+        raise ValueError(f"{name} must have at least len {ndim}. Got {value!r}")
+    return values[:ndim]
 
 
 def dynamic_roi_size(spatial_shape, min_pad, pad_ratio, min_roi_size):
     spatial_shape = tuple(int(size) for size in spatial_shape)
-    min_pad = _as_axis_tuple(min_pad, len(spatial_shape), "min_pad", default=0)
-    pad_ratio = _as_axis_tuple(pad_ratio, len(spatial_shape), "pad_ratio", default=0)
-    min_roi_size = _as_axis_tuple(min_roi_size, len(spatial_shape), "min_roi_size", default=None)
+    min_pad = _as_axis_tuple(min_pad, len(spatial_shape), "min_pad")
+    pad_ratio = _as_axis_tuple(pad_ratio, len(spatial_shape), "pad_ratio")
+    min_roi_size = _as_axis_tuple(min_roi_size, len(spatial_shape), "min_roi_size")
 
-    size_spatial = []
-    for size, axis_min_pad, axis_pad_ratio, axis_min_roi in zip(spatial_shape, min_pad, pad_ratio, min_roi_size):
-        axis_size = int(size + max(axis_min_pad, size * axis_pad_ratio))
-        if axis_min_roi is not None:
-            axis_size = max(axis_size, int(axis_min_roi))
-        size_spatial.append(axis_size)
-    return size_spatial
+    return [
+        max(int(size + max(axis_min_pad, size * axis_pad_ratio)), int(axis_min_roi))
+        for size, axis_min_pad, axis_pad_ratio, axis_min_roi
+        in zip(spatial_shape, min_pad, pad_ratio, min_roi_size)
+    ]
 
 def resize_and_pad_3d(arr, target_size, order=1):
     """
