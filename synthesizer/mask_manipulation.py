@@ -5,7 +5,6 @@ import numpy as np
 import scipy.ndimage as ndi
 import torch
 import torch.nn.functional as F
-#import monai.transforms import Rand2DElastic, Rand3DElastic
 
 def to_one_hot_3D(mask: torch.Tensor, num_anomaly_classes: int) -> torch.Tensor:
     """Converts 3D/4D/5D integer masks to 5D one-hot float tensors of shape (B, C, D, H, W)."""
@@ -149,42 +148,60 @@ def random_dilate_transform(mask_np: np.ndarray, classes=None, priorities=None, 
     return final_mask[None, ...]
 
 
-def random_elastic_transform(mask_np: np.ndarray, sigma=5, magnitude=200, rng=None):
-    """Apply the matching MONAI elastic transform for a 2D or 3D NumPy mask."""
-    original_dtype = mask_np.dtype
-    ndim = mask_np.ndim
+def _as_axis_tuple(value, ndim, name):
+    if np.isscalar(value):
+        return (float(value),) * ndim
+    if len(value) != ndim:
+        raise ValueError(f"{name} must be scalar or contain exactly {ndim} values, got {value!r}.")
+    return tuple(float(v) for v in value)
 
-    if ndim not in (3, 4) or mask_np.shape[0] != 1:
+
+def random_elastic_transform(
+    mask_np: np.ndarray,
+    sigma=40,
+    magnitude=40,
+    rng=None,
+    padding_mode="constant",
+):
+    """Apply a smooth random displacement field to a 2D or 3D channel-first label mask."""
+    original_dtype = mask_np.dtype
+
+    if mask_np.ndim not in (3, 4) or mask_np.shape[0] != 1:
         raise ValueError(f"Expected mask with shape (1, H, W) or (1, D, H, W), got {mask_np.shape}.")
 
-    # MONAI expects [1, (D), H, W]
-    mask_tensor = torch.from_numpy(mask_np).float()
+    transformed_mask = mask_np[0].copy()
+    spatial_ndim = transformed_mask.ndim
+    sigma = _as_axis_tuple(sigma, spatial_ndim, "sigma")
+    magnitude = _as_axis_tuple(magnitude, spatial_ndim, "magnitude")
+    rng = rng if rng is not None else np.random.default_rng()
 
-    if ndim == 3:
-        # 2D: control grid density via 'spacing'
-        re_deform = Rand2DElastic(
-            spacing=(sigma, sigma),
-            magnitude_range=(magnitude, magnitude),
-            prob=1.0,
-            mode="nearest",
-            padding_mode="reflection",
-        )
-    elif ndim == 4:
-        # 3D: control grid smoothing via 'sigma_range'
-        re_deform = Rand3DElastic(
-            sigma_range=(sigma, sigma),
-            magnitude_range=(magnitude, magnitude),
-            prob=1.0,
-            mode="nearest",
-            padding_mode="reflection",
-        )
+    coordinates = np.meshgrid(
+        *[np.arange(size, dtype=np.float32) for size in transformed_mask.shape],
+        indexing="ij",
+    )
 
-    if rng is not None and hasattr(re_deform, "set_random_state"):
-        re_deform.set_random_state(seed = int(rng.integers(0, np.iinfo(np.uint32).max)))
+    displaced_coordinates = []
+    for axis in range(spatial_ndim):
+        random_field = rng.uniform(-1.0, 1.0, size=transformed_mask.shape).astype(np.float32)
+        smooth_field = ndi.gaussian_filter(random_field, sigma=sigma, mode="reflect")
 
-    transformed_tensor = re_deform(mask_tensor)
+        max_abs = np.max(np.abs(smooth_field))
+        if max_abs > 0:
+            smooth_field = smooth_field / max_abs
 
-    return transformed_tensor.numpy().astype(original_dtype)
+        displacement = smooth_field * magnitude[axis]
+        displaced_coordinates.append(coordinates[axis] + displacement)
+
+    transformed_mask = ndi.map_coordinates(
+        transformed_mask,
+        displaced_coordinates,
+        order=0,
+        mode=padding_mode,
+        cval=0, # bg value for constant padding
+        prefilter=False,
+    ).astype(original_dtype)
+
+    return transformed_mask[None, ...]
 
 
 DEFAULT_TRANSFORM_PROBS = {
@@ -195,8 +212,9 @@ DEFAULT_TRANSFORM_PROBS = {
 
 DEFAULT_TRANSFORM_PARAMS = {
     "elastic": {
-        "sigma": 70,
-        "magnitude": 2,
+        "sigma": 40,
+        "magnitude": 40,
+        "padding_mode": "constant",
     },
     "dilate": {
         "iterations": (1, 2),
@@ -206,6 +224,27 @@ DEFAULT_TRANSFORM_PARAMS = {
         "stretch_max": 1.05,
     },
 }
+
+
+def default_elastic_params_from_anomaly_size(anomaly_size):
+    """Derive conservative elastic defaults from a channel-first anomaly size."""
+    if anomaly_size is None:
+        return {}
+
+    spatial_shape = tuple(int(size) for size in anomaly_size)
+    if len(spatial_shape) in (3, 4):
+        spatial_shape = spatial_shape[1:]
+
+    if len(spatial_shape) not in (2, 3) or any(size <= 0 for size in spatial_shape):
+        return {}
+
+    sigma = tuple(max(2, int(round(size * 0.2))) for size in spatial_shape)
+    magnitude = tuple(max(1, int(round(size * 0.2))) for size in spatial_shape)
+
+    return {
+        "sigma": sigma,
+        "magnitude": magnitude,
+    }
 
 
 class TransformGenerator:
@@ -219,6 +258,7 @@ class TransformGenerator:
             transform_params=getattr(config, "mask_transform_params", None),
             priorities=getattr(config, "mask_transform_priorities", None),
             rng=getattr(config, "rng", None),
+            anomaly_size=getattr(config, "anomaly_size", None),
         )
 
     GLOBAL_TRANSFORMS = {
@@ -237,6 +277,7 @@ class TransformGenerator:
         transform_params: Dict[int | str, Dict[str, Any]] | None = None,
         priorities: list[int] | tuple[int, ...] | None = None,
         rng: np.random.Generator | None = None,
+        anomaly_size: tuple[int, ...] | list[int] | None = None,
     ) -> None:
         self.global_transform_probs = {}
         self.local_transform_probs = {}
@@ -246,6 +287,8 @@ class TransformGenerator:
         if transform_probs:
             self.set_transform_probs(transform_probs)
         self.transform_params = deepcopy(DEFAULT_TRANSFORM_PARAMS)
+        if use_default_mask_transforms:
+            self.transform_params["elastic"].update(default_elastic_params_from_anomaly_size(anomaly_size))
         self.class_transform_params = {}
         self.priorities = priorities
         if transform_params:
