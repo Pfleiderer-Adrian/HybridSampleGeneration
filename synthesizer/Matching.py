@@ -237,6 +237,9 @@ def crop_border(arr: np.ndarray, bg_thresh: float, margin: int = 0) -> np.ndarra
         return arr[:, z0:z1, y0:y1, x0:x1]
 
 def check_roi_overlap(opt_center, current_roi_shape, used_positions):
+    if opt_center is None:
+        return False
+
     for pos, pos_shape in used_positions:
         overlap = True
         for dim in range(len(opt_center)):
@@ -378,7 +381,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                     sim = -np.inf
                     sim, opt_center = template_matching(roi, control)
 
-                    if check_roi_overlap(opt_center, current_roi_shape, used_positions):
+                    if sim >= -1 and check_roi_overlap(opt_center, current_roi_shape, used_positions):
                         sim = -np.inf
 
                     if sim >= -1:
@@ -414,7 +417,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                     current_roi_shape = roi.shape[1:]
                     sim, opt_center = template_matching(roi, control)
                     
-                    if check_roi_overlap(opt_center, current_roi_shape, used_positions):
+                    if sim >= -1 and check_roi_overlap(opt_center, current_roi_shape, used_positions):
                         sim = -np.inf
 
                     # while roi doesn't fit in control try next roi
@@ -431,9 +434,10 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                         checked_roi_names.add(roi_filename)
                         i += 1
                         
+                        current_roi_shape = roi.shape[1:]
                         sim, opt_center = template_matching(roi, control)
 
-                        if check_roi_overlap(opt_center, current_roi_shape, used_positions):
+                        if sim >= -1 and check_roi_overlap(opt_center, current_roi_shape, used_positions):
                             sim = -np.inf
 
                     # no match possible for current control
