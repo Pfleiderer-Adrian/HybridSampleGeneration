@@ -339,9 +339,9 @@ class HybridDataGenerator:
                 i = 0
                 while best < self._config.feedback_threshold:
                     if self._config.prior_sampling:
-                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output)
+                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output, background_threshold=self._config.background_threshold)
                     else:
-                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
+                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output, background_threshold=self._config.background_threshold)
 
                     if best_image is None:
                         best_image = syn_anomaly_sample
@@ -350,12 +350,13 @@ class HybridDataGenerator:
                     if syn_anomaly_sample.shape != img.shape:
                         raise ValueError(str(syn_anomaly_sample.shape)+"vs"+str(img.shape))
 
+                    """               
                     if self._config.random_offset:
                         _background_threshold = self._config.background_threshold
                         if _background_threshold is None:
                             _background_threshold = np.min(syn_anomaly_sample)+0.01
                         syn_anomaly_sample, _, _, _ = center_foreground_com(syn_anomaly_sample, _background_threshold, largest_only=True)
-                        img, _, _, _ = center_foreground_com(img, _background_threshold)
+                        img, _, _, _ = center_foreground_com(img, _background_threshold) """
                     similarity_score = ssim_01(img, syn_anomaly_sample)
 
                     if similarity_score > best:
@@ -383,9 +384,9 @@ class HybridDataGenerator:
             for sample in tqdm(self._anomaly_dataset):
                 basename = sample["fname"]
                 if self._config.prior_sampling:
-                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output)
+                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output, background_threshold=self._config.background_threshold)
                 else:
-                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output)
+                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output, background_threshold=self._config.background_threshold)
                 save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
                 save_numpy_as_npy(syn_anomaly_mask, str(os.path.join(tgt_mask_folder, basename)), overwrite=True)
 

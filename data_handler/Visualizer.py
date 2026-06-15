@@ -1445,6 +1445,36 @@ def _display_plane(arr: np.ndarray, slice_index: int = 0, channel: int = 0) -> T
     raise ValueError(f"Unsupported shape {arr.shape}; expected 2D, 3D, or 4D array.")
 
 
+def _display_mask_plane(arr: np.ndarray, slice_index: int = 0) -> Tuple[np.ndarray, int, int, str]:
+    arr = np.asarray(arr)
+    slice_index = max(0, int(slice_index))
+
+    if arr.ndim == 4:
+        if _is_channel_axis(arr.shape[0]):
+            depth = int(arr.shape[1])
+            used = min(slice_index, max(depth - 1, 0))
+            return np.max(arr[:, used, :, :], axis=0), depth, used, "C,D,H,W"
+        if _is_channel_axis(arr.shape[-1]):
+            depth = int(arr.shape[0])
+            used = min(slice_index, max(depth - 1, 0))
+            return np.max(arr[used], axis=-1), depth, used, "D,H,W,C"
+        raise ValueError(f"Unsupported 4D mask shape {arr.shape}; expected channel-first or channel-last data.")
+
+    if arr.ndim == 3:
+        if _is_channel_axis(arr.shape[0]) and arr.shape[1] > 8 and arr.shape[2] > 8:
+            return np.max(arr, axis=0), 1, 0, "C,H,W"
+        if _is_channel_axis(arr.shape[-1]) and arr.shape[0] > 8 and arr.shape[1] > 8:
+            return np.max(arr, axis=-1), 1, 0, "H,W,C"
+        depth = int(arr.shape[0])
+        used = min(slice_index, max(depth - 1, 0))
+        return arr[used], depth, used, "D,H,W"
+
+    if arr.ndim == 2:
+        return arr, 1, 0, "H,W"
+
+    raise ValueError(f"Unsupported mask shape {arr.shape}; expected 2D, 3D, or 4D array.")
+
+
 def _normalize_for_display(image: np.ndarray, reference: np.ndarray, contrast: float) -> np.ndarray:
     center, half0 = _robust_window_params(np.asarray(reference))
     vmin, vmax = _window_limits(center, half0, contrast)
@@ -1452,6 +1482,61 @@ def _normalize_for_display(image: np.ndarray, reference: np.ndarray, contrast: f
     out = (np.asarray(image, dtype=np.float32) - vmin) / denom
     out = np.nan_to_num(out, nan=0.0, posinf=1.0, neginf=0.0)
     return np.clip(out, 0.0, 1.0)
+
+
+def _mask_cmap_and_norm(label_count: int):
+    base_colors = [
+        "#000000",
+        "#ffd166",
+        "#06d6a0",
+        "#118ab2",
+        "#ef476f",
+        "#a78bfa",
+        "#f97316",
+        "#22c55e",
+        "#e879f9",
+    ]
+    label_count = max(int(label_count), 1)
+    if label_count <= len(base_colors):
+        colors = base_colors[:label_count]
+    else:
+        tab20 = plt.get_cmap("tab20")
+        colors = base_colors + [
+            matplotlib.colors.to_hex(tab20(i % tab20.N))
+            for i in range(label_count - len(base_colors))
+        ]
+    cmap = matplotlib.colors.ListedColormap(colors)
+    norm = matplotlib.colors.BoundaryNorm(
+        np.arange(-0.5, label_count + 0.5, 1.0),
+        label_count,
+    )
+    return cmap, norm
+
+
+def _prepare_mask_display(mask: np.ndarray) -> Tuple[np.ndarray, str]:
+    raw = np.asarray(mask)
+    raw = np.nan_to_num(raw, nan=0.0, posinf=0.0, neginf=0.0)
+    labels_raw = np.rint(raw).astype(np.int64, copy=False)
+    labels_raw = np.where(labels_raw > 0, labels_raw, 0)
+
+    labels = np.unique(labels_raw)
+    positive_labels = [int(value) for value in labels if value > 0]
+
+    display = np.zeros(labels_raw.shape, dtype=np.int32)
+    for idx, label in enumerate(positive_labels, start=1):
+        display[labels_raw == label] = idx
+
+    label_text_values = [int(value) for value in labels[:8]]
+    label_suffix = "..." if labels.size > 8 else ""
+    fg_pct = 100.0 * (float(np.count_nonzero(labels_raw > 0)) / max(labels_raw.size, 1))
+    stats = f"labels={label_text_values}{label_suffix} | fg={fg_pct:.1f}%"
+    return display, stats
+
+
+def _label_count_for_display(image: np.ndarray) -> int:
+    if image.size == 0:
+        return 1
+    return int(np.nanmax(image)) + 1
 
 
 def _draw_placeholder(ax, title: str, detail: str):
@@ -1478,6 +1563,7 @@ def _array_item(
         "title": title,
         "path": path,
         "expected_path": expected_path if expected_path is not None else path,
+        "is_mask": "mask" in title.lower(),
     }
     if meta is not None:
         item["meta"] = meta
@@ -1498,20 +1584,29 @@ def _render_array_panel(ax, item: Dict[str, object], slice_index: int, contrast:
 
     try:
         arr = _load_array(path)
-        arr, denormalized = _denormalize_array_for_display(arr, item.get("meta"))
-        window_reference = arr
-        window_path = item.get("window_path")
-        if denormalized and window_path and os.path.isfile(window_path):
-            window_reference = _load_array(window_path)
-        image, depth, used_slice, mode = _display_plane(arr, slice_index=slice_index, channel=channel)
-        image = _normalize_for_display(image, window_reference, contrast)
+        is_mask = bool(item.get("is_mask"))
+        mask_stats = ""
+        if item.get("is_mask"):
+            image, depth, used_slice, mode = _display_mask_plane(arr, slice_index=slice_index)
+            image, mask_stats = _prepare_mask_display(image)
+        else:
+            arr, denormalized = _denormalize_array_for_display(arr, item.get("meta"))
+            window_reference = arr
+            window_path = item.get("window_path")
+            if denormalized and window_path and os.path.isfile(window_path):
+                window_reference = _load_array(window_path)
+            image, depth, used_slice, mode = _display_plane(arr, slice_index=slice_index, channel=channel)
+            image = _normalize_for_display(image, window_reference, contrast)
     except Exception as exc:
         _draw_placeholder(ax, title, f"Could not load:\n{path}\n\n{exc}")
         return 1
 
     ax.clear()
     ax.axis("off")
-    if image.ndim == 3 and image.shape[-1] == 1:
+    if is_mask:
+        mask_cmap, mask_norm = _mask_cmap_and_norm(_label_count_for_display(image))
+        ax.imshow(image, cmap=mask_cmap, norm=mask_norm, interpolation="nearest", aspect="equal")
+    elif image.ndim == 3 and image.shape[-1] == 1:
         ax.imshow(image[:, :, 0], cmap=cmap, vmin=0, vmax=1, aspect="equal")
     elif image.ndim == 3:
         ax.imshow(image, aspect="equal")
@@ -1519,8 +1614,9 @@ def _render_array_panel(ax, item: Dict[str, object], slice_index: int, contrast:
         ax.imshow(image, cmap=cmap, vmin=0, vmax=1, aspect="equal")
 
     slice_info = f" | slice {used_slice}/{depth - 1}" if depth > 1 else ""
+    mask_info = f" | {mask_stats}" if mask_stats else ""
     ax.set_title(
-        f"{title}\n{os.path.basename(path)} | shape={tuple(arr.shape)} | {mode}{slice_info}",
+        f"{title}\n{os.path.basename(path)} | shape={tuple(arr.shape)} | {mode}{slice_info}{mask_info}",
         fontsize=9,
         pad=8,
     )
@@ -1625,7 +1721,7 @@ class AnomalyGenerationTab(_ArrayTabBase):
         self.anomaly_dir = self.paths.anomaly_data
         self.anomaly_roi_dir = self.paths.anomaly_roi_data
         self.synth_anomaly_dir = self.paths.synth_anomaly_data
-        self.synth_anomaly_mask_dir = self.paths.synth_anomaly_mask_data
+        self.generated_mask_dir = self.paths.anomaly_tgt_mask_data
         self.files: List[str] = []
         self.current_filename: Optional[str] = None
         self._build_ui()
@@ -1675,14 +1771,14 @@ class AnomalyGenerationTab(_ArrayTabBase):
                 _array_item("Extracted anomaly", None, self.anomaly_dir),
                 _array_item("Extracted ROI", None, self.anomaly_roi_dir),
                 _array_item("Generated anomaly", None, self.synth_anomaly_dir),
-                _array_item("Future mask", None, self.synth_anomaly_mask_dir),
+                _array_item("Generated mask", None, self.generated_mask_dir),
             ]
             self.fig.suptitle("anomaly generation", fontsize=13, fontweight="bold")
         else:
             anomaly_path, anomaly_expected = _resolve_file_by_name(self.anomaly_dir, selected)
             roi_path, roi_expected = _resolve_file_by_name(self.anomaly_roi_dir, selected)
             synth_path, synth_expected = _resolve_file_by_name(self.synth_anomaly_dir, selected)
-            mask_path, mask_expected = _resolve_file_by_name(self.synth_anomaly_mask_dir, selected)
+            mask_path, mask_expected = _resolve_file_by_name(self.generated_mask_dir, selected)
             anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, selected)
             items = [
                 _array_item(
@@ -1694,7 +1790,7 @@ class AnomalyGenerationTab(_ArrayTabBase):
                     "Generated anomaly", synth_path, synth_expected,
                     meta=anomaly_meta, window_path=roi_path,
                 ),
-                _array_item("Future mask", mask_path, mask_expected),
+                _array_item("Generated mask", mask_path, mask_expected),
             ]
             self.fig.suptitle(f"anomaly generation: {selected}", fontsize=13, fontweight="bold")
 

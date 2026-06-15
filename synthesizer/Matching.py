@@ -36,7 +36,7 @@ def template_matching(template, control):
     idx_tuple = np.unravel_index(np.argmax(result), result.shape)
 
     center_coords = tuple(
-        top_left + (dim_size // 2) 
+        float(top_left + (dim_size / 2.0))
         for top_left, dim_size in zip(idx_tuple, template.shape)
     )
 

@@ -17,6 +17,17 @@ from data_handler.AnomalyDataset import save_numpy_as_npy
 from data_handler.Visualizer import OutlierGUI
 
 
+def _relative_foreground_mask(arr, background_threshold):
+    threshold_rel = float(background_threshold)
+    if threshold_rel < 0.0:
+        raise ValueError(f"background_threshold must be >= 0, got {background_threshold}.")
+
+    min_val = float(np.nanmin(arr))
+    max_val = float(np.nanmax(arr))
+    threshold = min_val + threshold_rel * (max_val - min_val)
+    return arr > threshold
+
+
 def compare_intensity_range(sample_dataloader, synth_dir):
 
     global_min = np.inf
@@ -435,9 +446,9 @@ def run_feature_calculator(anomaly_dir, synth_anomaly_dir, feature_calculator_fu
             continue
 
         if cutout:
-            if config.background_threshold:
-                real_mask = real_arr > config.background_threshold
-                synth_mask = synth_arr > config.background_threshold
+            if config.background_threshold is not None:
+                real_mask = _relative_foreground_mask(real_arr, config.background_threshold)
+                synth_mask = _relative_foreground_mask(synth_arr, config.background_threshold)
             else:
                 real_mask = real_arr > 0
                 synth_mask = synth_arr > 0
