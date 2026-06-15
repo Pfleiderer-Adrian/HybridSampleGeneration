@@ -176,8 +176,10 @@ class Configuration:
 
         self.model_params = get_model_configuration(model_name, anomaly_size[0], debug=False)
 
-         # set to None for variable roi size
+        # set to None for variable roi size
         self.fixed_roi_size = None
+        # define min size for every dimension to improve template matching for small anomalies; use None for dimensions without min
+        self.min_roi_size = None
 
         # evaluation parameter
         # (optional) absolute thresholds

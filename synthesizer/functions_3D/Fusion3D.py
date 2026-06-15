@@ -5,7 +5,7 @@ from tqdm import tqdm
 from skimage.feature import match_template
 from scipy.ndimage import binary_dilation
 
-from synthesizer.functions_3D.Anomaly_Extraction3D import crop_cube_clip
+from synthesizer.functions_3D.Anomaly_Extraction3D import crop_cube_clip, dynamic_roi_size
 
 
 def _inverse_extraction_scale(scale_factor, ndim):
@@ -334,7 +334,7 @@ def fusion3d(
     centroid_voxel = (cd, ch, cw)
 
     if config.fixed_roi_size is None:
-        size_spatial = [int(s + max(mp, s * pr)) for s, mp, pr in zip((dd, hh, ww), config.min_pad, config.pad_ratio)]
+        size_spatial = dynamic_roi_size((dd, hh, ww), config.min_pad, config.pad_ratio, config.min_roi_size)
     else:
         size_spatial = config.fixed_roi_size
         

@@ -3,7 +3,7 @@ import scipy.ndimage
 from scipy.ndimage import zoom
 from scipy.ndimage import binary_dilation
 
-from synthesizer.functions_2D.Anomaly_Extraction2D import crop_square_clip
+from synthesizer.functions_2D.Anomaly_Extraction2D import crop_square_clip, dynamic_roi_size
 
 
 def _inverse_extraction_scale(scale_factor, ndim):
@@ -333,7 +333,7 @@ def fusion2d(
     centroid_voxel = (ch, cw)
     
     if config.fixed_roi_size is None:
-        size_spatial = [int(s + max(mp, s * pr)) for s, mp, pr in zip((hh, ww), config.min_pad, config.pad_ratio)]    
+        size_spatial = dynamic_roi_size((hh, ww), config.min_pad, config.pad_ratio, config.min_roi_size)
     else:
         size_spatial = config.fixed_roi_size
 
