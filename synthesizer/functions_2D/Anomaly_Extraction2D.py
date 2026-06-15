@@ -319,6 +319,7 @@ def crop_and_center_anomaly_2d(
     anomalies = []
     anomalies_roi = []
     org_masks = []
+    roi_masks = []
 
     min_region_pixels = int(config.min_anomaly_percentage * (target_size[0] * target_size[1]))
 
@@ -374,6 +375,7 @@ def crop_and_center_anomaly_2d(
             size_spatial = config.fixed_roi_size
         
         anomalies_roi.append(crop_square_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False))
+        roi_masks.append(crop_square_clip(seg, centroid_voxel, size_spatial, centroid_is_normalized=False))
 
         anomalies.append((padded_arr, meta_data))
 
@@ -389,4 +391,4 @@ def crop_and_center_anomaly_2d(
         )
         org_masks.append(padded_mask)
 
-    return anomalies, anomalies_roi, org_masks
+    return anomalies, anomalies_roi, org_masks, roi_masks

@@ -99,12 +99,14 @@ class HybridDataGenerator:
         anomaly_roi_folder = paths.anomaly_roi_data
         anomaly_mask_folder = paths.anomaly_mask_data
         anomaly_tgt_mask_folder = paths.anomaly_tgt_mask_data
+        anomaly_mask_roi_folder = paths.anomaly_mask_roi_data
 
         paths.confirm_and_clear_artifact_dirs(
             anomaly_folder,
             anomaly_roi_folder,
             anomaly_mask_folder,
             anomaly_tgt_mask_folder,
+            anomaly_mask_roi_folder
         )
         self._config.syn_anomaly_transformations = {}
 
@@ -117,7 +119,7 @@ class HybridDataGenerator:
                 continue
 
             if img.ndim == 3:
-                anomalies, anomalies_roi, org_masks = crop_and_center_anomaly_2d(
+                anomalies, anomalies_roi, org_masks, roi_masks = crop_and_center_anomaly_2d(
                     img,
                     seg,
                     self._config,
@@ -126,7 +128,7 @@ class HybridDataGenerator:
                     normalization_eps=self._config.normalization_eps,
                 )
             elif img.ndim == 4:
-                anomalies, anomalies_roi, org_masks = crop_and_center_anomaly_3d(
+                anomalies, anomalies_roi, org_masks, roi_masks = crop_and_center_anomaly_3d(
                     img,
                     seg,
                     self._config,
@@ -156,12 +158,21 @@ class HybridDataGenerator:
                     overwrite=True,
                 )
 
-            # save mask of anomaly for matching
+            # save mask of anomaly
             for i, mask_sample in enumerate(org_masks):
                 artifact_name = basename + "_" + str(i) + ".npy"
                 save_numpy_as_npy(
                     mask_sample,
                     os.path.join(anomaly_mask_folder, artifact_name),
+                    overwrite=True,
+                )
+
+            # save mask of roi
+            for i, mask_sample in enumerate(roi_masks):
+                artifact_name = basename + "_" + str(i) + ".npy"
+                save_numpy_as_npy(
+                    mask_sample,
+                    os.path.join(anomaly_mask_roi_folder, artifact_name),
                     overwrite=True,
                 )
 
@@ -565,7 +576,7 @@ class HybridDataGenerator:
             )
 
             if control_samples_array.ndim == 3:
-                img, seg, roi = fusion2d(
+                img, seg, roi, roi_mask = fusion2d(
                     img,
                     synth_anomaly_image,
                     anomaly_meta,
@@ -574,7 +585,7 @@ class HybridDataGenerator:
                     target_mask=target_mask,
                 )
             elif control_samples_array.ndim == 4:
-                img, seg, roi = fusion3d(
+                img, seg, roi, roi_mask = fusion3d(
                     img,
                     synth_anomaly_image,
                     anomaly_meta,
@@ -601,6 +612,15 @@ class HybridDataGenerator:
                 )
                 os.makedirs(os.path.dirname(roi_path), exist_ok=True)
                 save_numpy_as_npy(roi, roi_path, overwrite=True)
+
+                # Save the ROI mask
+                roi_mask_path = os.path.join(
+                    self._config.get_paths().synth_roi_mask_data,
+                    basename_of_control_sample,
+                    anomaly_basename,
+                )
+                os.makedirs(os.path.dirname(roi_mask_path), exist_ok=True)
+                save_numpy_as_npy(roi_mask, roi_mask_path, overwrite=True)
 
         if save_npy:
             paths = self._config.get_paths()

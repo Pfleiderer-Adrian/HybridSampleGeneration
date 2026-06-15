@@ -345,7 +345,15 @@ def fusion2d(
         centroid_is_normalized=False
     )
 
-    return fused_image, segmentation, fused_roi
+    # crop roi from fused image
+    fused_roi_mask = crop_square_clip(
+        segmentation, 
+        centroid_voxel, 
+        size_spatial, 
+        centroid_is_normalized=False
+    )
+
+    return fused_image, segmentation, fused_roi, fused_roi_mask
 
 
 def get_alpha_mask_sobel_final_2d(anomaly_arr, config, valid_mask):

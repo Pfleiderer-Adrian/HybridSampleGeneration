@@ -116,10 +116,18 @@ class StudyPaths:
     @property
     def synth_anomaly_mask_data(self):
         return self._join("synth_anomaly_mask_data")
+    
+    @property
+    def anomaly_mask_roi_data(self):
+        return self._join("anomaly_mask_roi_data")
 
     @property
     def synth_roi_data(self):
         return self._join("synth_roi_data")
+    
+    @property
+    def synth_roi_mask_data(self):
+        return self._join("synth_roi_mask_data")
 
     @property
     def generated_hybrid_samples(self):

@@ -348,6 +348,7 @@ def crop_and_center_anomaly_3d(
     anomalies = []
     anomalies_roi = []
     org_masks = []
+    roi_masks = []
 
     min_region_voxels = int(config.min_anomaly_percentage * (target_size[0] * target_size[1] * target_size[2]))
 
@@ -401,7 +402,8 @@ def crop_and_center_anomaly_3d(
             size_spatial = config.fixed_roi_size
 
         anomalies_roi.append(crop_cube_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False))
-        
+        roi_masks.append(crop_cube_clip(seg, centroid_voxel, size_spatial, centroid_is_normalized=False))
+
         anomalies.append((padded_arr, meta_data))
 
         # cutout like in img
@@ -416,4 +418,4 @@ def crop_and_center_anomaly_3d(
         )
         org_masks.append(padded_mask)
 
-    return anomalies, anomalies_roi, org_masks
+    return anomalies, anomalies_roi, org_masks, roi_masks

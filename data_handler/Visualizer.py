@@ -53,6 +53,28 @@ def _paths(config) -> StudyPaths:
     return paths
 
 
+def _set_initial_window_size(root, width: int = 1500, height: int = 1000):
+    """Set the initial Tk visualizer window size."""
+    try:
+        root.geometry(f"{int(width)}x{int(height)}")
+    except tk.TclError:
+        pass
+
+
+def _sync_figure_to_canvas(fig, canvas: FigureCanvasTkAgg):
+    widget = canvas.get_tk_widget()
+    try:
+        widget.update_idletasks()
+        width = int(widget.winfo_width())
+        height = int(widget.winfo_height())
+    except tk.TclError:
+        return
+    if width <= 1 or height <= 1:
+        return
+    dpi = float(fig.get_dpi())
+    fig.set_size_inches(width / dpi, height / dpi, forward=False)
+
+
 class OutlierGUI:
     def __init__(self, root, config, embedded: bool = False):
         self.root = root
@@ -60,14 +82,19 @@ class OutlierGUI:
         if not self.embedded:
             self.root.title("Outlier Viewer")
             self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+            _set_initial_window_size(self.root)
 
         self.config = config
         self.paths = _paths(config)
 
         self.synth_anomaly_dir = self.paths.synth_anomaly_data
         self.synth_roi_dir = self.paths.synth_roi_data
+        self.synth_roi_mask_dir = self.paths.synth_roi_mask_data
         self.anomaly_dir = self.paths.anomaly_data
         self.anomaly_roi_dir = self.paths.anomaly_roi_data
+        self.anomaly_mask_dir = self.paths.anomaly_mask_data
+        self.anomaly_roi_mask_dir = self.paths.anomaly_mask_roi_data
+        self.generated_mask_dir = self.paths.anomaly_tgt_mask_data
         self.ghs_dir = self.paths.generated_images_npy
         self.ghs_seg_dir = self.paths.generated_segmentations_npy
         self.anomaly_transformations = _load_anomaly_transformations(self.paths.anomaly_transformations_file)
@@ -83,6 +110,7 @@ class OutlierGUI:
 
         self.current_index = 0
         self.current_slice = 0
+        self.show_mask_overlays_var = tk.BooleanVar(value=True)
 
         self._setup_responsive_sizes()
 
@@ -294,7 +322,7 @@ class OutlierGUI:
         self.scrollbar_tree = tk.Scrollbar(self.list_frame)
         self.scrollbar_tree.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.tree = ttk.Treeview(self.list_frame, yscrollcommand=self.scrollbar_tree.set, selectmode="browse", height=8)
+        self.tree = ttk.Treeview(self.list_frame, yscrollcommand=self.scrollbar_tree.set, selectmode="browse", height=5)
         self.tree.heading("#0", text="Items", anchor="w")
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.scrollbar_tree.config(command=self.tree.yview)
@@ -310,6 +338,15 @@ class OutlierGUI:
                                         command=lambda _: self.update_display(), font=self.font_label, bg=bg)
         self.contrast_slider.set(1.0)
         self.contrast_slider.pack(fill=tk.X, pady=(0, 10))
+
+        tk.Checkbutton(
+            control_frame,
+            text="Mask overlays",
+            variable=self.show_mask_overlays_var,
+            command=self.update_display,
+            font=self.font_label,
+            bg=bg,
+        ).pack(anchor="w", padx=5, pady=(0, 10))
 
         tk.Button(control_frame, text="Prev Sample (<-)", command=self.prev_sample).pack(fill=tk.X, pady=2)
         tk.Button(control_frame, text="Next Sample (->)", command=self.next_sample).pack(fill=tk.X, pady=2)
@@ -330,6 +367,7 @@ class OutlierGUI:
 
         self.fig, self.axs = plt.subplots(2, 2, figsize=(15, 5), constrained_layout=True)
         self.axs = self.axs.flatten()
+        self._panel_count = 4
         self.canvas = FigureCanvasTkAgg(self.fig, master=main_container)
         self.canvas_widget = self.canvas.get_tk_widget()
         main_container.add(self.canvas_widget, weight=4)
@@ -344,6 +382,18 @@ class OutlierGUI:
         self.root.bind("<Right>", lambda e: self.next_sample())
         self.root.bind("<Up>", lambda e: self.next_slice())
         self.root.bind("<Down>", lambda e: self.prev_slice())
+
+    def _set_panel_layout(self, panel_count: int):
+        panel_count = 1 if int(panel_count) == 1 else 4
+        if getattr(self, "_panel_count", None) == panel_count:
+            return
+
+        self.fig.clear()
+        if panel_count == 1:
+            self.axs = np.asarray([self.fig.add_subplot(1, 1, 1)], dtype=object)
+        else:
+            self.axs = np.asarray(self.fig.subplots(2, 2)).flatten()
+        self._panel_count = panel_count
 
     def update_filter(self):
         active_metrics = [m for m, v in self.metric_vars.items() if v.get()]
@@ -632,16 +682,22 @@ class OutlierGUI:
         return p
 
     def update_display(self):
-        for ax in self.axs:
-            ax.clear()
-            ax.axis("off")
-
         if not self.flat_list:
+            self._set_panel_layout(1)
+            for ax in self.axs:
+                ax.clear()
+                ax.axis("off")
             self.axs[0].set_title("No samples found")
             self.canvas.draw()
             return
 
         item = self.flat_list[self.current_index]
+        self._set_panel_layout(1 if item[0] == "control" else 4)
+        _sync_figure_to_canvas(self.fig, self.canvas)
+        for ax in self.axs:
+            ax.clear()
+            ax.axis("off")
+
         contrast = float(self.contrast_slider.get())
 
         if item[0] == "control":
@@ -652,10 +708,7 @@ class OutlierGUI:
             ghs_seg_path = self._get_fallback_path(self.ghs_seg_dir, control)
 
             paths = [
-                (ghs_path, "Generated Hybrid Sample", None, None),
-                (ghs_seg_path, "Generated Hybrid Segmentation", None, None),
-                (None, "", None, None),
-                (None, "", None, None)
+                (ghs_path, "Generated Hybrid Sample", None, None, ghs_seg_path),
             ]
         else:
             _, control, anomaly = item
@@ -663,17 +716,22 @@ class OutlierGUI:
 
             anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, anomaly)
             synth_roi_path = os.path.join(self.synth_roi_dir, control, anomaly)
+            synth_roi_mask_path = self._get_fallback_path(os.path.join(self.synth_roi_mask_dir, control), anomaly)
             real_roi_path = os.path.join(self.anomaly_roi_dir, anomaly)
+            generated_mask_path = self._get_fallback_path(self.generated_mask_dir, anomaly)
+            anomaly_mask_path = self._get_fallback_path(self.anomaly_mask_dir, anomaly)
+            anomaly_roi_mask_path = self._get_fallback_path(self.anomaly_roi_mask_dir, anomaly)
             paths = [
-                (os.path.join(self.synth_anomaly_dir, anomaly), "synth_anomaly_data", anomaly_meta, None),
-                (synth_roi_path, "synth_roi_data", None, None),
-                (os.path.join(self.anomaly_dir, anomaly), "anomaly_data", anomaly_meta, real_roi_path),
-                (real_roi_path, "anomaly_roi_data", None, None)
+                (os.path.join(self.synth_anomaly_dir, anomaly), "synth_anomaly_data", anomaly_meta, None, generated_mask_path),
+                (synth_roi_path, "synth_roi_data", None, None, synth_roi_mask_path),
+                (os.path.join(self.anomaly_dir, anomaly), "anomaly_data", anomaly_meta, real_roi_path, anomaly_mask_path),
+                (real_roi_path, "anomaly_roi_data", None, None, anomaly_roi_mask_path)
             ]
 
         loaded_data = []
         max_slices = 0
-        for p, title, meta, window_path in paths:
+        show_mask_overlays = bool(self.show_mask_overlays_var.get())
+        for p, title, meta, window_path, overlay_path in paths:
             if p and os.path.exists(p):
                 try:
                     arr = np.load(p)
@@ -685,17 +743,42 @@ class OutlierGUI:
                         arr, slice_index=self.current_slice, channel=0
                     )
                     max_slices = max(max_slices, depth)
-                    display_title = f"{title}\nSlice {curr_slice}" if depth > 1 else title
-                    loaded_data.append((img, display_title, p, None, window_arr))
+                    display_title = f"{title}\n{os.path.basename(p)}"
+                    overlay_mask = None
+                    overlay_stats = ""
+                    if show_mask_overlays and overlay_path:
+                        if os.path.exists(overlay_path):
+                            try:
+                                overlay_arr = _load_array(overlay_path)
+                                overlay_mask, overlay_depth, _overlay_slice, _overlay_mode = _display_mask_plane(
+                                    overlay_arr, slice_index=self.current_slice
+                                )
+                                max_slices = max(max_slices, overlay_depth)
+                                overlay_mask, overlay_stats = _prepare_mask_display(overlay_mask)
+                                if tuple(overlay_mask.shape) != tuple(img.shape[:2]):
+                                    overlay_stats = (
+                                        f"overlay shape {tuple(overlay_mask.shape)} != image {tuple(img.shape[:2])}"
+                                    )
+                                    overlay_mask = None
+                                else:
+                                    overlay_stats = f"overlay {overlay_stats}"
+                            except Exception as exc:
+                                overlay_stats = f"overlay error: {exc}"
+                                overlay_mask = None
+                        else:
+                            overlay_stats = f"overlay not found: {os.path.basename(overlay_path)}"
+                    loaded_data.append((img, display_title, p, None, window_arr, overlay_mask, overlay_stats))
                 except Exception as exc:
-                    loaded_data.append((None, title, p, str(exc), None))
+                    display_title = f"{title}\n{os.path.basename(p)}"
+                    loaded_data.append((None, display_title, p, str(exc), None, None, ""))
             else:
-                loaded_data.append((None, title, p, None, None))
+                display_title = f"{title}\n{os.path.basename(p)}" if p else title
+                loaded_data.append((None, display_title, p, None, None, None, ""))
 
         if self.current_slice >= max_slices and max_slices > 0:
             self.current_slice = max_slices - 1
 
-        for i, (img, title, path, error, window_arr) in enumerate(loaded_data):
+        for i, (img, title, path, error, window_arr, overlay_mask, overlay_stats) in enumerate(loaded_data):
             if not title:
                 continue
 
@@ -725,6 +808,19 @@ class OutlierGUI:
                 self.axs[i].imshow(img_display, aspect='equal')
             else:
                 self.axs[i].imshow(img_display, cmap="gray", vmin=0, vmax=1, aspect='equal')
+            if overlay_mask is not None:
+                overlay_cmap, overlay_norm = _mask_cmap_and_norm(
+                    _label_count_for_display(overlay_mask),
+                    background_alpha=0.0,
+                    foreground_alpha=0.48,
+                )
+                self.axs[i].imshow(
+                    overlay_mask,
+                    cmap=overlay_cmap,
+                    norm=overlay_norm,
+                    interpolation="nearest",
+                    aspect="equal",
+                )
 
         self.info_text.config(state=tk.NORMAL)
         self.info_text.delete('1.0', tk.END)
@@ -1046,38 +1142,26 @@ class View:
             d = max(0, min(int(self.s_depth.val), self.D - 1))
             self.im.set_data(self.vol3d[d])
             self.im.set_clim(vmin, vmax)
-            self.ax.set_title(
-                f"{self.label}\n{self.source} | d={d}/{self.D - 1} | c={contrast:.2f}",
-                fontsize=10,
-            )
+            self.ax.set_title(f"{self.label}\n{self.source}", fontsize=10)
             return
 
         if self.mode == "2d_gray":
             self.im.set_data(self.img2d)
             self.im.set_clim(vmin, vmax)
-            self.ax.set_title(
-                f"{self.label}\n{self.source} | c={contrast:.2f}",
-                fontsize=10,
-            )
+            self.ax.set_title(f"{self.label}\n{self.source}", fontsize=10)
             return
 
         if self.mode == "3d_rgb":
             d = max(0, min(int(self.s_depth.val), self.D - 1))
             rgb = self._normalize_rgb(self.vol3d_rgb[d], vmin, vmax)
             self.im.set_data(rgb)  # (H,W,3) => RGB
-            self.ax.set_title(
-                f"{self.label}\n{self.source} | d={d}/{self.D - 1} | c={contrast:.2f}",
-                fontsize=10,
-            )
+            self.ax.set_title(f"{self.label}\n{self.source}", fontsize=10)
             return
 
         if self.mode == "2d_rgb":
             rgb = self._normalize_rgb(self.img2d_rgb, vmin, vmax)
             self.im.set_data(rgb)
-            self.ax.set_title(
-                f"{self.label}\n{self.source} | c={contrast:.2f}",
-                fontsize=10,
-            )
+            self.ax.set_title(f"{self.label}\n{self.source}", fontsize=10)
             return
 
 
@@ -1318,11 +1402,11 @@ def _list_npy_files(folder: str) -> List[str]:
     )
 
 
-def _build_file_list(parent, height: int, on_select):
+def _build_file_list(parent, on_select, min_height: int = 5):
     """Create the shared file list used by the array visualizer tabs."""
     list_frame = ttk.Frame(parent)
     list_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
-    file_list = tk.Listbox(list_frame, width=34, height=height, exportselection=False)
+    file_list = tk.Listbox(list_frame, width=34, height=max(int(min_height), 1), exportselection=False)
     scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=file_list.yview)
     file_list.configure(yscrollcommand=scrollbar.set)
     file_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -1484,7 +1568,7 @@ def _normalize_for_display(image: np.ndarray, reference: np.ndarray, contrast: f
     return np.clip(out, 0.0, 1.0)
 
 
-def _mask_cmap_and_norm(label_count: int):
+def _mask_palette(label_count: int):
     base_colors = [
         "#000000",
         "#ffd166",
@@ -1504,6 +1588,18 @@ def _mask_cmap_and_norm(label_count: int):
         colors = base_colors + [
             matplotlib.colors.to_hex(tab20(i % tab20.N))
             for i in range(label_count - len(base_colors))
+        ]
+    return colors
+
+
+def _mask_cmap_and_norm(label_count: int, background_alpha: float = 1.0, foreground_alpha: float = 1.0):
+    colors = _mask_palette(label_count)
+    if background_alpha != 1.0 or foreground_alpha != 1.0:
+        background_alpha = max(0.0, min(float(background_alpha), 1.0))
+        foreground_alpha = max(0.0, min(float(foreground_alpha), 1.0))
+        colors = [
+            (*matplotlib.colors.to_rgb(color), background_alpha if idx == 0 else foreground_alpha)
+            for idx, color in enumerate(colors)
         ]
     cmap = matplotlib.colors.ListedColormap(colors)
     norm = matplotlib.colors.BoundaryNorm(
@@ -1557,6 +1653,8 @@ def _array_item(
     expected_path: Optional[str] = None,
     meta: Optional[dict] = None,
     window_path: Optional[str] = None,
+    overlay_mask_path: Optional[str] = None,
+    overlay_mask_expected_path: Optional[str] = None,
 ) -> Dict[str, object]:
     """Build a display item while keeping optional metadata out of the common path."""
     item: Dict[str, object] = {
@@ -1569,6 +1667,11 @@ def _array_item(
         item["meta"] = meta
     if window_path is not None:
         item["window_path"] = window_path
+    if overlay_mask_path is not None:
+        item["overlay_mask_path"] = overlay_mask_path
+        item["overlay_mask_expected_path"] = (
+            overlay_mask_expected_path if overlay_mask_expected_path is not None else overlay_mask_path
+        )
     return item
 
 
@@ -1579,13 +1682,17 @@ def _render_array_panel(ax, item: Dict[str, object], slice_index: int, contrast:
     expected_path = item.get("expected_path") or path or ""
 
     if not path or not os.path.isfile(path):
-        _draw_placeholder(ax, title, f"Not found:\n{expected_path}")
+        display_title = f"{title}\n{os.path.basename(str(expected_path))}" if expected_path else title
+        _draw_placeholder(ax, display_title, f"Not found:\n{expected_path}")
         return 1
 
     try:
         arr = _load_array(path)
         is_mask = bool(item.get("is_mask"))
         mask_stats = ""
+        overlay_mask = None
+        overlay_stats = ""
+        overlay_depth = 1
         if item.get("is_mask"):
             image, depth, used_slice, mode = _display_mask_plane(arr, slice_index=slice_index)
             image, mask_stats = _prepare_mask_display(image)
@@ -1597,8 +1704,33 @@ def _render_array_panel(ax, item: Dict[str, object], slice_index: int, contrast:
                 window_reference = _load_array(window_path)
             image, depth, used_slice, mode = _display_plane(arr, slice_index=slice_index, channel=channel)
             image = _normalize_for_display(image, window_reference, contrast)
+
+            overlay_path = item.get("overlay_mask_path")
+            if overlay_path:
+                overlay_expected = str(item.get("overlay_mask_expected_path") or overlay_path)
+                if os.path.isfile(str(overlay_path)):
+                    try:
+                        overlay_arr = _load_array(str(overlay_path))
+                        overlay_mask, overlay_depth, _overlay_used_slice, _overlay_mode = _display_mask_plane(
+                            overlay_arr, slice_index=slice_index
+                        )
+                        overlay_mask, overlay_stats = _prepare_mask_display(overlay_mask)
+                        if tuple(overlay_mask.shape) != tuple(image.shape[:2]):
+                            overlay_stats = (
+                                f"overlay shape {tuple(overlay_mask.shape)} != image {tuple(image.shape[:2])}"
+                            )
+                            overlay_mask = None
+                            overlay_depth = 1
+                        else:
+                            overlay_stats = f"overlay {overlay_stats}"
+                    except Exception as exc:
+                        overlay_stats = f"overlay error: {exc}"
+                        overlay_mask = None
+                        overlay_depth = 1
+                else:
+                    overlay_stats = f"overlay not found: {os.path.basename(overlay_expected)}"
     except Exception as exc:
-        _draw_placeholder(ax, title, f"Could not load:\n{path}\n\n{exc}")
+        _draw_placeholder(ax, f"{title}\n{os.path.basename(str(path))}", f"Could not load:\n{path}\n\n{exc}")
         return 1
 
     ax.clear()
@@ -1612,15 +1744,20 @@ def _render_array_panel(ax, item: Dict[str, object], slice_index: int, contrast:
         ax.imshow(image, aspect="equal")
     else:
         ax.imshow(image, cmap=cmap, vmin=0, vmax=1, aspect="equal")
+    if overlay_mask is not None:
+        overlay_cmap, overlay_norm = _mask_cmap_and_norm(
+            _label_count_for_display(overlay_mask),
+            background_alpha=0.0,
+            foreground_alpha=0.48,
+        )
+        ax.imshow(overlay_mask, cmap=overlay_cmap, norm=overlay_norm, interpolation="nearest", aspect="equal")
 
-    slice_info = f" | slice {used_slice}/{depth - 1}" if depth > 1 else ""
-    mask_info = f" | {mask_stats}" if mask_stats else ""
     ax.set_title(
-        f"{title}\n{os.path.basename(path)} | shape={tuple(arr.shape)} | {mode}{slice_info}{mask_info}",
+        f"{title}\n{os.path.basename(path)}",
         fontsize=9,
         pad=8,
     )
-    return max(int(depth), 1)
+    return max(int(depth), int(overlay_depth), 1)
 
 
 class _ArrayTabBase(ttk.Frame):
@@ -1635,6 +1772,7 @@ class _ArrayTabBase(ttk.Frame):
         self.contrast_var = tk.DoubleVar(value=1.0)
         self.status_var = tk.StringVar(value="")
         self._updating_controls = False
+        self._initial_render_after_ids: List[str] = []
 
     def _build_controls(self, parent):
         ttk.Label(parent, text="Slice").pack(anchor="w", pady=(12, 0))
@@ -1703,6 +1841,17 @@ class _ArrayTabBase(ttk.Frame):
             self.slice_scale.state(["!disabled"])
         self._updating_controls = False
 
+    def _schedule_initial_layout_render(self):
+        for delay_ms in (0, 150, 400):
+            self._initial_render_after_ids.append(self.after(delay_ms, self._render_after_layout_settled))
+
+    def _render_after_layout_settled(self):
+        try:
+            self.update_idletasks()
+            self.render()
+        except tk.TclError:
+            pass
+
     def _on_scroll(self, event):
         step = 1 if getattr(event, "button", "") == "up" else -1
         max_index = int(float(self.slice_scale.cget("to")))
@@ -1720,12 +1869,16 @@ class AnomalyGenerationTab(_ArrayTabBase):
         super().__init__(master, config, channel=channel, cmap=cmap)
         self.anomaly_dir = self.paths.anomaly_data
         self.anomaly_roi_dir = self.paths.anomaly_roi_data
+        self.extracted_mask_dir = self.paths.anomaly_mask_data
+        self.extracted_roi_mask_dir = self.paths.anomaly_mask_roi_data
         self.synth_anomaly_dir = self.paths.synth_anomaly_data
         self.generated_mask_dir = self.paths.anomaly_tgt_mask_data
+        self.show_mask_overlays_var = tk.BooleanVar(value=True)
         self.files: List[str] = []
         self.current_filename: Optional[str] = None
         self._build_ui()
         self.refresh_files()
+        self._schedule_initial_layout_render()
 
     def _build_ui(self):
         self.columnconfigure(1, weight=1)
@@ -1736,9 +1889,15 @@ class AnomalyGenerationTab(_ArrayTabBase):
         ttk.Label(side, text="anomaly_data", font=("Arial", 10, "bold")).pack(anchor="w")
         ttk.Label(side, text=self.anomaly_dir, wraplength=260).pack(anchor="w", fill=tk.X)
 
-        self.file_list = _build_file_list(side, height=22, on_select=self._on_file_selected)
+        self.file_list = _build_file_list(side, on_select=self._on_file_selected)
 
         ttk.Button(side, text="Refresh", command=self.refresh_files).pack(fill=tk.X, pady=(8, 0))
+        ttk.Checkbutton(
+            side,
+            text="Mask overlays",
+            variable=self.show_mask_overlays_var,
+            command=self.render,
+        ).pack(anchor="w", fill=tk.X, pady=(8, 0))
         self._build_controls(side)
 
         content = ttk.Frame(self, padding=(4, 8, 8, 8))
@@ -1746,7 +1905,7 @@ class AnomalyGenerationTab(_ArrayTabBase):
         content.rowconfigure(0, weight=1)
         content.columnconfigure(0, weight=1)
 
-        self.fig, self.axs = plt.subplots(2, 2, figsize=(12, 8), constrained_layout=True)
+        self.fig, self.axs = plt.subplots(1, 3, figsize=(12, 4.8), constrained_layout=True)
         self.axs = self.axs.flatten()
         self.canvas = FigureCanvasTkAgg(self.fig, master=content)
         self.canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
@@ -1771,32 +1930,49 @@ class AnomalyGenerationTab(_ArrayTabBase):
                 _array_item("Extracted anomaly", None, self.anomaly_dir),
                 _array_item("Extracted ROI", None, self.anomaly_roi_dir),
                 _array_item("Generated anomaly", None, self.synth_anomaly_dir),
-                _array_item("Generated mask", None, self.generated_mask_dir),
             ]
             self.fig.suptitle("anomaly generation", fontsize=13, fontweight="bold")
         else:
             anomaly_path, anomaly_expected = _resolve_file_by_name(self.anomaly_dir, selected)
             roi_path, roi_expected = _resolve_file_by_name(self.anomaly_roi_dir, selected)
+            extracted_mask_path, extracted_mask_expected = _resolve_file_by_name(self.extracted_mask_dir, selected)
+            extracted_roi_mask_path, extracted_roi_mask_expected = _resolve_file_by_name(
+                self.extracted_roi_mask_dir, selected
+            )
             synth_path, synth_expected = _resolve_file_by_name(self.synth_anomaly_dir, selected)
             mask_path, mask_expected = _resolve_file_by_name(self.generated_mask_dir, selected)
             anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, selected)
+            show_mask_overlays = bool(self.show_mask_overlays_var.get())
+            extracted_overlay_path = (extracted_mask_path or extracted_mask_expected) if show_mask_overlays else None
+            extracted_roi_overlay_path = (
+                extracted_roi_mask_path or extracted_roi_mask_expected
+            ) if show_mask_overlays else None
+            generated_overlay_path = (mask_path or mask_expected) if show_mask_overlays else None
             items = [
                 _array_item(
                     "Extracted anomaly", anomaly_path, anomaly_expected,
                     meta=anomaly_meta, window_path=roi_path,
+                    overlay_mask_path=extracted_overlay_path,
+                    overlay_mask_expected_path=extracted_mask_expected,
                 ),
-                _array_item("Extracted ROI", roi_path, roi_expected),
+                _array_item(
+                    "Extracted ROI", roi_path, roi_expected,
+                    overlay_mask_path=extracted_roi_overlay_path,
+                    overlay_mask_expected_path=extracted_roi_mask_expected,
+                ),
                 _array_item(
                     "Generated anomaly", synth_path, synth_expected,
                     meta=anomaly_meta, window_path=roi_path,
+                    overlay_mask_path=generated_overlay_path,
+                    overlay_mask_expected_path=mask_expected,
                 ),
-                _array_item("Generated mask", mask_path, mask_expected),
             ]
             self.fig.suptitle(f"anomaly generation: {selected}", fontsize=13, fontweight="bold")
 
+        _sync_figure_to_canvas(self.fig, self.canvas)
         max_slices = self._render_items(self.axs, items)
         self._sync_slice_control(max_slices)
-        self.canvas.draw_idle()
+        self.canvas.draw()
 
 
 class FusedAnomalyTab(_ArrayTabBase):
@@ -1805,8 +1981,11 @@ class FusedAnomalyTab(_ArrayTabBase):
         self.hybrid_images_dir = self.paths.generated_images_npy
         self.hybrid_segmentations_dir = self.paths.generated_segmentations_npy
         self.synth_roi_dir = self.paths.synth_roi_data
+        self.synth_roi_mask_dir = self.paths.synth_roi_mask_data
         self.anomaly_dir = self.paths.anomaly_data
         self.anomaly_roi_dir = self.paths.anomaly_roi_data
+        self.anomaly_mask_dir = self.paths.anomaly_mask_data
+        self.show_mask_overlays_var = tk.BooleanVar(value=True)
         self.files: List[str] = []
         self.roi_files: List[str] = []
         self.current_filename: Optional[str] = None
@@ -1815,6 +1994,7 @@ class FusedAnomalyTab(_ArrayTabBase):
         self.roi_var = tk.StringVar(value="")
         self._build_ui()
         self.refresh_files()
+        self._schedule_initial_layout_render()
 
     def _build_ui(self):
         self.columnconfigure(1, weight=1)
@@ -1825,9 +2005,15 @@ class FusedAnomalyTab(_ArrayTabBase):
         ttk.Label(side, text="images_npy", font=("Arial", 10, "bold")).pack(anchor="w")
         ttk.Label(side, text=self.hybrid_images_dir, wraplength=260).pack(anchor="w", fill=tk.X)
 
-        self.file_list = _build_file_list(side, height=18, on_select=self._on_file_selected)
+        self.file_list = _build_file_list(side, on_select=self._on_file_selected)
 
         ttk.Button(side, text="Refresh", command=self.refresh_files).pack(fill=tk.X, pady=(8, 0))
+        ttk.Checkbutton(
+            side,
+            text="Mask overlays",
+            variable=self.show_mask_overlays_var,
+            command=self.render,
+        ).pack(anchor="w", fill=tk.X, pady=(8, 0))
         self._build_controls(side)
 
         content = ttk.Frame(self, padding=(4, 8, 8, 8))
@@ -1836,8 +2022,7 @@ class FusedAnomalyTab(_ArrayTabBase):
         content.rowconfigure(2, weight=1)
         content.columnconfigure(0, weight=1)
 
-        self.fig_hybrid, top_axs = plt.subplots(1, 2, figsize=(12, 4.8), constrained_layout=True)
-        self.ax_hybrid, self.ax_hybrid_mask = top_axs
+        self.fig_hybrid, self.ax_hybrid = plt.subplots(1, 1, figsize=(12, 4.8), constrained_layout=True)
         self.hybrid_canvas = FigureCanvasTkAgg(self.fig_hybrid, master=content)
         self.hybrid_canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
         self.hybrid_canvas.mpl_connect("scroll_event", self._on_scroll)
@@ -1898,7 +2083,6 @@ class FusedAnomalyTab(_ArrayTabBase):
         if selected is None:
             top_items = [
                 _array_item("Hybrid sample", None, self.hybrid_images_dir),
-                _array_item("Hybrid mask", None, self.hybrid_segmentations_dir),
             ]
             bottom_items = [
                 _array_item("Selected synthetic ROI", None, self.synth_roi_dir),
@@ -1923,29 +2107,51 @@ class FusedAnomalyTab(_ArrayTabBase):
                 anomaly_expected = os.path.join(self.anomaly_dir, "<selected_roi>.npy")
                 anomaly_roi_path = None
                 anomaly_meta = None
+            roi_mask_dir, roi_mask_expected_dir = _resolve_dir_by_name(self.synth_roi_mask_dir, selected)
+            if roi_name and roi_mask_dir:
+                roi_mask_path, roi_mask_expected = _resolve_file_by_name(roi_mask_dir, roi_name)
+            else:
+                roi_mask_path = None
+                roi_mask_expected = os.path.join(roi_mask_expected_dir, roi_name or "<selected_roi>.npy")
+            anomaly_mask_path, anomaly_mask_expected = _resolve_file_by_name(self.anomaly_mask_dir, roi_name)
+            show_mask_overlays = bool(self.show_mask_overlays_var.get())
+            hybrid_overlay_path = (hybrid_mask_path or hybrid_mask_expected) if show_mask_overlays else None
+            roi_overlay_path = (roi_mask_path or roi_mask_expected) if show_mask_overlays else None
+            anomaly_overlay_path = (anomaly_mask_path or anomaly_mask_expected) if show_mask_overlays else None
 
             top_items = [
-                _array_item("Hybrid sample", hybrid_path, hybrid_expected),
-                _array_item("Hybrid mask", hybrid_mask_path, hybrid_mask_expected),
+                _array_item(
+                    "Hybrid sample", hybrid_path, hybrid_expected,
+                    overlay_mask_path=hybrid_overlay_path,
+                    overlay_mask_expected_path=hybrid_mask_expected,
+                ),
             ]
             bottom_items = [
-                _array_item("Selected synthetic ROI", roi_path, roi_expected),
+                _array_item(
+                    "Selected synthetic ROI", roi_path, roi_expected,
+                    overlay_mask_path=roi_overlay_path,
+                    overlay_mask_expected_path=roi_mask_expected,
+                ),
                 _array_item(
                     "Matched anomaly", anomaly_path, anomaly_expected,
                     meta=anomaly_meta, window_path=anomaly_roi_path,
+                    overlay_mask_path=anomaly_overlay_path,
+                    overlay_mask_expected_path=anomaly_mask_expected,
                 ),
             ]
             roi_suffix = f" | ROI: {roi_name}" if roi_name else " | no ROI found"
             self.fig_hybrid.suptitle(f"fused anomaly: {selected}", fontsize=13, fontweight="bold")
             self.fig_bottom.suptitle(roi_suffix.lstrip(" | "), fontsize=11)
 
+        _sync_figure_to_canvas(self.fig_hybrid, self.hybrid_canvas)
+        _sync_figure_to_canvas(self.fig_bottom, self.bottom_canvas)
         max_slices = max(
-            self._render_items((self.ax_hybrid, self.ax_hybrid_mask), top_items),
+            self._render_items((self.ax_hybrid,), top_items),
             self._render_items((self.ax_roi, self.ax_anomaly), bottom_items),
         )
         self._sync_slice_control(max_slices)
-        self.hybrid_canvas.draw_idle()
-        self.bottom_canvas.draw_idle()
+        self.hybrid_canvas.draw()
+        self.bottom_canvas.draw()
 
 
 class HybridDataGeneratorVisualizer:
@@ -1954,6 +2160,7 @@ class HybridDataGeneratorVisualizer:
         self.config = config
         self.root.title("HybridDataGenerator Visualizer")
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        _set_initial_window_size(self.root)
 
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True)
