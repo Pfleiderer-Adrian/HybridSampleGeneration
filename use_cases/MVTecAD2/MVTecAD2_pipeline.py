@@ -19,7 +19,6 @@ from use_cases.image_2d.ImageDataloader import ensure_chw, save_image
 from use_cases.image_2d.ImageDataloader import _load_image_array as load_image_array
 from use_cases.MVTecAD2.MVTecAD2_configuration import (
     CATEGORY_ALIASES,
-    MVTECAD2_CATEGORIES,
     create_mvtecad2_configuration,
 )
 
@@ -35,14 +34,8 @@ ANOMALY_LABEL = "bad"
 NORMAL_LABEL = "good"
 
 PREPARE_USECASE_KEYS = {
-    "configurations",
-    "normalize",
     "load_negative_controls",
     "include_public_good_controls",
-    "matching_routine",
-    "model_name",
-    "anomaly_patch_size",
-    "fixed_roi_size",
     "save_path",
     "results_root",
 }
@@ -134,9 +127,8 @@ class MVTecAD2Dataloader:
     adapter creates zero masks for them.
     """
 
-    def __init__(self, samples: Sequence[MVTecAD2Sample], *, normalize: bool = False) -> None:
+    def __init__(self, samples: Sequence[MVTecAD2Sample]) -> None:
         self.samples = list(samples)
-        self.normalize = normalize
         if not self.samples:
             raise ValueError("MVTecAD2Dataloader requires at least one sample.")
 
@@ -146,8 +138,6 @@ class MVTecAD2Dataloader:
     def __iter__(self) -> Iterator[tuple[np.ndarray, np.ndarray, str]]:
         for sample in self.samples:
             img = ensure_chw(load_image_array(str(sample.image_path))).astype(np.float32, copy=False)
-            if self.normalize:
-                img = _minmax01_chw(img)
 
             if sample.mask_path is None:
                 seg = np.zeros((1, img.shape[1], img.shape[2]), dtype=np.float32)
@@ -164,14 +154,8 @@ def prepare_mvtecad2_usecases(
     root: Path | str = MVTECAD2_ROOT,
     categories: str | Iterable[str] | None = None,
     *,
-    configurations: Mapping[str, Configuration] | None = None,
-    normalize: bool = False,
     load_negative_controls: bool = True,
     include_public_good_controls: bool = False,
-    matching_routine: str | None = None,
-    model_name: str = "VAE_ConvNeXt_2D",
-    anomaly_patch_size: int = 64,
-    fixed_roi_size: tuple[int, int] | None = (64, 64),
     save_path: Path | str | None = None,
     results_root: Path | str | None = None,
 ) -> list[MVTecAD2UseCase]:
@@ -181,6 +165,8 @@ def prepare_mvtecad2_usecases(
     Default behavior uses test_public/bad samples with masks for anomaly
     extraction and train/validation good samples as controls for matching and
     fusion. Set load_negative_controls=False only for a positive-only debug run.
+    Category-specific HybridDataGenerator settings are defined in
+    MVTecAD2_configuration.py.
 
     If save_path is provided, every category gets its own Configuration
     save_path: <save_path>/<category>. HybridDataGenerator results are then
@@ -222,18 +208,8 @@ def prepare_mvtecad2_usecases(
 
         config = _configuration_for_category(
             category,
-            positive_samples,
-            configurations=configurations,
-            model_name=model_name,
-            anomaly_patch_size=anomaly_patch_size,
-            fixed_roi_size=fixed_roi_size,
             save_path=save_path,
             results_root=results_root,
-        )
-        _configure_matching_for_control_mode(
-            config,
-            positive_only=positive_only,
-            matching_routine=matching_routine,
         )
 
         use_cases.append(
@@ -241,8 +217,8 @@ def prepare_mvtecad2_usecases(
                 category=category,
                 category_root=category_root,
                 config=config,
-                anomaly_dataloader=MVTecAD2Dataloader(positive_samples, normalize=normalize),
-                control_dataloader=MVTecAD2Dataloader(control_samples, normalize=normalize),
+                anomaly_dataloader=MVTecAD2Dataloader(positive_samples),
+                control_dataloader=MVTecAD2Dataloader(control_samples),
                 positive_only=positive_only,
             )
         )
@@ -516,31 +492,15 @@ def _normalize_categories(
 
 def _configuration_for_category(
     category: str,
-    positive_samples: Sequence[MVTecAD2Sample],
     *,
-    configurations: Mapping[str, Configuration] | None,
-    model_name: str,
-    anomaly_patch_size: int,
-    fixed_roi_size: tuple[int, int] | None,
     save_path: Path | str | None,
     results_root: Path | str | None,
 ) -> Configuration:
     base_save_path = save_path if save_path is not None else results_root
     category_save_path = _category_save_path(base_save_path, category)
 
-    if configurations is not None and category in configurations:
-        config = configurations[category]
-        if category_save_path is not None:
-            _apply_category_save_path(config, category_save_path)
-        return config
-
-    channels = _infer_channels(positive_samples[0].image_path)
     return create_mvtecad2_configuration(
         category,
-        channels=channels,
-        model_name=model_name,
-        anomaly_patch_size=anomaly_patch_size,
-        fixed_roi_size=fixed_roi_size,
         save_path=category_save_path,
     )
 
@@ -551,26 +511,6 @@ def _category_save_path(base_save_path: Path | str | None, category: str) -> Pat
     path = Path(base_save_path) / category
     path.mkdir(parents=True, exist_ok=True)
     return path
-
-
-def _apply_category_save_path(config: Configuration, category_save_path: Path) -> None:
-    config.study_folder = str(category_save_path / "results" / config.study_name)
-
-
-def _configure_matching_for_control_mode(
-    config: Configuration,
-    *,
-    positive_only: bool,
-    matching_routine: str | None,
-) -> None:
-    if matching_routine is not None:
-        config.matching_routine = matching_routine
-        return
-
-    if positive_only:
-        config.matching_routine = "fixed_from_extraction_anomaly_fusion"
-    elif config.matching_routine == "fixed_from_extraction_anomaly_fusion":
-        config.matching_routine = "fixed_from_extraction_control_fusion"
 
 
 def _downstream_config_for_usecase(
@@ -878,25 +818,6 @@ def _find_mask_path(category_root: Path, label: str, image_path: Path) -> Path |
     return None
 
 
-def _infer_channels(image_path: Path) -> int:
-    arr = ensure_chw(load_image_array(str(image_path)))
-    return int(arr.shape[0])
-
-
-def _minmax01_chw(arr: np.ndarray, eps: float = 1e-8) -> np.ndarray:
-    out = arr.astype(np.float32, copy=True)
-    for channel in range(out.shape[0]):
-        data = out[channel]
-        mn = float(np.nanmin(data))
-        mx = float(np.nanmax(data))
-        denom = mx - mn
-        if denom < eps:
-            out[channel] = 0.0
-        else:
-            out[channel] = (data - mn) / (denom + eps)
-    return out
-
-
 def _segmentation_for_png(seg: np.ndarray) -> np.ndarray:
     mask = np.asarray(seg)
     if mask.ndim != 3:
@@ -945,9 +866,10 @@ def _validate_dataset_root(root: Path) -> None:
 if __name__ == "__main__":
 
     save_path = r"path/to/save/generated/data"
+    dataset_root = r"path/to/mvtec_ad_2_dataset"
 
     run_hybrid_sample_generation_for_all_usecases(
-        MVTECAD2_ROOT,
+        dataset_root,
         categories="can",
         no_of_trials=1,
         steps=("extract", "train", "generate_synth", "matching", "fusion", "save"),
@@ -957,7 +879,7 @@ if __name__ == "__main__":
 
     # Downstream call after generation:
     run_evaluation_and_visualization_for_all_usecases(
-         MVTECAD2_ROOT,
+         dataset_root,
          categories="can",
          save_path=save_path,
     )

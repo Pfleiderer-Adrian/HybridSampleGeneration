@@ -25,19 +25,10 @@ CATEGORY_ALIASES = {
     "wall plugs": "wallplugs",
 }
 
-DEFAULT_MODEL_NAME = "VAE_ConvNeXt_2D"
-DEFAULT_CHANNELS = 3
-DEFAULT_ANOMALY_PATCH_SIZE = 128
-DEFAULT_FIXED_ROI_SIZE = (256, 256)
-
 
 def create_mvtecad2_configuration(
     category: str,
     *,
-    channels: int = DEFAULT_CHANNELS,
-    model_name: str = DEFAULT_MODEL_NAME,
-    anomaly_patch_size: int = DEFAULT_ANOMALY_PATCH_SIZE,
-    fixed_roi_size: tuple[int, int] | None = DEFAULT_FIXED_ROI_SIZE,
     save_path: Path | str | None = None,
     results_root: Path | str | None = None,
     apply_category_overrides: bool = True,
@@ -58,26 +49,17 @@ def create_mvtecad2_configuration(
 
     category = canonical_category(category)
     config_save_path = save_path if save_path is not None else results_root
-    config = Configuration(
-        f"mvtecad2_{safe_name(category)}",
-        model_name,
-        (int(channels), int(anomaly_patch_size), int(anomaly_patch_size)),
-        save_path=None if config_save_path is None else str(config_save_path),
-    )
-    config.config_name = category
 
-    configure_mvtecad2_defaults(config, fixed_roi_size=fixed_roi_size)
+    config = CATEGORY_CONFIGURATORS[category](config_save_path)
+    config = configure_mvtecad2_defaults(config)
     if apply_category_overrides:
-        CATEGORY_CONFIGURATORS[category](config)
+        config = configure_mvtecad2_defaults(config)
 
     return config
 
 
 def create_mvtecad2_configurations(
     categories: Iterable[str] | None = None,
-    *,
-    channels: int = DEFAULT_CHANNELS,
-    channels_by_category: Mapping[str, int] | None = None,
     **kwargs,
 ) -> dict[str, Configuration]:
     """
@@ -96,9 +78,6 @@ def create_mvtecad2_configurations(
     configs: dict[str, Configuration] = {}
     for category in categories or MVTECAD2_CATEGORIES:
         category = canonical_category(category)
-        category_channels = channels
-        if channels_by_category is not None:
-            category_channels = int(channels_by_category.get(category, channels))
 
         category_save_path = None
         if base_save_path is not None:
@@ -107,27 +86,34 @@ def create_mvtecad2_configurations(
 
         configs[category] = create_mvtecad2_configuration(
             category,
-            channels=category_channels,
             save_path=category_save_path,
             **kwargs,
         )
     return configs
 
 
-def configure_mvtecad2_defaults(
-    config: Configuration,
-    *,
-    fixed_roi_size: tuple[int, int] | None,
-) -> None:
+def configure_mvtecad2_defaults(config: Configuration):
     """
     Shared MVTec AD 2 defaults for all categories.
     """
+    return config
 
-    config.random_offset = True
+
+def configure_can(config_save_path: str) -> Configuration:
+    config = Configuration(
+        f"mvtecad2_{safe_name("can")}",
+        "VAE_ConvNeXt_2D",
+        (3, 64, 64),
+        save_path=config_save_path,
+    )
+
+    config.fixed_roi_size = (256, 256)
+
+    config.random_offset = False
     config.random_offset_max_fraction = 0.8
     config.random_offset_foreground_threshold_rel = 0.01
     config.add_bg_noise = False
-    config.min_anomaly_percentage = 0.01
+    config.min_anomaly_percentage = 0.001
     config.min_pad = (20, 20, 20)
 
     config.pad_ratio = (0.5, 0.5, 0.5)
@@ -136,6 +122,7 @@ def configure_mvtecad2_defaults(
     config.normalization_eps = 1e-6
     config.background_threshold = 0.1
 
+    config.prior_sampling = False
     config.use_feedback = False
     config.feedback_threshold = 0.01
     config.threshold_relaxation_factor = 0.9
@@ -146,7 +133,6 @@ def configure_mvtecad2_defaults(
     config.fusions_per_control = 2
     config.max_fusions_per_control_deviation = 1
 
-    config.fixed_roi_size = (256, 256)
     config.update_fusion_params(
         max_alpha=1.0,
         sq=0.1,
@@ -181,85 +167,78 @@ def configure_mvtecad2_defaults(
         "factor": 0.1,
         "threshold": 1e-5,
     }
+    return config
 
-    config.normalization = None      # wenn deine Inputs schon RGB/[0,1] sind
-    config.clamp01_output = True
-    config.normalization = "z-score"
-    config.clamp01_output = False
-    config.random_offset = False     # erst Rekonstruktion stabil bekommen
-    config.prior_sampling = False
-""" 
 
-    #config.model_params.update_model_param_ranges(
-    #    {
-    #        "n_res_blocks": (3, 3),
-    #        "n_levels": (3, 3),
-    #        "z_channels": (64, 64),
-    #        "bottleneck_dim": (128, 128),
-    #        "use_multires_skips": (False, False),
-    #        "recon_loss": ("mse", "mse"),
-    #        "recon_weight": (50.0, 50.0),
-    #        "recon_weight": (20.0, 20.0),
-    #        "drop_path_rate": (0.0, 0.0),
-    #        "dropout": (0.0, 0.0),
-    #        "skip_dropout_p": (0.2, 0.2),
-    #        "skip_alpha": (0.5, 0.5),
-    #        "skip_dropout_p": (0.0, 0.0),
-    #        "skip_alpha": (0.7, 0.7),
-    #        "use_transpose_conv": (False, False),
-            "beta_kl": (0.0, 0.0),               # wird im Trainer überschrieben
-            "beta_kl_start": (0.0, 0.0),
-            "beta_kl_max": (0.005, 0.005),
-            "beta_kl_warmup_start": (200, 200),
-            "beta_kl_warmup_epochs": (800, 800),
-            "beta_kl_max": (0.001, 0.001),
-            "beta_kl_warmup_start": (300, 300),
-            "beta_kl_warmup_epochs": (1000, 1000),
-
-            "free_bits": (0.0, 0.0),
-
-            "fg_weight": (1.0, 1.0),
-            "fg_threshold": (0.0, 0.0),
-        }
+def configure_fabric(config_save_path: str) -> Configuration:
+    config = Configuration(
+        f"mvtecad2_{safe_name("can")}",
+        "VAE_ConvNeXt_2D",
+        (3, 64, 64),
+        save_path=config_save_path,
     )
-    config.model_params.set_model_params(
-        {
-            "use_multires_skips": False,
-            "use_transpose_conv": False,
-        }
+    return config
+
+
+def configure_fruit_jelly(config_save_path: str) -> Configuration:
+    config = Configuration(
+        f"mvtecad2_{safe_name("fruit_jelly")}",
+        "VAE_ConvNeXt_2D",
+        (3, 64, 64),
+        save_path=config_save_path,
     )
-"""
-
-def configure_can(config: Configuration) -> None:
-    pass
+    return config
 
 
-def configure_fabric(config: Configuration) -> None:
-    pass
+def configure_rice(config_save_path: str) -> Configuration:
+    config = Configuration(
+        f"mvtecad2_{safe_name("rice")}",
+        "VAE_ConvNeXt_2D",
+        (3, 64, 64),
+        save_path=config_save_path,
+    )
+    return config
 
 
-def configure_fruit_jelly(config: Configuration) -> None:
-    pass
+def configure_sheet_metal(config_save_path: str) -> Configuration:
+    config = Configuration(
+        f"mvtecad2_{safe_name("sheet_metal")}",
+        "VAE_ConvNeXt_2D",
+        (3, 64, 64),
+        save_path=config_save_path,
+    )
+    return config
 
 
-def configure_rice(config: Configuration) -> None:
-    pass
+def configure_vial(config_save_path: str) -> Configuration:
+    config = Configuration(
+        f"mvtecad2_{safe_name("vial")}",
+        "VAE_ConvNeXt_2D",
+        (3, 64, 64),
+        save_path=config_save_path,
+    )
+    return config
 
 
-def configure_sheet_metal(config: Configuration) -> None:
-    pass
+def configure_wallplugs(config_save_path: str) -> Configuration:
+    config = Configuration(
+        f"mvtecad2_{safe_name("wallplugs")}",
+        "VAE_ConvNeXt_2D",
+        (3, 64, 64),
+        save_path=config_save_path,
+    )
+    return config
+    
 
 
-def configure_vial(config: Configuration) -> None:
-    pass
-
-
-def configure_wallplugs(config: Configuration) -> None:
-    pass
-
-
-def configure_walnuts(config: Configuration) -> None:
-    pass
+def configure_walnuts(config_save_path: str) -> Configuration:
+    config = Configuration(
+        f"mvtecad2_{safe_name("walnuts")}",
+        "VAE_ConvNeXt_2D",
+        (3, 64, 64),
+        save_path=config_save_path,
+    )
+    return config
 
 
 CATEGORY_CONFIGURATORS: dict[str, Callable[[Configuration], None]] = {
