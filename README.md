@@ -28,7 +28,7 @@ Core modules:
 
 ✅ **Output**  
 - Fused control volume containing inserted synthetic anomaly  
-- Binary segmentation mask for the inserted anomaly
+- Segmentation mask for the inserted anomaly
 
 ✅ **Supported shapes**
 - 3D: `(C, D, H, W)`
@@ -106,9 +106,20 @@ Each iteration must yield:
 
   Choose one of four possible matching_routines:
 
+  Matching count parameters used by local and global:
+  - fusions_per_control:
+      Target number of synthetic ROIs that should be matched with one control sample.
+      With fusions_per_control = 1, each control receives one anomaly if a valid match is found.
+      With higher values, several non-overlapping anomalies can be fused into the same control sample.
+  - max_fusions_per_control_deviation:
+      Adds a random integer deviation in [-max_fusions_per_control_deviation, +max_fusions_per_control_deviation] to fusions_per_control for each control sample.
+      The result is clipped to at least 1.
+      Example: fusions_per_control = 2 and max_fusions_per_control_deviation = 1 produces 1, 2 or 3 requested fusions per control.
+      Use 0 for a fixed number of fusions per control.
+
   - local: (pairing not optimal, but fast)  
       `Fusion synthetic anomaly into a random control sample, finds best position within the sample.`  
-      Iterates through every control sample and attempts to find a specified number of ROI matches (depending on fusions_per_control and max_fusions_per_control_deviation).
+      Iterates through every control sample and attempts to find the configured number of ROI matches.
       Always only checks the next ROI from the dataloader (until enough matches were found).
       Uses template matching to find the position with the highest similarity score for a given ROI within the control sample.
       ROIs matched with the same control sample can not spatially overlap.
@@ -119,7 +130,7 @@ Each iteration must yield:
 
   - global: (optimal pairing, but slow)  
       `Fusion synthetic anomaly into the best control sample within the dataset + finds best position within the sample.`  
-      Iterates through every control sample and attempts to find a specified number of ROI matches (depending on fusions_per_control and max_fusions_per_control_deviation).
+      Iterates through every control sample and attempts to find the configured number of ROI matches.
       Performs template matching for all available ROIs against the current control sample to find the best possible positions for every ROI and save info in all_matches list.
       ROIs matched with the same control sample can not spatially overlap.
       Prioritizes matches based on the highest similarity score (sort all_matches by similarity descending and then always try to match the next index until no further matches are needed)
@@ -149,6 +160,32 @@ Each iteration must yield:
     Utilization Rate: Tracks how many of the available synthetic ROIs were actually fused into control samples.
     Unused ROIs: If some ROIs were never matched, the system calculates a suggested fusions_per_control value.
     Optimization Tip: To achieve a ~100% utilization rate, the summary suggests increasing the fusions_per_control based on the ratio of available ROIs to processed control samples.
+
+---
+
+### Fusion logic
+  Fusion inserts the matched synthetic anomaly into the target control sample at the position stored in matching_dict.csv and creates the corresponding segmentation mask.
+  Before blending, the anomaly is cropped to its foreground area, rescaled with the saved scale_factor and locally intensity-normalized to the insertion region of the control sample.
+  The actual fusion uses an edge-aware alpha mask based on Sobel edges, morphology and a distance transform, so the anomaly interior can be blended more strongly than its boundary.
+
+  Fusion parameters in config:
+  - fusion_mask_params:
+      max_alpha controls the maximum blending weight of the anomaly. For example, max_alpha = 0.8 means that fully weighted pixels use 0.8 * anomaly intensity + 0.2 * background intensity.
+      sq and steepness_factor shape the alpha falloff from anomaly interior to boundary.
+      upsampling_factor increases mask resolution during distance-transform computation for smoother alpha masks.
+      sobel_threshold controls which gradients are treated as anomaly edges.
+      dilation_size closes edge gaps and refines the foreground body before alpha creation.
+      shave_pixels erodes boundary pixels to reduce visible blending artifacts.
+  - fusion_variation:
+      If enabled, max_alpha, sq and steepness_factor are sampled around their configured values for each fusion.
+  - fusion_variation_params:
+      alpha_variation, sq_variation and steepness_variation define the allowed one-sided deviation used for gaussian sampling.
+  - selected_confidence / confidence_z_score:
+      Converts the variation values into standard deviations; for example, selected_confidence = "90%" means samples stay within the configured one-sided deviation in about 90% of cases.
+  - background_threshold:
+      Defines which anomaly pixels are treated as foreground during cropping and alpha-mask creation. If None, the fusion code derives a threshold from the anomaly minimum.
+  - fusion_normalization_border_width:
+      Width of the border around the insertion region used to estimate local control intensity for anomaly normalization.
 
 ---
 
