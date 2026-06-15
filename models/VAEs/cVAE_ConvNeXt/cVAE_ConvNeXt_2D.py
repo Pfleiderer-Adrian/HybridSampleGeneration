@@ -635,6 +635,7 @@ class ConvNeXtcVAE2D(HybridModelInterface):
         s: float = 0.5,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
+        background_threshold: Optional[float] = 0.01,
         return_torch: bool = False,
     ) -> Union[np.ndarray, torch.Tensor]:
         if n <= 0:
@@ -783,6 +784,7 @@ class ConvNeXtcVAE2D(HybridModelInterface):
         s: float = 1.0,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
+        background_threshold: Optional[float] = 0.01,
         return_torch: bool = False,
     ) -> Union[np.ndarray, torch.Tensor]:
         if s < 0:
