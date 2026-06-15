@@ -280,7 +280,7 @@ def fusion3d(
     # 10) Create alpha mask from per-slice Sobel+distance transform mask (edge-aware)
     # ------------------------------------------------------------
     alpha_mask = get_alpha_mask_sobel_final(
-        anom_proj, config
+        anom_proj, config, target_mask
     )  # (d,h,w)
 
     # Broadcast alpha from (d,h,w) to (1,d,h,w); it will broadcast across channels during blending
@@ -422,9 +422,10 @@ def get_alpha_mask_sobel_final(anomaly_arr, config, valid_mask):
     # Iterate through slices along D
     for z in range(anomaly_arr.shape[0]):
         slice_img = anomaly_arr[z, :, :]
+        valid_slice = valid_mask[z, :, :]
 
         # Skip slices with no foreground content
-        if not np.any(0 < valid_mask):
+        if not np.any(0 < valid_slice):
             continue
 
         # ------------------------------------------------------------
@@ -469,7 +470,7 @@ def get_alpha_mask_sobel_final(anomaly_arr, config, valid_mask):
 
         # Enforce background threshold after morphology:
         # Remove any pixels that are still background in the original slice.
-        bg_mask = valid_mask <= 0
+        bg_mask = valid_slice <= 0
         final_clean_mask[bg_mask] = False
 
         # ------------------------------------------------------------
