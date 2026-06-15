@@ -28,7 +28,7 @@ Core modules:
 
 ✅ **Output**  
 - Fused control volume containing inserted synthetic anomaly  
-- Binary segmentation mask for the inserted anomaly
+- Segmentation mask for the inserted anomaly
 
 ✅ **Supported shapes**
 - 3D: `(C, D, H, W)`
@@ -164,7 +164,7 @@ Each iteration must yield:
 ---
 
 ### Fusion logic
-  Fusion inserts the matched synthetic anomaly into the target control sample at the position stored in matching_dict.csv and creates the corresponding binary segmentation mask.
+  Fusion inserts the matched synthetic anomaly into the target control sample at the position stored in matching_dict.csv and creates the corresponding segmentation mask.
   Before blending, the anomaly is cropped to its foreground area, rescaled with the saved scale_factor and locally intensity-normalized to the insertion region of the control sample.
   The actual fusion uses an edge-aware alpha mask based on Sobel edges, morphology and a distance transform, so the anomaly interior can be blended more strongly than its boundary.
 
