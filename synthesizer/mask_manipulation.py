@@ -259,6 +259,7 @@ class TransformGenerator:
             priorities=getattr(config, "mask_transform_priorities", None),
             rng=getattr(config, "rng", None),
             anomaly_size=getattr(config, "anomaly_size", None),
+            background_threshold=getattr(config, "background_threshold", 0.01),
         )
 
     GLOBAL_TRANSFORMS = {
@@ -278,6 +279,7 @@ class TransformGenerator:
         priorities: list[int] | tuple[int, ...] | None = None,
         rng: np.random.Generator | None = None,
         anomaly_size: tuple[int, ...] | list[int] | None = None,
+        background_threshold: float | None = 0.01,
     ) -> None:
         self.global_transform_probs = {}
         self.local_transform_probs = {}
@@ -294,6 +296,62 @@ class TransformGenerator:
         if transform_params:
             self.set_transform_params(transform_params)
         self.rng = rng if rng is not None else np.random.default_rng()
+        self.background_threshold = background_threshold
+
+    def create_target_mask(
+        self,
+        *,
+        synth_anomaly_image=None,
+        original_mask=None,
+        target_mask=None,
+        conditional: bool = False,
+    ):
+        if target_mask is not None:
+            return target_mask
+        if conditional:
+            return self.create_target_mask_from_original_mask(original_mask)
+        return self.create_target_mask_from_synth_anomaly(synth_anomaly_image)
+
+    def create_target_mask_from_original_mask(self, original_mask):
+        if original_mask is None:
+            raise ValueError("original_mask is required for conditional target-mask generation.")
+
+        if torch.is_tensor(original_mask):
+            device = original_mask.device
+            dtype = original_mask.dtype
+            augmented = self.augment_mask(original_mask.detach().cpu().numpy())
+            return torch.as_tensor(augmented, device=device, dtype=dtype)
+
+        return self.augment_mask(np.asarray(original_mask))
+
+    def create_target_mask_from_synth_anomaly(self, synth_anomaly_image):
+        if synth_anomaly_image is None:
+            raise ValueError("synth_anomaly_image is required for threshold target-mask generation.")
+
+        threshold_rel = 0.0 if self.background_threshold is None else float(self.background_threshold)
+        if threshold_rel < 0.0:
+            raise ValueError(f"background_threshold must be >= 0, got {self.background_threshold}.")
+
+        if torch.is_tensor(synth_anomaly_image):
+            threshold_source = synth_anomaly_image
+            if not torch.is_floating_point(threshold_source):
+                threshold_source = threshold_source.to(torch.float32)
+
+            finite_values = threshold_source[torch.isfinite(threshold_source)]
+            if finite_values.numel() == 0:
+                return torch.zeros_like(torch.amax(threshold_source, dim=0), dtype=torch.uint8)
+
+            min_val = torch.min(finite_values)
+            max_val = torch.max(finite_values)
+            threshold = min_val + threshold_rel * (max_val - min_val)
+            synth_projection = torch.amax(threshold_source, dim=0)
+            return (synth_projection > threshold).to(torch.uint8)
+
+        min_val = float(np.nanmin(synth_anomaly_image))
+        max_val = float(np.nanmax(synth_anomaly_image))
+        threshold = min_val + threshold_rel * (max_val - min_val)
+        synth_projection = np.max(synth_anomaly_image, axis=0)
+        return (synth_projection > threshold).astype(np.uint8)
 
     def augment_mask(self, mask_np: np.ndarray) -> np.ndarray:
         augmented = mask_np.copy()
