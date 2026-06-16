@@ -648,8 +648,8 @@ class ConvNeXtcVAE3D(HybridModelInterface):
         s: float = 0.8,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
-        background_threshold: Optional[float] = 0.01,
         return_torch: bool = False,
+        **kwargs,
     ) -> Union[np.ndarray, torch.Tensor]:
         """Generate *n* slightly varied variants around a given sample.
 
@@ -835,8 +835,8 @@ class ConvNeXtcVAE3D(HybridModelInterface):
         s: float = 1.0,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
-        background_threshold: Optional[float] = 0.01,
         return_torch: bool = False,
+        **kwargs,
     ) -> Union[np.ndarray, torch.Tensor]:
         """
         Generate synthetic 3D samples via *prior sampling* conditioned on a target mask.
