@@ -110,8 +110,6 @@ class HybridDataGenerator:
         )
         self._config.syn_anomaly_transformations = {}
 
-        transform_generator = TransformGenerator.from_config(self._config) if self._config.conditional else None
-
         for img, seg, basename in sample_dataloader:
             # check if sample has no anomaly
             if not np.any(seg):
@@ -176,19 +174,6 @@ class HybridDataGenerator:
                     overwrite=True,
                 )
 
-            # nur erstellen wen conditional
-            tgt_masks = []
-            if transform_generator is not None and org_masks is not None:
-                for org_mask in org_masks:
-                    tgt_mask = transform_generator.augment_mask(org_mask)
-                    tgt_masks.append(tgt_mask)
-            for i, mask_sample in enumerate(tgt_masks):
-                artifact_name = basename + "_" + str(i) + ".npy"
-                save_numpy_as_npy(
-                    mask_sample,
-                    os.path.join(anomaly_tgt_mask_folder, artifact_name),
-                    overwrite=True,
-                )
         self._config.save_anomaly_transformations()
         self.load_anomalies()
 
@@ -332,6 +317,7 @@ class HybridDataGenerator:
         paths.confirm_and_clear_artifact_dirs(synth_anomaly_folder)
         os.makedirs(tgt_mask_folder, exist_ok=True)
         self._anomaly_dataset.numpy_mode = True
+        target_mask_generator = TransformGenerator.from_config(self._config)
 
 
         # use feedback system to generate similar anomalies
@@ -350,9 +336,9 @@ class HybridDataGenerator:
                 i = 0
                 while best < self._config.feedback_threshold:
                     if self._config.prior_sampling:
-                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output, background_threshold=self._config.background_threshold)
+                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output, target_mask_generator=target_mask_generator)
                     else:
-                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output, background_threshold=self._config.background_threshold)
+                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output, target_mask_generator=target_mask_generator)
 
                     if best_image is None:
                         best_image = syn_anomaly_sample
@@ -395,9 +381,9 @@ class HybridDataGenerator:
             for sample in tqdm(self._anomaly_dataset):
                 basename = sample["fname"]
                 if self._config.prior_sampling:
-                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output, background_threshold=self._config.background_threshold)
+                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output, target_mask_generator=target_mask_generator)
                 else:
-                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output, background_threshold=self._config.background_threshold)
+                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output, target_mask_generator=target_mask_generator)
                 save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
                 save_numpy_as_npy(syn_anomaly_mask, str(os.path.join(tgt_mask_folder, basename)), overwrite=True)
 

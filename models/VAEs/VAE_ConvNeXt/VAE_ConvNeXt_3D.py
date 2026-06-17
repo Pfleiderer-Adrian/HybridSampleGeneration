@@ -20,6 +20,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from models.model_interface import HybridModelInterface
+from synthesizer.mask_manipulation import TransformGenerator
 
 
 
@@ -558,7 +559,7 @@ class ConvNeXtVAE3D(HybridModelInterface):
         s: float = 0.8,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
-        background_threshold: float = 0.01,
+        target_mask_generator: Optional[TransformGenerator] = None,
         return_torch: bool = False,
     ) -> Union[np.ndarray, torch.Tensor]:
         """Generate *n* slightly varied variants around a given sample.
@@ -658,11 +659,14 @@ class ConvNeXtVAE3D(HybridModelInterface):
                 recon = recon.squeeze(0)  # (n,C,D,H,W)
                 recon = recon.squeeze(0)
 
+        if target_mask_generator is None:
+            target_mask_generator = TransformGenerator()
+
         if return_torch:
-            return recon, self._create_tgt_mask_from_synth_anomaly(recon, background_threshold)
+            return recon, target_mask_generator.create_target_mask(synth_anomaly_image=recon)
 
         recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
-        return recon_np, self._create_tgt_mask_from_synth_anomaly(recon_np, background_threshold)
+        return recon_np, target_mask_generator.create_target_mask(synth_anomaly_image=recon_np)
 
     def warmup(self, shape, device=None, dtype=None):
         """Warm up the model to initialize lazy FC layers (unchanged API)."""
@@ -709,7 +713,7 @@ class ConvNeXtVAE3D(HybridModelInterface):
         s: float = 0.5,
         device: str | torch.device = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
-        background_threshold: float = 0.01,
+        target_mask_generator: Optional[TransformGenerator] = None,
         return_torch: bool = False,
     ) -> np.ndarray | torch.Tensor:
         """
@@ -782,11 +786,14 @@ class ConvNeXtVAE3D(HybridModelInterface):
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)
 
+        if target_mask_generator is None:
+            target_mask_generator = TransformGenerator()
+
         if return_torch:
-            return recon, self._create_tgt_mask_from_synth_anomaly(recon, background_threshold)
+            return recon, target_mask_generator.create_target_mask(synth_anomaly_image=recon)
 
         recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
-        return recon_np, self._create_tgt_mask_from_synth_anomaly(recon_np, background_threshold)
+        return recon_np, target_mask_generator.create_target_mask(synth_anomaly_image=recon_np)
 
 
 if __name__ == "__main__":
