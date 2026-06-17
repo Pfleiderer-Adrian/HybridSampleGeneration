@@ -867,8 +867,8 @@ def _validate_dataset_root(root: Path) -> None:
 
 if __name__ == "__main__":
 
-    dataset_root = r"C:/Users/priva/Documents/datasets/mvtec_ad_2"
-    save_path = r"C:/Users/priva/Documents/experiments"
+    dataset_root = r"/path/to/mvtec_ad_2_dataset"
+    save_path = r"/path/to/save/results"
 
     run_hybrid_sample_generation_for_all_usecases(
         dataset_root,
