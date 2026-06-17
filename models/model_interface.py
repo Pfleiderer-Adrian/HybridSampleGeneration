@@ -183,6 +183,7 @@ class HybridModelInterface(nn.Module, ABC):
         self,
         sample: Union[dict, np.ndarray, torch.Tensor],
         *,
+        variation_strength: float = 1.0,
         clamp_01: bool = True,
         target_mask_generator: Optional[TransformGenerator] = None,
         **kwargs,
@@ -191,6 +192,7 @@ class HybridModelInterface(nn.Module, ABC):
         Generate a synthetic anomaly sample from an existing anomaly sample.
 
         Expected by synthesizer.HybridDataGenerator.generate_synth_anomalies().
+        variation_strength controls the latent sampling strength.
         Implementations should use target_mask_generator to create the returned target_mask.
         Conditional models use it before decoding; non-conditional models use it after synthesis.
         """
@@ -200,12 +202,14 @@ class HybridModelInterface(nn.Module, ABC):
         self,
         sample: Union[dict, np.ndarray, torch.Tensor, None] = None,
         *,
+        variation_strength: float = 1.0,
         clamp_01: bool = True,
         target_mask_generator: Optional[TransformGenerator] = None,
         **kwargs,
     ):
         """
         Optional prior-sampling entry point used when config.prior_sampling is true.
+        variation_strength controls the prior sampling strength.
         Implementations should use target_mask_generator to create the returned target_mask.
         """
         raise NotImplementedError(

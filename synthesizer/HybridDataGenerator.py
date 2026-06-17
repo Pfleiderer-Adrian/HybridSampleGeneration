@@ -275,12 +275,12 @@ class HybridDataGenerator:
             t = study.best_trial
         if trial_id == -2:
             all_trials = study.get_trials()
-            i = 0
+            i = -1
             for ts in all_trials:
                 if ts.number > i:
                     i=i+1
                     t = ts
-        else:
+        if trial_id >= 0:
             all_trials = study.get_trials()
             for ts in all_trials:
                 if ts.number == trial_id:
@@ -340,9 +340,19 @@ class HybridDataGenerator:
                 i = 0
                 while best < self._config.feedback_threshold:
                     if self._config.prior_sampling:
-                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output, target_mask_generator=target_mask_generator)
+                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(
+                            sample,
+                            variation_strength=getattr(self._config, "variation_strength", 1.0),
+                            clamp_01=self._config.clamp01_output,
+                            target_mask_generator=target_mask_generator,
+                        )
                     else:
-                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output, target_mask_generator=target_mask_generator)
+                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(
+                            sample,
+                            variation_strength=getattr(self._config, "variation_strength", 1.0),
+                            clamp_01=self._config.clamp01_output,
+                            target_mask_generator=target_mask_generator,
+                        )
 
                     if best_image is None:
                         best_image = syn_anomaly_sample
@@ -385,9 +395,19 @@ class HybridDataGenerator:
             for sample in tqdm(self._anomaly_dataset):
                 basename = sample["fname"]
                 if self._config.prior_sampling:
-                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(sample, clamp_01=self._config.clamp01_output, target_mask_generator=target_mask_generator)
+                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(
+                        sample,
+                        variation_strength=getattr(self._config, "variation_strength", 1.0),
+                        clamp_01=self._config.clamp01_output,
+                        target_mask_generator=target_mask_generator,
+                    )
                 else:
-                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(sample, clamp_01=self._config.clamp01_output, target_mask_generator=target_mask_generator)
+                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(
+                        sample,
+                        variation_strength=getattr(self._config, "variation_strength", 1.0),
+                        clamp_01=self._config.clamp01_output,
+                        target_mask_generator=target_mask_generator,
+                    )
                 save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
                 save_numpy_as_npy(syn_anomaly_mask, str(os.path.join(tgt_mask_folder, basename)), overwrite=True)
 
