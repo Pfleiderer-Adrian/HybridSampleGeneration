@@ -621,6 +621,7 @@ class ResNetVAE2D(HybridModelInterface):
         self,
         sample: Union[dict, np.ndarray, torch.Tensor],
         *,
+        variation_strength: float = 1.0,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
         target_mask_generator: Optional[TransformGenerator] = None,
@@ -631,7 +632,7 @@ class ResNetVAE2D(HybridModelInterface):
         Internally:
           - converts the input to torch
           - ensures a batch dimension
-          - runs forward()
+          - samples the latent vector with z = mu + variation_strength * sigma * eps
           - returns out["recon"] as numpy
 
         Inputs
@@ -641,6 +642,8 @@ class ResNetVAE2D(HybridModelInterface):
               - (C, H, W)   (single sample)
         device:
             Device for inference.
+        variation_strength:
+            Strength of the latent variation. variation_strength=0.0 uses mu only.
         clamp_01:
             If True, clamp input and output to [0,1]. For continuous-intensity usage, set this to False.
 
@@ -649,6 +652,9 @@ class ResNetVAE2D(HybridModelInterface):
         np.ndarray
             Reconstruction as float32, shape (C, H, W).
         """
+        if variation_strength < 0:
+            raise ValueError(f"variation_strength must be >= 0, got {variation_strength}")
+
         device = torch.device(device)
         model = self.to(device)
         model.eval()
@@ -673,14 +679,109 @@ class ResNetVAE2D(HybridModelInterface):
         x = x.to(device)
 
         with torch.no_grad():
-            out = model(x)
-            recon = out["recon"]
+            ref_hw = tuple(x.shape[-2:])
+            multiple = 2 ** self.cfg.n_levels
+            x_pad, _ = self._pad_to_multiple(x, multiple)
+
+            h = model.encoder(x_pad)
+            latent_hw = tuple(h.shape[-2:])
+            model._ensure_fcs(latent_hw, device)
+
+            B = x.shape[0]
+            h_flat = h.reshape(B, -1)
+            mu = model.fc_mu(h_flat)
+            logvar = model.fc_logvar(h_flat)
+
+            if variation_strength == 0.0:
+                z = mu
+            else:
+                std = torch.exp(0.5 * logvar)
+                z = mu + float(variation_strength) * std * torch.randn_like(std)
+
+            h_dec = model.fc_decode(z).reshape(B, self.cfg.z_channels, *latent_hw)
+            recon = model.decoder(h_dec)
+            recon = self._crop_like(recon, ref_hw)
+
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)
 
         recon_np = recon.detach().cpu().squeeze(0).numpy().astype(np.float32, copy=False)
         if target_mask_generator is None:
             target_mask_generator = TransformGenerator()
+        return recon_np, target_mask_generator.create_target_mask(synth_anomaly_image=recon_np)
+
+    def generate_synth_sample_prior(
+        self,
+        sample: Union[dict, np.ndarray, torch.Tensor, None] = None,
+        *,
+        out_hw: tuple[int, int] | None = None,
+        variation_strength: float = 1.0,
+        device: str | torch.device = "cuda" if torch.cuda.is_available() else "cpu",
+        clamp_01: bool = True,
+        target_mask_generator: Optional[TransformGenerator] = None,
+        return_torch: bool = False,
+    ) -> np.ndarray | torch.Tensor:
+        """
+        Generate ONE synthetic sample via prior sampling.
+
+        Samples:
+            z ~ N(0, I) scaled by variation_strength, then decodes to image space.
+
+        Parameters:
+        - out_hw: output (H, W). If None and sample is given, uses sample spatial size.
+        - variation_strength: prior diversity strength.
+        - clamp_01: clamp outputs to [0,1].
+        - return_torch: return torch.Tensor instead of np.ndarray.
+
+        Output:
+        - (C, H, W)
+        """
+        if variation_strength < 0:
+            raise ValueError(f"variation_strength must be >= 0, got {variation_strength}")
+
+        if out_hw is None and sample is not None:
+            out_hw = tuple(self._extract_x(sample).shape[-2:])
+        if not (isinstance(out_hw, (tuple, list)) and len(out_hw) == 2):
+            raise ValueError(f"out_hw must be (H,W), got {out_hw}")
+
+        H, W = int(out_hw[0]), int(out_hw[1])
+        if H <= 0 or W <= 0:
+            raise ValueError(f"out_hw must be positive, got {out_hw}")
+
+        device = torch.device(device)
+        model = self.to(device)
+        model.eval()
+
+        down = 2 ** int(self.cfg.n_levels)
+        pad_h = (down - (H % down)) % down
+        pad_w = (down - (W % down)) % down
+        H_pad, W_pad = H + pad_h, W + pad_w
+        latent_hw = (H_pad // down, W_pad // down)
+
+        z_dim = int(getattr(self.cfg, "bottleneck_dim", 256))
+
+        with torch.no_grad():
+            model._ensure_fcs(latent_hw, device)
+
+            if variation_strength == 0.0:
+                z = torch.zeros((1, z_dim), device=device)
+            else:
+                z = torch.randn((1, z_dim), device=device) * float(variation_strength)
+
+            h_dec = model.fc_decode(z).reshape(1, int(self.cfg.z_channels), *latent_hw)
+            recon = model.decoder(h_dec)
+            recon = recon[..., :H, :W].squeeze(0)
+
+            if clamp_01:
+                recon = recon.clamp(0.0, 1.0)
+
+        if target_mask_generator is None:
+            target_mask_generator = TransformGenerator()
+
+        if return_torch:
+            return recon, target_mask_generator.create_target_mask(synth_anomaly_image=recon)
+
+        recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
         return recon_np, target_mask_generator.create_target_mask(synth_anomaly_image=recon_np)
 
     def warmup(self, shape, device=None, dtype=None):

@@ -105,6 +105,8 @@ class Configuration:
 
         # synthesizer parameter
         self.prior_sampling = False
+        # Controls how strongly the latent sample is perturbed during posterior or prior generation.
+        self.variation_strength = 1.0
         self.min_anomaly_percentage = 0.05
         self.min_pad = (20, 20, 20)    # just use first two values for 2d
         self.pad_ratio = (0.5, 0.5, 0.5)
@@ -424,5 +426,9 @@ def load_config_file(json_path):
     """
     with open(json_path, 'r', encoding='utf-8') as fi:
         config = jsonpickle.decode(fi.read())
+    if not hasattr(config, "variation_strength"):
+        config.variation_strength = getattr(config, "s", 1.0)
+    if hasattr(config, "s"):
+        delattr(config, "s")
     config.model_params = ModelConfiguration.from_value(config.model_params)
     return config

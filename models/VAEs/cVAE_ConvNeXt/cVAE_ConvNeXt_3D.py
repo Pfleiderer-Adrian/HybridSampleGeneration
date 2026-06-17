@@ -649,7 +649,7 @@ class ConvNeXtcVAE3D(HybridModelInterface):
         target_mask: Optional[Union[np.ndarray, torch.Tensor]] = None,  # use target mask if you want spatial variation
         *,
         n: int = 1,
-        s: float = 0.8,
+        variation_strength: float = 0.8,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
         target_mask_generator: Optional[TransformGenerator] = None,
@@ -658,14 +658,14 @@ class ConvNeXtcVAE3D(HybridModelInterface):
         """Generate *n* slightly varied variants around a given sample.
 
         This performs *posterior sampling*:
-            z = mu + s * sigma * eps,  eps ~ N(0, I)
+            z = mu + variation_strength * sigma * eps,  eps ~ N(0, I)
 
         Meaning of the parameters:
           - n: how many variants to generate per input sample.
-          - s: "strength" / "temperature" of the variation.
-               s=0.0 -> deterministic reconstruction (uses mu only)
-               s~0.2-0.5 -> small variations (recommended)
-               s>=1.0 -> large variations (can drift away from the input)
+          - variation_strength: strength of the variation.
+               variation_strength=0.0 -> deterministic reconstruction (uses mu only)
+               variation_strength~0.2-0.5 -> small variations (recommended)
+               variation_strength>=1.0 -> large variations (can drift away from the input)
 
         Inputs
         ------
@@ -685,8 +685,8 @@ class ConvNeXtcVAE3D(HybridModelInterface):
 
         if n <= 0:
             raise ValueError(f"n must be > 0, got {n}")
-        if s < 0:
-            raise ValueError(f"s must be >= 0, got {s}")
+        if variation_strength < 0:
+            raise ValueError(f"variation_strength must be >= 0, got {variation_strength}")
 
         device = torch.device(device)
         model = self.to(device)
@@ -760,11 +760,11 @@ class ConvNeXtcVAE3D(HybridModelInterface):
 
             # Sample n variants per item
             # Shape: (B*n, bottleneck_dim)
-            if s == 0.0:
+            if variation_strength == 0.0:
                 z = mu.unsqueeze(1).expand(B, n, -1).reshape(B * n, -1)
             else:
                 eps = torch.randn((B, n, mu.shape[-1]), device=device, dtype=mu.dtype)
-                z = (mu.unsqueeze(1) + (s * std).unsqueeze(1) * eps).reshape(B * n, -1)
+                z = (mu.unsqueeze(1) + (variation_strength * std).unsqueeze(1) * eps).reshape(B * n, -1)
 
             # Decode in one big batch
             h_dec = model.fc_decode(z).reshape(B * n, self.cfg.z_channels, *latent_dhw)
@@ -839,7 +839,7 @@ class ConvNeXtcVAE3D(HybridModelInterface):
         self,
         sample: Union[dict, np.ndarray, torch.Tensor],
         *,
-        s: float = 1.0,
+        variation_strength: float = 1.0,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
         target_mask_generator: Optional[TransformGenerator] = None,
@@ -850,12 +850,12 @@ class ConvNeXtcVAE3D(HybridModelInterface):
         (No input image required).
 
         Samples:
-            z ~ N(0, I) (scaled by s), then decode to 3D volume space conditioned on target_mask.
+            z ~ N(0, I) (scaled by variation_strength), then decode to 3D volume space conditioned on target_mask.
 
         Parameters:
         - sample: sample dict containing "tgt_mask", or a label mask with
           shape (D,H,W), (C,D,H,W) or (B,C,D,H,W). Defines the classes and output spatial size.
-        - s: prior temperature / diversity strength (1.0 is standard; <1.0 more conservative).
+        - variation_strength: prior diversity strength (1.0 is standard; <1.0 more conservative).
         - clamp_01: clamp outputs to [0,1].
         - return_torch: return torch.Tensor instead of np.ndarray.
 
@@ -863,8 +863,8 @@ class ConvNeXtcVAE3D(HybridModelInterface):
         - (C, D, H, W) if input was 4D
         - (B, C, D, H, W) if input was 5D
         """
-        if s < 0:
-            raise ValueError(f"s must be >= 0, got {s}")
+        if variation_strength < 0:
+            raise ValueError(f"variation_strength must be >= 0, got {variation_strength}")
 
         device = torch.device(device)
         model = self.to(device)
@@ -922,10 +922,10 @@ class ConvNeXtcVAE3D(HybridModelInterface):
             z_dim = int(getattr(self.cfg, "bottleneck_dim", 256))
 
             # Prior sampling: z ~ N(0, I)
-            if s == 0.0:
+            if variation_strength == 0.0:
                 z = torch.zeros((B, z_dim), device=device)
             else:
-                z = torch.randn((B, z_dim), device=device) * float(s)
+                z = torch.randn((B, z_dim), device=device) * float(variation_strength)
 
             # Map z -> decoder feature map
             h_dec = model.fc_decode(z).reshape(B, int(self.cfg.z_channels), *latent_dhw)
