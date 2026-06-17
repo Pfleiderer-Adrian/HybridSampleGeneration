@@ -107,32 +107,33 @@ def configure_can(config_save_path: str) -> Configuration:
         save_path=config_save_path,
     )
 
+    # extraction settings
     config.fixed_roi_size = (256, 256)
-
     config.random_offset = False
     config.random_offset_max_fraction = 0.8
     config.random_offset_foreground_threshold_rel = 0.01
     config.add_bg_noise = False
-    config.min_anomaly_percentage = 0.001
+    config.min_anomaly_percentage = 0.01
     config.min_pad = (20, 20, 20)
-
     config.pad_ratio = (0.5, 0.5, 0.5)
+
+    # generation settings
     config.clamp01_output = False
     config.normalization = "z-score"
     config.normalization_eps = 1e-6
     config.background_threshold = 0.1
-
-    config.prior_sampling = False
+    config.prior_sampling = True
     config.use_feedback = False
     config.feedback_threshold = 0.01
     config.threshold_relaxation_factor = 0.9
-    config.prior_sampling = False
 
+    # matching settings
     config.matching_routine = "local"
     config.anomaly_duplicates = True
     config.fusions_per_control = 2
     config.max_fusions_per_control_deviation = 1
 
+    # Fusion settings
     config.update_fusion_params(
         max_alpha=1.0,
         sq=0.1,
@@ -151,6 +152,7 @@ def configure_can(config_save_path: str) -> Configuration:
     config.selected_confidence = "90%"
     config.confidence_z_score = config.confidence_levels[config.selected_confidence]
 
+    # Training settings
     config.val_ratio = 0.1
     config.batch_size = 8
     config.epochs = 1000
@@ -167,6 +169,61 @@ def configure_can(config_save_path: str) -> Configuration:
         "factor": 0.1,
         "threshold": 1e-5,
     }
+
+    # Model hyperparameter search space for Optuna. The min and max dicts together define the search space.
+    config.model_params.set_hyperparameter_space(
+        # min_config
+        {
+            "in_channels": 3,
+            "n_res_blocks": 1,
+            "n_levels": 3,
+            "z_channels": 16,
+            "bottleneck_dim": 24,
+            "use_multires_skips": False,
+            "recon_weight": 6.0,
+            "beta_kl": 0.05,
+            "beta_kl_start": 0.0,
+            "beta_kl_max": 0.06,
+            "beta_kl_warmup_start": 0,
+            "beta_kl_warmup_epochs": 250,
+            "free_bits": 0.0,
+            "recon_loss": "smoothl1",
+            "recon_smoothl1_beta": 0.5,
+            "use_transpose_conv": False,
+            "fg_weight": 1.0,
+            "fg_threshold": 0.0,
+            "drop_path_rate": 0.0,
+            "dropout": 0.03,
+            "skip_dropout_p": 1.0,
+            "skip_alpha": 0.0,
+        },
+        # max_config
+        {
+            "in_channels": 3,
+            "n_res_blocks": 3,
+            "n_levels": 4,
+            "z_channels": 64,
+            "bottleneck_dim": 96,
+            "use_multires_skips": False,
+            "recon_weight": 18.0,
+            "beta_kl": 0.05,
+            "beta_kl_start": 0.0,
+            "beta_kl_max": 0.18,
+            "beta_kl_warmup_start": 0,
+            "beta_kl_warmup_epochs": 700,
+            "free_bits": 0.005,
+            "recon_loss": "smoothl1",
+            "recon_smoothl1_beta": 1.0,
+            "use_transpose_conv": False,
+            "fg_weight": 1.0,
+            "fg_threshold": 0.0,
+            "drop_path_rate": 0.05,
+            "dropout": 0.15,
+            "skip_dropout_p": 1.0,
+            "skip_alpha": 0.0,
+        },
+    )
+
     return config
 
 

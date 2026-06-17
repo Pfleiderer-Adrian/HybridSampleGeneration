@@ -234,7 +234,10 @@ class HybridDataGenerator:
         else:
             optimize(no_of_trails, self._config, self._anomaly_dataset)
 
-        self.load_generator()
+        if no_of_trails > 1:
+            self.load_generator(trial_id=-1)  # load best trial
+        else:
+            self.load_generator(trial_id=-2)  # load last trial
 
     def load_generator(self, path_to_db_file=None, trial_id=-1):
         """
@@ -248,6 +251,7 @@ class HybridDataGenerator:
         trial_id:
             Which trial to load:
               - -1: load best trial (study.best_trial)
+              - -2: load last trial
               - otherwise: load trial with matching ts.number
 
         Outputs
