@@ -477,7 +477,6 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
                 best_epoch = epoch + 1
                 if best_model_path is not None:
                     torch.save(model.state_dict(), best_model_path)
-            torch.save(model.state_dict(), best_model_path)
 
 
             # update progress bar
