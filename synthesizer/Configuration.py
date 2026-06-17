@@ -127,6 +127,8 @@ class Configuration:
 
         self.fusions_per_control = 1  # for local and global matching
         self.max_fusions_per_control_deviation = 0
+        self.matching_intensity_weight = 0.5
+        self.matching_gradient_weight = 0.5
 
         # fusion parameter
         self.fusion_mask_params = {
