@@ -234,7 +234,7 @@ class HybridDataGenerator:
         else:
             optimize(no_of_trials, self._config, self._anomaly_dataset)
 
-        if no_of_trails > 1:
+        if no_of_trials > 1:
             self.load_generator(trial_id=-1)  # load best trial
         else:
             self.load_generator(trial_id=-2)  # load last trial
