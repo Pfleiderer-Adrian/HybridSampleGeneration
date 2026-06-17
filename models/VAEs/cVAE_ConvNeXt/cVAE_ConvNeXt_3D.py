@@ -22,7 +22,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from models.model_interface import HybridModelInterface
-from synthesizer.mask_manipulation import to_one_hot_3D
+from synthesizer.mask_manipulation import TransformGenerator, to_one_hot_3D
 
 
 class SPADE3D(nn.Module):
@@ -547,25 +547,29 @@ class ConvNeXtcVAE3D(HybridModelInterface):
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
 
-    def _extract_inputs(self, batch) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Extract the input tensor x and the mask from a batch (unchanged from original)."""
-        # if dataloader loads dict (with keys "img"/"x", "mask"/"ori_mask", "tgt_mask")
+    def _extract_inputs(self, batch) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        """Extract x and ori_mask from batch; tgt_mask is optional for generation-only use."""
         if isinstance(batch, dict):
             x = batch.get("img", batch.get("x"))
             ori_mask = batch.get("ori_mask", batch.get("mask"))
             tgt_mask = batch.get("tgt_mask")
-            if x is not None and ori_mask is not None and tgt_mask is not None:
-                return torch.as_tensor(x), torch.as_tensor(ori_mask), torch.as_tensor(tgt_mask)
+            if x is not None and ori_mask is not None:
+                return (
+                    torch.as_tensor(x),
+                    torch.as_tensor(ori_mask),
+                    torch.as_tensor(tgt_mask) if tgt_mask is not None else None,
+                )
             else:
                 raise ValueError(
                 f"Dataloader returned a dict, but expected keys are missing. "
                 f"Found keys: {list(batch.keys())}. "
-                f"Expected combinations of ('img' or 'x') and ('mask' or 'label') and 'tgt_mask'."
+                f"Expected combinations of ('img' or 'x') and ('mask' or 'ori_mask')."
             )
 
-        # if dataloader loads Tuple[torch.Tensor, torch.Tensor, ...] (like AnomalyDataset)
         if isinstance(batch, (tuple, list)) and len(batch) >= 3:
             return torch.as_tensor(batch[0]), torch.as_tensor(batch[1]), torch.as_tensor(batch[2])
+        if isinstance(batch, (tuple, list)) and len(batch) >= 2:
+            return torch.as_tensor(batch[0]), torch.as_tensor(batch[1]), None
 
         raise TypeError(f"Unknown batch type: {type(batch)}")
 
@@ -648,6 +652,7 @@ class ConvNeXtcVAE3D(HybridModelInterface):
         s: float = 0.8,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
+        target_mask_generator: Optional[TransformGenerator] = None,
         return_torch: bool = False,
     ) -> Union[np.ndarray, torch.Tensor]:
         """Generate *n* slightly varied variants around a given sample.
@@ -694,7 +699,7 @@ class ConvNeXtcVAE3D(HybridModelInterface):
             if original_mask is None:
                 original_mask = sample.get("ori_mask", sample.get("mask"))
             if target_mask is None:
-                target_mask = sample.get("tgt_mask", original_mask)
+                target_mask = sample.get("tgt_mask")
         else:
             x = torch.as_tensor(sample).float()
 
@@ -703,6 +708,9 @@ class ConvNeXtcVAE3D(HybridModelInterface):
         
         # --- WICHTIG: KEIN .float() mehr für die Masken! ---
         ori_mask = torch.as_tensor(original_mask)
+        if target_mask is None and target_mask_generator is not None:
+            target_mask = target_mask_generator.create_target_mask(original_mask=original_mask, conditional=True)
+
         if target_mask is None:
             tgt_mask = ori_mask
         else:
@@ -834,6 +842,7 @@ class ConvNeXtcVAE3D(HybridModelInterface):
         s: float = 1.0,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
+        target_mask_generator: Optional[TransformGenerator] = None,
         return_torch: bool = False,
     ) -> Union[np.ndarray, torch.Tensor]:
         """
@@ -864,7 +873,12 @@ class ConvNeXtcVAE3D(HybridModelInterface):
         model.decoder.set_skips(None)
 
         if isinstance(sample, dict):
-            target_mask = sample.get("tgt_mask", sample.get("ori_mask", sample.get("mask")))
+            target_mask = sample.get("tgt_mask")
+            original_mask = sample.get("ori_mask", sample.get("mask"))
+            if target_mask is None and target_mask_generator is not None:
+                target_mask = target_mask_generator.create_target_mask(original_mask=original_mask, conditional=True)
+            if target_mask is None:
+                target_mask = original_mask
             if target_mask is None:
                 raise KeyError("Conditional prior sample dict must contain 'tgt_mask' or 'ori_mask'.")
         else:

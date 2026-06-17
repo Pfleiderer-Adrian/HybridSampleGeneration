@@ -423,7 +423,7 @@ def run_evaluation_and_visualization_for_usecase(
     print(f"\n========== MVTec AD 2 evaluation + visualization: {use_case.category} ==========")
     config = _downstream_config_for_usecase(use_case, load_saved_config=load_saved_config)
     generator = HybridDataGenerator(config)
-    #generator.run_evaluation_pipeline(use_case.anomaly_dataloader)
+    generator.run_evaluation_pipeline(use_case.anomaly_dataloader)
     generator.visualize_evaluation_results()
     return config
 

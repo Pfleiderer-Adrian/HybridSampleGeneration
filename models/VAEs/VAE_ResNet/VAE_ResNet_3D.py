@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from models.model_interface import HybridModelInterface
+from synthesizer.mask_manipulation import TransformGenerator
 
 
 # -------------------------
@@ -654,7 +655,7 @@ class ResNetVAE3D(HybridModelInterface):
             *,
             device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
             clamp_01: bool = True,
-            background_threshold: float = 0.01,
+            target_mask_generator: Optional[TransformGenerator] = None,
     ) -> np.ndarray:
         """
         Generate a synthetic sample (reconstruction) for a SINGLE input sample.
@@ -713,7 +714,9 @@ class ResNetVAE3D(HybridModelInterface):
 
         # Remove batch dimension: (1,C,...) -> (C,...)
         recon_np = recon.squeeze(0).numpy().astype(np.float32, copy=False)
-        return recon_np, self._create_tgt_mask_from_synth_anomaly(recon_np, background_threshold)
+        if target_mask_generator is None:
+            target_mask_generator = TransformGenerator()
+        return recon_np, target_mask_generator.create_target_mask(synth_anomaly_image=recon_np)
 
     def warmup(self, shape, device=None, dtype=None):
         """
