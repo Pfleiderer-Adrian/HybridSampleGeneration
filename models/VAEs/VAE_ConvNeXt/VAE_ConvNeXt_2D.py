@@ -723,7 +723,7 @@ class ConvNeXtVAE2D(HybridModelInterface):
         sample: Union[dict, np.ndarray, torch.Tensor, None] = None,
         *,
         out_hw: tuple[int, int] | None = None,
-        s: float = 0.1,
+        s: float = 1.0,
         device: str | torch.device = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
         background_threshold: Optional[float] = 0.01,
