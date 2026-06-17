@@ -176,18 +176,18 @@ class _RandomSpatialOffset:
         return shifted
 
 
-def optimize(no_of_trails, config:Configuration, dataset):
+def optimize(no_of_trials, config:Configuration, dataset):
     """
     Run Optuna hyperparameter optimization for a generative model.
 
     This function:
       1) Creates (or reuses) an Optuna study stored via `config.get_paths()`.
-      2) Runs `objective(...)` for `no_of_trails` trials.
+      2) Runs `objective(...)` for `no_of_trials` trials.
       3) Prints summary information about the best trial found.
 
     Inputs
     ------
-    no_of_trails:
+    no_of_trials:
         Number of Optuna trials to run (each trial trains one model instance).
     config:
         Global configuration containing:
@@ -214,7 +214,7 @@ def optimize(no_of_trails, config:Configuration, dataset):
 
     # Run optimization process
     func = lambda trial: objective(trial, config, dataset)
-    study.optimize(func, n_trials=no_of_trails)  # calls objective function multiple time and tries to minimize the return value of this function
+    study.optimize(func, n_trials=no_of_trials)  # calls objective function multiple time and tries to minimize the return value of this function
 
     # Print Results
     print("Study statistics: ")
@@ -477,7 +477,6 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
                 best_epoch = epoch + 1
                 if best_model_path is not None:
                     torch.save(model.state_dict(), best_model_path)
-            torch.save(model.state_dict(), best_model_path)
 
 
             # update progress bar

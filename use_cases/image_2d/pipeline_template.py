@@ -31,7 +31,7 @@ if __name__ == "__main__":
     HDG.load_anomalies()
 
     # 2) Train generator via Optuna
-    HDG.train_generator(no_of_trails=1)
+    HDG.train_generator(no_of_trials=1)
     # 2) Or only load a trained model
     HDG.load_generator()
 
