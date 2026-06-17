@@ -248,6 +248,8 @@ def run_hybrid_sample_generation_for_usecase(
 
     steps can be used to run only selected generation steps. Examples:
     ("extract", "train", "generate_synth"), ("load_synth", "matching", "fusion").
+    generator_trial_id selects the model to load: -1 best model, -2 newest model,
+    otherwise the concrete Optuna trial/model number.
     """
 
     print(f"\n========== MVTec AD 2 use case: {use_case.category} ==========")
@@ -865,15 +867,15 @@ def _validate_dataset_root(root: Path) -> None:
 
 if __name__ == "__main__":
 
-    save_path = r"path/to/save/generated/data"
-    dataset_root = r"path/to/mvtec_ad_2_dataset"
+    save_path = r"/path/to/results/root"
+    dataset_root = r"/path/to/datasets/mvtec_ad_2"
 
     run_hybrid_sample_generation_for_all_usecases(
         dataset_root,
         categories="can",
         no_of_trials=1,
         steps=("extract", "train", "generate_synth", "matching", "fusion", "save"),
-        #steps=("matching", "fusion", "save"),
+        generator_trial_id=-2,  # -1: best Model, -2: newest Model, else Trial-/Model number
         save_path=save_path
     )
 
