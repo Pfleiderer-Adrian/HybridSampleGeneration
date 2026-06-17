@@ -275,7 +275,7 @@ def run_hybrid_sample_generation_for_usecase(
         generator.load_anomalies()
 
     if "train_generator" in selected_steps:
-        generator.train_generator(no_of_trails=no_of_trials)
+        generator.train_generator(no_of_trials=no_of_trials)
     elif "load_generator" in selected_steps or _needs_generator_loaded(selected_steps):
         generator.load_generator(
             path_to_db_file=None if generator_db_path is None else str(generator_db_path),

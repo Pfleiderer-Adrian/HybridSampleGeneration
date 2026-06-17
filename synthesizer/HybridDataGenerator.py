@@ -213,14 +213,14 @@ class HybridDataGenerator:
 
         self._config.load_anomaly_transformations()
 
-    def train_generator(self, no_of_trails):
+    def train_generator(self, no_of_trials):
         """
         Train/optimize the generator model using Optuna via `optimize(...)`,
         then load the resulting model via `load_generator()`.
 
         Inputs
         ------
-        no_of_trails:
+        no_of_trials:
             Number of Optuna trials to run (hyperparameter optimization / training runs).
 
         Outputs
@@ -232,7 +232,7 @@ class HybridDataGenerator:
         if self._anomaly_dataset is None:
             raise ValueError(f"No Anomalies Loaded: Run extract_anomalies or load_anomalies first")
         else:
-            optimize(no_of_trails, self._config, self._anomaly_dataset)
+            optimize(no_of_trials, self._config, self._anomaly_dataset)
 
         if no_of_trails > 1:
             self.load_generator(trial_id=-1)  # load best trial
