@@ -160,9 +160,10 @@ class Configuration:
         
         # Number of border pixels used to normalize the synthetic anomaly intensity to the surrounding fusion region.
         # Border width in pixels around the anomaly mask used for local intensity normalization:
-        # 0 uses only the anomaly mask
-        # > 0 larger values use a wider surrounding region.
-        # -1 uses the entire image.
+        # None -- skips normalization
+        # 0 -- uses only the anomaly mask
+        # > 0 -- larger values use a wider surrounding region.
+        # -1 -- uses the entire image.
         self.fusion_normalization_border_width = 2
 
         # global training parameter, fixed during training
