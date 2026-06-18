@@ -117,11 +117,23 @@ Each iteration must yield:
       Example: fusions_per_control = 2 and max_fusions_per_control_deviation = 1 produces 1, 2 or 3 requested fusions per control.
       Use 0 for a fixed number of fusions per control.
 
+  Matching score parameters used by local and global:
+  - matching_intensity_weight:
+      Weight for the standard intensity-based template matching score. Default: 0.5.
+  - matching_gradient_weight:
+      Weight for the gradient-magnitude template matching score. Default: 0.5.
+      The gradient score is computed from the spatial gradient magnitude of ROI and control sample and is only used when the gradient images contain usable structure.
+      If the gradient score is not usable, matching falls back to the available score components.
+
+  For local and global matching, the final similarity map is a weighted combination of intensity matching and gradient-magnitude matching.
+  This helps prefer insertion positions that match both local brightness/texture and local edge structure.
+  If a ROI is larger than the control sample in any spatial dimension, it is skipped and no template matching is computed for that pair.
+
   - local: (pairing not optimal, but fast)  
       `Fusion synthetic anomaly into a random control sample, finds best position within the sample.`  
       Iterates through every control sample and attempts to find the configured number of ROI matches.
       Always only checks the next ROI from the dataloader (until enough matches were found).
-      Uses template matching to find the position with the highest similarity score for a given ROI within the control sample.
+      Uses the combined intensity and gradient-magnitude template matching score to find the best position for a given ROI within the control sample.
       ROIs matched with the same control sample can not spatially overlap.
       If a ROI does not fit in the current control (ROI bigger than control or overlap), it is added to skipped_rois.
       Before loading new ROIs, the routine always checks skipped_rois to see if they fit the current control sample.
@@ -131,7 +143,7 @@ Each iteration must yield:
   - global: (optimal pairing, but slow)  
       `Fusion synthetic anomaly into the best control sample within the dataset + finds best position within the sample.`  
       Iterates through every control sample and attempts to find the configured number of ROI matches.
-      Performs template matching for all available ROIs against the current control sample to find the best possible positions for every ROI and save info in all_matches list.
+      Performs combined intensity and gradient-magnitude template matching for all available ROIs against the current control sample to find the best possible positions for every ROI and save info in all_matches list.
       ROIs matched with the same control sample can not spatially overlap.
       Prioritizes matches based on the highest similarity score (sort all_matches by similarity descending and then always try to match the next index until no further matches are needed)
       ROIs that have been successfully matched are added to excluded_roi_samples and are excluded from future controls to avoid reuse.

@@ -129,6 +129,8 @@ class Configuration:
 
         self.fusions_per_control = 1  # for local and global matching
         self.max_fusions_per_control_deviation = 0
+        self.matching_intensity_weight = 0.5
+        self.matching_gradient_weight = 0.5
 
         # fusion parameter
         self.fusion_mask_params = {
@@ -178,8 +180,10 @@ class Configuration:
 
         self.model_params = get_model_configuration(model_name, anomaly_size[0], debug=False)
 
-         # set to None for variable roi size
+        # set to None for variable roi size
         self.fixed_roi_size = None
+        # define min size for every dimension to improve template matching for small anomalies
+        self.min_roi_size = 0
 
         # evaluation parameter
         # (optional) absolute thresholds
