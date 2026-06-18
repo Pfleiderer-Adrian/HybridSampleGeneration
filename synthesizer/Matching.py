@@ -26,18 +26,6 @@ def _gradient_magnitude(arr: np.ndarray) -> np.ndarray:
     return np.sqrt(magnitude)
 
 
-def _matching_weights(config):
-    intensity_weight = float(getattr(config, "matching_intensity_weight", 0.5))
-    gradient_weight = float(getattr(config, "matching_gradient_weight", 0.5))
-
-    if intensity_weight < 0 or gradient_weight < 0:
-        raise ValueError("matching_intensity_weight and matching_gradient_weight must be >= 0.")
-    if intensity_weight == 0 and gradient_weight == 0:
-        raise ValueError("At least one matching weight must be > 0.")
-
-    return intensity_weight, gradient_weight
-
-
 def template_matching(template, control, config=None):
 
     template = _to_spatial(template)
@@ -47,7 +35,10 @@ def template_matching(template, control, config=None):
     if any(t_dim > c_dim for t_dim, c_dim in zip(template.shape, control.shape)):
         return -2, None
 
-    intensity_weight, gradient_weight = _matching_weights(config)
+    intensity_weight = float(getattr(config, "matching_intensity_weight", 0.5))
+    gradient_weight = float(getattr(config, "matching_gradient_weight", 0.5))
+    if intensity_weight <= 0 and gradient_weight <= 0:
+        raise ValueError("At least one matching weight needs to be > 0.")
     score_maps = []
     weights = []
 
