@@ -67,7 +67,39 @@ def to_one_hot_2D(mask: torch.Tensor, num_anomaly_classes: int) -> torch.Tensor:
     return mask_oh.permute(0, 3, 1, 2).float()
 
 
-def random_global_stretch_transform(mask_np: np.ndarray, stretch_min=0.95, stretch_max=1.05, rng=None):
+def sample_uniform(min_value=None, max_value=None, *, rng=None, size=None, integer=False):
+    """Sample from a uniform range. With only max_value, use [-max_value, max_value]."""
+    if max_value is None:
+        if min_value is None:
+            raise ValueError("sample_uniform requires min_value or max_value.")
+        max_value = min_value
+        min_value = -max_value
+    elif min_value is None:
+        min_value = -max_value
+
+    rng = rng if rng is not None else np.random.default_rng()
+    if integer:
+        low = int(min_value)
+        high = int(max_value)
+        if low > high:
+            raise ValueError(f"sample_uniform integer range must be ordered, got ({low}, {high}).")
+        sample = rng.integers(low, high + 1, size=size)
+        if size is None:
+            return int(sample)
+        return sample
+
+    sample = rng.uniform(float(min_value), float(max_value), size=size)
+    if size is None:
+        return float(sample)
+    return sample
+
+
+def random_global_stretch_transform(
+    mask_np: np.ndarray,
+    min_stretch=0.95,
+    max_stretch=1.05,
+    rng=None,
+):
     """Apply nearest-neighbour scaling around the mask center while preserving shape."""
     original_dtype = mask_np.dtype
 
@@ -75,42 +107,154 @@ def random_global_stretch_transform(mask_np: np.ndarray, stretch_min=0.95, stret
         raise ValueError(f"Expected mask with shape (1, H, W) or (1, D, H, W), got {mask_np.shape}.")
 
     transformed_mask = mask_np[0].copy()
-    spatial_ndim = transformed_mask.ndim
-    rng = rng if rng is not None else np.random.default_rng()
-    scales = [rng.uniform(stretch_min, stretch_max) for _ in range(spatial_ndim)]
-
-    inv_scales = 1.0 / np.array(scales)
-    matrix = np.diag(inv_scales)
-
-    center = np.array(transformed_mask.shape) / 2.0
-    offset = center - np.dot(matrix, center)
-
-    transformed_mask = ndi.affine_transform(
+    scales = sample_uniform(min_stretch, max_stretch, rng=rng, size=transformed_mask.ndim)
+    transformed_mask = _stretch_spatial_mask(
         transformed_mask,
-        matrix=matrix,
-        offset=offset,
-        output_shape=transformed_mask.shape,
-        order=0,
-        mode="constant",
-        cval=0,
+        scales=scales,
     ).astype(original_dtype)
 
     return transformed_mask[None, ...]
-    
-
-def _sample_iterations(iterations, rng=None):
-    if isinstance(iterations, (tuple, list)):
-        if len(iterations) != 2:
-            raise ValueError(f"iterations range must contain exactly two values, got {iterations!r}.")
-        low, high = int(iterations[0]), int(iterations[1])
-        if low > high:
-            raise ValueError(f"iterations range must be ordered as (min, max), got {iterations!r}.")
-        rng = rng if rng is not None else np.random.default_rng()
-        return int(rng.integers(low, high + 1))
-    return int(iterations)
 
 
-def random_dilate_transform(mask_np: np.ndarray, classes=None, priorities=None, params=None, rng=None):
+def _stretch_spatial_mask(mask, scales):
+    inv_scales = 1.0 / np.array(scales)
+    matrix = np.diag(inv_scales)
+
+    center = np.array(mask.shape) / 2.0
+    offset = center - np.dot(matrix, center)
+
+    return ndi.affine_transform(
+        mask,
+        matrix=matrix,
+        offset=offset,
+        output_shape=mask.shape,
+        order=0,
+        mode=DEFAULT_PADDING_MODE,
+        cval=0,
+    )
+
+
+def _rotate_spatial_mask(mask, angle):
+    if mask.ndim < 2:
+        raise ValueError(f"Expected at least 2 spatial dimensions, got {mask.ndim}.")
+
+    return ndi.rotate(
+        mask,
+        angle=angle,
+        axes=(-2, -1),
+        reshape=False,
+        order=0,
+        mode=DEFAULT_PADDING_MODE,
+        cval=0,
+        prefilter=False,
+    )
+
+
+def random_global_rotation_transform(
+    mask_np: np.ndarray,
+    max_rotation=5.0,
+    rng=None,
+):
+    """Apply a small nearest-neighbour rotation to the whole label mask."""
+    original_dtype = mask_np.dtype
+
+    if mask_np.ndim not in (3, 4) or mask_np.shape[0] != 1:
+        raise ValueError(f"Expected mask with shape (1, H, W) or (1, D, H, W), got {mask_np.shape}.")
+
+    angle = sample_uniform(max_value=max_rotation, rng=rng)
+    transformed_mask = _rotate_spatial_mask(
+        mask_np[0].copy(),
+        angle=angle,
+    ).astype(original_dtype)
+
+    return transformed_mask[None, ...]
+
+
+def random_local_stretch_transform(mask_np: np.ndarray, classes=None, priorities=None, params=None, rng=None):
+    """Stretch selected classes in a 2D or 3D channel-first label mask."""
+    original_dtype = mask_np.dtype
+
+    if mask_np.ndim not in (3, 4) or mask_np.shape[0] != 1:
+        raise ValueError(f"Expected mask with shape (1, H, W) or (1, D, H, W), got {mask_np.shape}.")
+
+    params = {} if params is None else params
+    transformed_mask = mask_np[0].copy()
+    spatial_ndim = transformed_mask.ndim
+
+    if classes is None:
+        classes = [cls for cls in np.unique(transformed_mask) if cls != 0]
+    if priorities is None:
+        priorities = classes
+
+    scales = sample_uniform(
+        params.get("min_stretch", 0.95),
+        params.get("max_stretch", 1.05),
+        rng=rng,
+        size=spatial_ndim,
+    )
+    class_masks = {}
+
+    for cls in classes:
+        binary_mask = transformed_mask == cls
+        if np.any(binary_mask):
+            binary_mask = _stretch_spatial_mask(
+                binary_mask,
+                scales=scales,
+            ).astype(bool)
+        class_masks[cls] = binary_mask
+
+    final_mask = transformed_mask.copy()
+    for cls in classes:
+        final_mask[final_mask == cls] = 0
+    for cls in reversed(priorities):
+        if cls in class_masks:
+            final_mask[class_masks[cls]] = cls
+
+    final_mask = final_mask.astype(original_dtype)
+
+    return final_mask[None, ...]
+
+
+def random_local_rotation_transform(mask_np: np.ndarray, classes=None, priorities=None, params=None, rng=None):
+    """Rotate selected classes in a 2D or 3D channel-first label mask."""
+    original_dtype = mask_np.dtype
+
+    if mask_np.ndim not in (3, 4) or mask_np.shape[0] != 1:
+        raise ValueError(f"Expected mask with shape (1, H, W) or (1, D, H, W), got {mask_np.shape}.")
+
+    params = {} if params is None else params
+    transformed_mask = mask_np[0].copy()
+
+    if classes is None:
+        classes = [cls for cls in np.unique(transformed_mask) if cls != 0]
+    if priorities is None:
+        priorities = classes
+
+    angle = sample_uniform(max_value=params.get("max_rotation", 5.0), rng=rng)
+    class_masks = {}
+
+    for cls in classes:
+        binary_mask = transformed_mask == cls
+        if np.any(binary_mask):
+            binary_mask = _rotate_spatial_mask(
+                binary_mask,
+                angle=angle,
+            ).astype(bool)
+        class_masks[cls] = binary_mask
+
+    final_mask = transformed_mask.copy()
+    for cls in classes:
+        final_mask[final_mask == cls] = 0
+    for cls in reversed(priorities):
+        if cls in class_masks:
+            final_mask[class_masks[cls]] = cls
+
+    final_mask = final_mask.astype(original_dtype)
+
+    return final_mask[None, ...]
+
+
+def random_local_dilate_transform(mask_np: np.ndarray, classes=None, priorities=None, params=None, rng=None):
     """Dilate selected classes in a 2D or 3D channel-first label mask."""
     original_dtype = mask_np.dtype
 
@@ -126,7 +270,12 @@ def random_dilate_transform(mask_np: np.ndarray, classes=None, priorities=None, 
         priorities = classes
 
     class_masks = {}
-    iterations = _sample_iterations(params.get("iterations", 1), rng=rng)
+    iterations = sample_uniform(
+        params.get("min_iterations", 0),
+        params.get("max_iterations", 2),
+        rng=rng,
+        integer=True,
+    )
 
     for cls in classes:
         binary_mask = transformed_mask == cls
@@ -161,7 +310,6 @@ def random_elastic_transform(
     sigma=40,
     magnitude=40,
     rng=None,
-    padding_mode="constant",
 ):
     """Apply a smooth random displacement field to a 2D or 3D channel-first label mask."""
     original_dtype = mask_np.dtype
@@ -196,7 +344,7 @@ def random_elastic_transform(
         transformed_mask,
         displaced_coordinates,
         order=0,
-        mode=padding_mode,
+        mode=DEFAULT_PADDING_MODE,
         cval=0, # bg value for constant padding
         prefilter=False,
     ).astype(original_dtype)
@@ -204,24 +352,39 @@ def random_elastic_transform(
     return transformed_mask[None, ...]
 
 
+DEFAULT_PADDING_MODE = "constant"
+
 DEFAULT_TRANSFORM_PROBS = {
     "stretch": 1,
+    "rotate": 0,
     "elastic": 1,
-    "dilate": 0.5,
+    "local_dilate": 0.5,
+    "local_stretch": 0,
+    "local_rotate": 0,
 }
 
 DEFAULT_TRANSFORM_PARAMS = {
+    "stretch": {
+        "min_stretch": 0.95,
+        "max_stretch": 1.05,
+    },
+    "rotate": {
+        "max_rotation": 5.0,
+    },
     "elastic": {
         "sigma": 40,
         "magnitude": 40,
-        "padding_mode": "constant",
     },
-    "dilate": {
-        "iterations": (1, 2),
+    "local_dilate": {
+        "min_iterations": 0,
+        "max_iterations": 2,
     },
-    "stretch": {
-        "stretch_min": 0.95,
-        "stretch_max": 1.05,
+    "local_stretch": {
+        "min_stretch": 0.95,
+        "max_stretch": 1.05,
+    },
+    "local_rotate": {
+        "max_rotation": 5.0,
     },
 }
 
@@ -265,9 +428,12 @@ class TransformGenerator:
     GLOBAL_TRANSFORMS = {
         "elastic": random_elastic_transform,
         "stretch": random_global_stretch_transform,
+        "rotate": random_global_rotation_transform,
     }
     LOCAL_TRANSFORMS = {
-        "dilate": random_dilate_transform,
+        "local_dilate": random_local_dilate_transform,
+        "local_stretch": random_local_stretch_transform,
+        "local_rotate": random_local_rotation_transform,
     }
 
     def __init__(
