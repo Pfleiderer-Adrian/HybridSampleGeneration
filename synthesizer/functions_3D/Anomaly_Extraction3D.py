@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.ndimage import zoom, label, find_objects, center_of_mass
+from scipy.ndimage import zoom, label, find_objects, center_of_mass, binary_dilation
 
 
 def _as_axis_tuple(value, ndim, name):
@@ -116,6 +116,64 @@ def _normalize_anomaly(arr, normalization, eps):
         return (arr - median) / mad, {"norm_type": "zscore_median", "norm_median": median, "norm_mad": mad}
 
     raise ValueError(f"Unknown normalization: {normalization!r}")
+
+
+def _robust_region_stats(values, eps=1e-8):
+    values = np.asarray(values, dtype=np.float32)
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return None
+
+    q25, q50, q75 = np.percentile(values, [25.0, 50.0, 75.0])
+    iqr = max(float(q75 - q25), float(eps))
+    return {
+        "median": float(q50),
+        "q25": float(q25),
+        "q75": float(q75),
+        "iqr": iqr,
+    }
+
+
+def _anomaly_context_intensity_meta(roi, roi_mask, border_width, eps=1e-8):
+    spatial_mask = np.any(roi_mask > 0, axis=0)
+    if not np.any(spatial_mask):
+        return {}
+
+    kernel_size = max(int(border_width), 1) * 2 + 1
+    structure = np.ones((kernel_size, kernel_size, kernel_size), dtype=bool)
+    dilated_mask = binary_dilation(spatial_mask, structure=structure)
+    context_mask = dilated_mask & ~spatial_mask
+    if not np.any(context_mask):
+        context_mask = ~spatial_mask
+    if not np.any(context_mask):
+        return {}
+
+    channels = []
+    for channel in range(roi.shape[0]):
+        anomaly_stats = _robust_region_stats(roi[channel][spatial_mask], eps=eps)
+        context_stats = _robust_region_stats(roi[channel][context_mask], eps=eps)
+        if anomaly_stats is None or context_stats is None:
+            channels.append(None)
+            continue
+
+        context_median = context_stats["median"]
+        ratio = None
+        if abs(context_median) > eps:
+            ratio = float(anomaly_stats["median"] / context_median)
+
+        channels.append({
+            "anomaly": anomaly_stats,
+            "context": context_stats,
+            "median_delta": float(anomaly_stats["median"] - context_median),
+            "median_ratio": ratio,
+            "iqr_ratio": float(anomaly_stats["iqr"] / max(context_stats["iqr"], eps)),
+        })
+
+    return {
+        "intensity_relation_version": 1,
+        "intensity_relation_border_width": int(border_width),
+        "intensity_relation_channels": channels,
+    }
 
 
 def crop_cube_clip(arr, centroid, size, centroid_is_normalized=None):
@@ -424,8 +482,20 @@ def crop_and_center_anomaly_3d(
         else:
             size_spatial = config.fixed_roi_size
 
-        anomalies_roi.append(crop_cube_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False))
-        roi_masks.append(crop_cube_clip(seg, centroid_voxel, size_spatial, centroid_is_normalized=False))
+        roi_sample = crop_cube_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False)
+        roi_mask = crop_cube_clip(seg, centroid_voxel, size_spatial, centroid_is_normalized=False)
+        relation_border_width = getattr(config, "fusion_normalization_border_width", 2)
+        restore_bg_relation = bool(getattr(config, "fusion_restore_anomaly_bg_relation", True))
+        if restore_bg_relation and relation_border_width is not None:
+            meta_data.update(_anomaly_context_intensity_meta(
+                roi_sample,
+                roi_mask,
+                relation_border_width,
+                eps=float(normalization_eps),
+            ))
+
+        anomalies_roi.append(roi_sample)
+        roi_masks.append(roi_mask)
 
         anomalies.append((padded_arr, meta_data))
 

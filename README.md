@@ -197,7 +197,9 @@ Each iteration must yield:
   - background_threshold:
       Defines which anomaly pixels are treated as foreground during cropping and alpha-mask creation. If None, the fusion code derives a threshold from the anomaly minimum.
   - fusion_normalization_border_width:
-      Width of the border around the insertion region used to estimate local control intensity for anomaly normalization.
+      Background region used to estimate control intensity for anomaly normalization. None disables fusion-time intensity normalization; -1 uses the entire image; >= 0 uses a local border around the anomaly mask.
+  - fusion_restore_anomaly_bg_relation:
+      If enabled, local border normalization preserves the extracted intensity relation between an anomaly and its original surrounding background. Disable it to use only direct intensity normalization.
 
 ---
 

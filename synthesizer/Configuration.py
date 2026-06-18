@@ -166,6 +166,10 @@ class Configuration:
         # -1 -- uses the entire image.
         self.fusion_normalization_border_width = 2
 
+        # If True, local fusion normalization preserves the extracted intensity relation
+        # between anomaly and its original surrounding background.
+        self.fusion_restore_anomaly_bg_relation = True
+
         # global training parameter, fixed during training
         self.val_ratio = 0.2
         self.batch_size = 64
