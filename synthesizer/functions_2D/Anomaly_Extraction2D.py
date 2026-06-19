@@ -2,6 +2,29 @@ import numpy as np
 from scipy.ndimage import zoom, label, find_objects
 
 
+def _as_axis_tuple(value, ndim, name):
+    if np.isscalar(value):
+        return (value,) * ndim
+
+    values = tuple(value)
+    if len(values) < ndim:
+        raise ValueError(f"{name} must have at least len {ndim}. Got {value!r}")
+    return values[:ndim]
+
+
+def dynamic_roi_size(spatial_shape, min_pad, pad_ratio, min_roi_size):
+    spatial_shape = tuple(int(size) for size in spatial_shape)
+    min_pad = _as_axis_tuple(min_pad, len(spatial_shape), "min_pad")
+    pad_ratio = _as_axis_tuple(pad_ratio, len(spatial_shape), "pad_ratio")
+    min_roi_size = _as_axis_tuple(min_roi_size, len(spatial_shape), "min_roi_size")
+
+    return [
+        max(int(size + max(axis_min_pad, size * axis_pad_ratio)), int(axis_min_roi))
+        for size, axis_min_pad, axis_pad_ratio, axis_min_roi
+        in zip(spatial_shape, min_pad, pad_ratio, min_roi_size)
+    ]
+
+
 def resize_and_pad_2d(arr, target_size, order=1):
     """
     Resize (downscale only) and center-pad a 3D tensor (C, H, W) to a target spatial size.
@@ -370,7 +393,7 @@ def crop_and_center_anomaly_2d(
         meta_data.update(norm_meta)
 
         if config.fixed_roi_size is None:
-            size_spatial = [int(s + max(mp, s * pr)) for s, mp, pr in zip(result.shape[-2:], config.min_pad, config.pad_ratio)]
+            size_spatial = dynamic_roi_size(result.shape[-2:], config.min_pad, config.pad_ratio, config.min_roi_size)
         else:
             size_spatial = config.fixed_roi_size
         

@@ -17,7 +17,16 @@ def _to_spatial(arr: np.ndarray) -> np.ndarray:
     return np.max(arr, axis=0)
 
 
-def template_matching(template, control):
+def _gradient_magnitude(arr: np.ndarray) -> np.ndarray:
+    arr = np.asarray(arr, dtype=np.float32)
+    gradients = np.gradient(arr)
+    magnitude = np.zeros_like(arr, dtype=np.float32)
+    for grad in gradients:
+        magnitude += grad.astype(np.float32) ** 2
+    return np.sqrt(magnitude)
+
+
+def template_matching(template, control, config=None):
 
     template = _to_spatial(template)
     control = _to_spatial(control)
@@ -25,11 +34,36 @@ def template_matching(template, control):
     # Check if template fits in control sample
     if any(t_dim > c_dim for t_dim, c_dim in zip(template.shape, control.shape)):
         return -2, None
-    
-    # Compute correlation map (same dimensionality as control minus template extents)
-    result = match_template(control, template)
 
-    # Best similarity score is max of correlation map
+    intensity_weight = float(getattr(config, "matching_intensity_weight", 0.5))
+    gradient_weight = float(getattr(config, "matching_gradient_weight", 0.5))
+    if intensity_weight <= 0 and gradient_weight <= 0:
+        raise ValueError("At least one matching weight needs to be > 0.")
+    score_maps = []
+    weights = []
+
+    if intensity_weight > 0:
+        intensity_result = match_template(control, template)
+        score_maps.append(intensity_result)
+        weights.append(intensity_weight)
+
+    if gradient_weight > 0:
+        template_gradient = _gradient_magnitude(template)
+        control_gradient = _gradient_magnitude(control)
+        if np.std(template) > 1e-8 and np.std(control) > 1e-8:  # gradients are not constant
+            gradient_result = match_template(control_gradient, template_gradient)
+            score_maps.append(gradient_result)
+            weights.append(gradient_weight)
+
+    if not score_maps:
+        return -2, None
+
+    weight_sum = float(np.sum(weights))
+    result = np.zeros_like(score_maps[0], dtype=np.float32)
+    for score_map, weight in zip(score_maps, weights):
+        result += (weight / weight_sum) * score_map
+
+    # Best similarity score is max of combined correlation map
     similarity_score = float(np.max(result))
 
     # Index of best match corresponds to the template's top-left-front corner position
@@ -379,7 +413,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 for roi_filename, roi in list(skipped_rois.items()):
                     current_roi_shape = roi.shape[1:]   # without channel
                     sim = -np.inf
-                    sim, opt_center = template_matching(roi, control)
+                    sim, opt_center = template_matching(roi, control, config)
 
                     if sim >= -1 and check_roi_overlap(opt_center, current_roi_shape, used_positions):
                         sim = -np.inf
@@ -415,7 +449,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
 
                 if roi_filename is not None:
                     current_roi_shape = roi.shape[1:]
-                    sim, opt_center = template_matching(roi, control)
+                    sim, opt_center = template_matching(roi, control, config)
                     
                     if sim >= -1 and check_roi_overlap(opt_center, current_roi_shape, used_positions):
                         sim = -np.inf
@@ -435,7 +469,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                         i += 1
                         
                         current_roi_shape = roi.shape[1:]
-                        sim, opt_center = template_matching(roi, control)
+                        sim, opt_center = template_matching(roi, control, config)
 
                         if sim >= -1 and check_roi_overlap(opt_center, current_roi_shape, used_positions):
                             sim = -np.inf
@@ -496,7 +530,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 if any(roi_filename == excluded_name for _, excluded_name in excluded_roi_samples):
                     continue
 
-                sim, opt_center = template_matching(roi, control)
+                sim, opt_center = template_matching(roi, control, config)
 
                 if sim >= -1:
                     all_matches.append((sim, roi, roi_filename, opt_center, current_roi_shape))
@@ -520,7 +554,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 duplicate_matches = []
                 for roi, roi_filename in excluded_roi_samples:
                     current_roi_shape = roi.shape[1:]
-                    sim, opt_center = template_matching(roi, control)
+                    sim, opt_center = template_matching(roi, control, config)
                     if sim >= -1:
                         duplicate_matches.append((sim, roi, roi_filename, opt_center, current_roi_shape))
 

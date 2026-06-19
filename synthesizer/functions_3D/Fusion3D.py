@@ -5,7 +5,7 @@ from tqdm import tqdm
 from skimage.feature import match_template
 from scipy.ndimage import binary_dilation
 
-from synthesizer.functions_3D.Anomaly_Extraction3D import crop_cube_clip
+from synthesizer.functions_3D.Anomaly_Extraction3D import crop_cube_clip, dynamic_roi_size
 
 
 def _inverse_extraction_scale(scale_factor, ndim):
@@ -250,18 +250,25 @@ def fusion3d(
     anom = anom.copy()
     binary_mask = valid_mask > 0
 
-    if np.any(binary_mask):
-        dilation_kernel_size = config.fusion_normalization_border_width * 2 + 1
-        dilation_structure = np.ones((dilation_kernel_size, dilation_kernel_size, dilation_kernel_size), dtype=bool)
-        dilated_mask = binary_dilation(binary_mask, structure=dilation_structure)
+    normalization_border_width = config.fusion_normalization_border_width
+    if normalization_border_width is not None and np.any(binary_mask):
+        border_width = int(normalization_border_width)
+        if border_width == -1:
+            normalization_mask = None
+        elif border_width >= 0:
+            dilation_kernel_size = border_width * 2 + 1
+            dilation_structure = np.ones((dilation_kernel_size, dilation_kernel_size, dilation_kernel_size), dtype=bool)
+            normalization_mask = binary_dilation(binary_mask, structure=dilation_structure)
+        else:
+            raise ValueError("fusion_normalization_border_width must be None, -1, or >= 0.")
 
-        if np.any(dilated_mask):
+        if border_width == -1 or np.any(normalization_mask):
             for c in range(C):
                 vp = anom[c][binary_mask]
                 if vp.size == 0:
                     continue
 
-                bg_local = bg_slice[c][dilated_mask]
+                bg_local = ctrl[c].ravel() if border_width == -1 else bg_slice[c][normalization_mask]
                 if bg_local.size == 0:
                     continue
 
@@ -334,7 +341,7 @@ def fusion3d(
     centroid_voxel = (cd, ch, cw)
 
     if config.fixed_roi_size is None:
-        size_spatial = [int(s + max(mp, s * pr)) for s, mp, pr in zip((dd, hh, ww), config.min_pad, config.pad_ratio)]
+        size_spatial = dynamic_roi_size((dd, hh, ww), config.min_pad, config.pad_ratio, config.min_roi_size)
     else:
         size_spatial = config.fixed_roi_size
         
