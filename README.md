@@ -101,6 +101,13 @@ Each iteration must yield:
 
 ---
 
+### Extraction metadata
+  During anomaly extraction, each saved anomaly receives transformation metadata in `anomaly_transformations.json`.
+  This includes label, scale_factor, centroid, original shape and optional normalization metadata (`norm_type`, `norm_mean`/`norm_std` or `norm_median`/`norm_mad`) used to denormalize generated anomalies before fusion.
+  When `fusion_restore_anomaly_bg_relation` is enabled, extraction also stores per-channel anomaly/context intensity relation metadata (`median_delta`, `median_ratio` and `iqr_ratio`) for later fusion-time local normalization to restore the intensity relation.
+
+---
+
 ### Matching logic
   Pair control samples and synthetic anomalies for fusion and save the results in matching_dict.csv: control, [(anomaly, fusion_position), ...]
 
@@ -177,7 +184,7 @@ Each iteration must yield:
 
 ### Fusion logic
   Fusion inserts the matched synthetic anomaly into the target control sample at the position stored in matching_dict.csv and creates the corresponding segmentation mask.
-  Before blending, the anomaly is cropped to its foreground area, rescaled with the saved scale_factor and locally intensity-normalized to the insertion region of the control sample.
+  Before blending, the anomaly is cropped to the foreground defined by its target_mask, rescaled with the saved scale_factor and locally intensity-normalized to the insertion region of the control sample.
   The actual fusion uses an edge-aware alpha mask based on Sobel edges, morphology and a distance transform, so the anomaly interior can be blended more strongly than its boundary.
 
   Fusion parameters in config:
@@ -195,11 +202,11 @@ Each iteration must yield:
   - selected_confidence / confidence_z_score:
       Converts the variation values into standard deviations; for example, selected_confidence = "90%" means samples stay within the configured one-sided deviation in about 90% of cases.
   - background_threshold:
-      Defines which anomaly pixels are treated as foreground during cropping and alpha-mask creation. If None, the fusion code derives a threshold from the anomaly minimum.
+      Relative foreground threshold used when creating target masks and evaluation foreground masks. Fusion itself uses the generated or loaded target_mask to define the anomaly foreground for cropping, normalization and alpha-mask creation.
   - fusion_normalization_border_width:
       Background region used to estimate control intensity for anomaly normalization. None disables fusion-time intensity normalization; -1 uses the entire image; >= 0 uses a local border around the anomaly mask.
   - fusion_restore_anomaly_bg_relation:
-      If enabled, local border normalization preserves the extracted intensity relation between an anomaly and its original surrounding background. Disable it to use only direct intensity normalization.
+      If enabled, local border normalization preserves the extracted median/IQR intensity relation between an anomaly and its original surrounding background. Disable it to use only direct intensity normalization.
 
 ---
 

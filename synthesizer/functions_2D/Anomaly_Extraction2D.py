@@ -166,7 +166,6 @@ def _anomaly_context_intensity_meta(roi, roi_mask, border_width, eps=1e-8):
         })
 
     return {
-        "intensity_relation_version": 1,
         "intensity_relation_border_width": int(border_width),
         "intensity_relation_channels": channels,
     }
