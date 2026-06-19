@@ -1,7 +1,7 @@
 from dataclasses import asdict
 
-from models.model_configuration import ModelConfiguration
-from models.VAEs.VAE_ConvNeXt import VAE_ConvNeXt_2D, VAE_ConvNeXt_3D
+from generation_models.model_configuration import ModelConfiguration
+from generation_models.VAEs.VAE_ConvNeXt import VAE_ConvNeXt_2D, VAE_ConvNeXt_3D
 
 
 DEFAULT_VAE_INPUT_ARTEFACTS = ("img", "fname")

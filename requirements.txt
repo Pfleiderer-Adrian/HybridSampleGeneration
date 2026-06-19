@@ -1,8 +1,14 @@
 early-stopping-pytorch==1.0.10
+accelerate>=1.1.0
+diffusers>=0.35.1
+huggingface-hub>=0.25.0
 jsonpickle==4.1.1
 matplotlib==3.10.8
 nibabel==5.3.3
 optuna==4.6.0
 pandas==2.3.3
+peft>=0.14.0
 pip==25.1.1
 scikit-image==0.26.0
+safetensors>=0.4.5
+transformers>=4.46.0

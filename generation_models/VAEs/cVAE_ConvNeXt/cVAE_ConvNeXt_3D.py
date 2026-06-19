@@ -20,7 +20,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from models.VAEs.vae_base import HybridVAEBase
+from generation_models.VAEs.vae_base import HybridVAEBase
 from synthesizer.mask_manipulation import TransformGenerator, to_one_hot_3D
 
 
@@ -423,6 +423,7 @@ class Config:
     beta_kl_max: float = 4.0
     beta_kl_warmup_start: float = 0
     beta_kl_warmup_epochs: int = 100
+    free_bits: float = 0.0
     recon_loss: str = "smoothl1"  # 'smoothl1' or 'mse'
     recon_smoothl1_beta: float = 1.0
     use_transpose_conv: bool = True
@@ -469,8 +470,8 @@ class ConvNeXtcVAE3D(HybridVAEBase):
             num_anomaly_classes=cfg.num_anomaly_classes,
             use_multires_skips=cfg.use_multires_skips,
             use_transpose_conv=cfg.use_transpose_conv,
-            skip_dropout_p=getattr(cfg, 'skip_dropout_p', 0.0),
-            skip_alpha=getattr(cfg, 'skip_alpha', 1.0),
+            skip_dropout_p=cfg.skip_dropout_p,
+            skip_alpha=cfg.skip_alpha,
         )
 
         # Lazy FC layers (depend on latent spatial size)
@@ -571,6 +572,10 @@ class ConvNeXtcVAE3D(HybridVAEBase):
             return torch.as_tensor(batch[0]), torch.as_tensor(batch[1]), None
 
         raise TypeError(f"Unknown batch type: {type(batch)}")
+
+    def _forward_args_from_batch(self, batch) -> tuple:
+        x, ori_mask, _ = self._extract_inputs(batch)
+        return x, ori_mask, ori_mask
 
     def _generate_posterior(
         self,
@@ -849,7 +854,7 @@ class ConvNeXtcVAE3D(HybridVAEBase):
             model._ensure_fcs(latent_dhw, device)
 
             B = tgt_mask_oh.shape[0]
-            z_dim = int(getattr(self.cfg, "bottleneck_dim", 256))
+            z_dim = int(self.cfg.bottleneck_dim)
 
             # Prior sampling: z ~ N(0, I)
             if variation_strength == 0.0:

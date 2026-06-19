@@ -25,7 +25,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from models.VAEs.vae_base import HybridVAEBase
+from generation_models.VAEs.vae_base import HybridVAEBase
 from synthesizer.mask_manipulation import TransformGenerator, to_one_hot_2D
 
 
@@ -455,8 +455,8 @@ class ConvNeXtcVAE2D(HybridVAEBase):
             use_multires_skips=cfg.use_multires_skips,
             drop_path_rate=cfg.drop_path_rate,
             dropout=cfg.dropout,
-            skip_dropout_p=getattr(cfg, 'skip_dropout_p', 0.0),
-            skip_alpha=getattr(cfg, 'skip_alpha', 1.0),
+            skip_dropout_p=cfg.skip_dropout_p,
+            skip_alpha=cfg.skip_alpha,
         )
 
         self.decoder = ConvNeXtSPADEUNetDecoder2D(
@@ -470,8 +470,8 @@ class ConvNeXtcVAE2D(HybridVAEBase):
             use_transpose_conv=cfg.use_transpose_conv,
             drop_path_rate=cfg.drop_path_rate,
             dropout=cfg.dropout,
-            skip_dropout_p=getattr(cfg, 'skip_dropout_p', 0.0),
-            skip_alpha=getattr(cfg, 'skip_alpha', 1.0),
+            skip_dropout_p=cfg.skip_dropout_p,
+            skip_alpha=cfg.skip_alpha,
         )
 
         self.fc_mu: Optional[nn.Linear] = None
@@ -566,6 +566,10 @@ class ConvNeXtcVAE2D(HybridVAEBase):
 
         raise TypeError(f"Unknown batch type: {type(batch)}")
 
+    def _forward_args_from_batch(self, batch) -> tuple:
+        x, ori_mask, _ = self._extract_inputs(batch)
+        return x, ori_mask, ori_mask
+
     def _generate_posterior(
         self,
         sample: Union[dict, np.ndarray, torch.Tensor],
@@ -657,7 +661,7 @@ class ConvNeXtcVAE2D(HybridVAEBase):
 
             h_dec = model.fc_decode(z).reshape(B * n, self.cfg.z_channels, *latent_hw)
 
-            alpha_skips = float(getattr(self.cfg, 'skip_alpha', 0.2))
+            alpha_skips = float(self.cfg.skip_alpha)
             if alpha_skips <= 0:
                 model.decoder.set_skips(None)
             else:
@@ -782,7 +786,7 @@ class ConvNeXtcVAE2D(HybridVAEBase):
             model._ensure_fcs(latent_hw, device)
 
             B = tgt_mask_oh.shape[0]
-            z_dim = int(getattr(self.cfg, "bottleneck_dim", 256))
+            z_dim = int(self.cfg.bottleneck_dim)
 
             if variation_strength == 0.0:
                 z = torch.zeros((B, z_dim), device=device)

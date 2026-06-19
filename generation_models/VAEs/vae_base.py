@@ -6,18 +6,18 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from models.interfaces import StepOutput
+from generation_models.interfaces import StepOutput
 from synthesizer.mask_manipulation import TransformGenerator
 
 
 class HybridVAEBase(nn.Module, ABC):
     """
-    Shared implementation for VAE-style hybrid generator models.
+    Shared implementation for VAE-style hybrid generation models.
 
-    The generic architecture contracts live in models.interfaces. This class is
+    The generic architecture contracts live in generation_models.interfaces. This class is
     intentionally VAE-specific: it provides padding/cropping utilities, VAE
     reparameterization, reconstruction+KL loss, training steps, checkpointing,
-    and generate(mode=...) dispatch for the existing VAE/cVAE models.
+    and generate(mode=...) dispatch for the existing VAE/cVAE generation models.
     """
 
     cfg: Any
@@ -93,14 +93,11 @@ class HybridVAEBase(nn.Module, ABC):
 
     def on_epoch_start(self, epoch: int, config=None) -> None:
         """Update optional VAE KL schedule at the start of each epoch."""
-        cfg = getattr(self, "cfg", None)
-        if cfg is None or not hasattr(cfg, "beta_kl"):
-            return
-
-        warmup_start = getattr(cfg, "beta_kl_warmup_start", 0)
-        warmup_epochs = getattr(cfg, "beta_kl_warmup_epochs", 0)
-        beta_start = getattr(cfg, "beta_kl_start", 0.0)
-        beta_max = getattr(cfg, "beta_kl_max", getattr(cfg, "beta_kl", 1.0))
+        cfg = self.cfg
+        warmup_start = cfg.beta_kl_warmup_start
+        warmup_epochs = cfg.beta_kl_warmup_epochs
+        beta_start = cfg.beta_kl_start
+        beta_max = cfg.beta_kl_max
 
         if warmup_start >= epoch:
             cfg.beta_kl = 0.0
@@ -133,19 +130,21 @@ class HybridVAEBase(nn.Module, ABC):
         return StepOutput(loss=losses["total"], metrics=losses)
 
     def _forward_from_batch(self, batch):
-        if hasattr(self, "_extract_inputs"):
-            x, ori_mask, _ = self._extract_inputs(batch)
-            return self(x, ori_mask, ori_mask)
+        return self(*self._forward_args_from_batch(batch))
 
-        if hasattr(self, "_extract_x"):
-            x = self._extract_x(batch)
-            return self(x)
-
-        if isinstance(batch, dict) and "img" in batch:
-            return self(batch["img"])
+    def _forward_args_from_batch(self, batch) -> tuple:
+        if isinstance(batch, dict):
+            for key in ("img", "x", "image", "inputs"):
+                if key in batch:
+                    value = batch[key]
+                    if isinstance(value, torch.Tensor):
+                        return (value,)
+                    return (torch.as_tensor(value),)
         if isinstance(batch, (tuple, list)) and batch:
-            return self(batch[0])
-        return self(batch)
+            return (batch[0],)
+        if isinstance(batch, np.ndarray):
+            return (torch.as_tensor(batch),)
+        return (batch,)
 
     def save_checkpoint(self, path: str, **_state) -> None:
         torch.save(self.state_dict(), path)
@@ -172,9 +171,9 @@ class HybridVAEBase(nn.Module, ABC):
         x = out["x_ref"]
         mu, logvar = out["mu"], out["logvar"]
 
-        loss_name = str(getattr(self.cfg, "recon_loss", "smoothl1")).lower()
+        loss_name = str(self.cfg.recon_loss).lower()
         if loss_name in ("smoothl1", "smooth_l1", "huber"):
-            beta = float(getattr(self.cfg, "recon_smoothl1_beta", 1.0))
+            beta = float(self.cfg.recon_smoothl1_beta)
             try:
                 recon_per_element = F.smooth_l1_loss(recon, x, reduction="none", beta=beta)
             except TypeError:
@@ -183,12 +182,12 @@ class HybridVAEBase(nn.Module, ABC):
             recon_per_element = (recon - x) ** 2
         else:
             raise ValueError(
-                f"Unknown cfg.recon_loss={getattr(self.cfg, 'recon_loss', None)!r}. "
+                f"Unknown cfg.recon_loss={self.cfg.recon_loss!r}. "
                 "Supported: 'smoothl1' | 'mse'"
             )
 
-        fg_weight = float(getattr(self.cfg, "fg_weight", 1.0))
-        fg_threshold = float(getattr(self.cfg, "fg_threshold", 0.0))
+        fg_weight = float(self.cfg.fg_weight)
+        fg_threshold = float(self.cfg.fg_threshold)
         if fg_weight != 1.0:
             fg_mask = (x > fg_threshold).float()
             weights = torch.where(fg_mask > 0, fg_weight, 1.0)
@@ -199,7 +198,7 @@ class HybridVAEBase(nn.Module, ABC):
         kl_per_dim = 0.5 * (mu.pow(2) + logvar.exp() - 1.0 - logvar)
         kl_raw = kl_per_dim.sum(dim=1).mean()
 
-        free_bits = float(getattr(self.cfg, "free_bits", 0.0) or 0.0)
+        free_bits = float(self.cfg.free_bits or 0.0)
         if free_bits > 0.0:
             kl_used = kl_per_dim.clamp(min=free_bits).sum(dim=1).mean()
         else:

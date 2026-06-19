@@ -1,7 +1,7 @@
 from dataclasses import asdict
 
-from models.model_configuration import ModelConfiguration
-from models.VAEs.cVAE_ConvNeXt import cVAE_ConvNeXt_2D, cVAE_ConvNeXt_3D
+from generation_models.model_configuration import ModelConfiguration
+from generation_models.VAEs.cVAE_ConvNeXt import cVAE_ConvNeXt_2D, cVAE_ConvNeXt_3D
 
 
 CONDITIONAL_VAE_INPUT_ARTEFACTS = ("img", "fname", "ori_mask")

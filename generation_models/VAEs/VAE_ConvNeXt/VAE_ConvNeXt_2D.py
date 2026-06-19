@@ -26,7 +26,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from models.VAEs.vae_base import HybridVAEBase
+from generation_models.VAEs.vae_base import HybridVAEBase
 from synthesizer.mask_manipulation import TransformGenerator
 
 
@@ -404,8 +404,8 @@ class ConvNeXtVAE2D(HybridVAEBase):
             use_multires_skips=cfg.use_multires_skips,
             drop_path_rate=cfg.drop_path_rate,
             dropout=cfg.dropout,
-            skip_dropout_p=getattr(cfg, 'skip_dropout_p', 0.0),
-            skip_alpha=getattr(cfg, 'skip_alpha', 1.0),
+            skip_dropout_p=cfg.skip_dropout_p,
+            skip_alpha=cfg.skip_alpha,
         )
 
         self.decoder = ConvNeXtUNetDecoder2D(
@@ -417,8 +417,8 @@ class ConvNeXtVAE2D(HybridVAEBase):
             use_transpose_conv=cfg.use_transpose_conv,
             drop_path_rate=cfg.drop_path_rate,
             dropout=cfg.dropout,
-            skip_dropout_p=getattr(cfg, 'skip_dropout_p', 0.0),
-            skip_alpha=getattr(cfg, 'skip_alpha', 1.0),
+            skip_dropout_p=cfg.skip_dropout_p,
+            skip_alpha=cfg.skip_alpha,
         )
 
         # Lazy FC layers (depend on latent spatial size)
@@ -583,7 +583,7 @@ class ConvNeXtVAE2D(HybridVAEBase):
             h_dec = model.fc_decode(z).reshape(B * n, self.cfg.z_channels, *latent_hw)
 
 
-            alpha_skips = float(getattr(self.cfg, 'skip_alpha', 0.2))  # 0.0=starke Variation, 0.2=leicht, 1.0=Rekonstruktion
+            alpha_skips = float(self.cfg.skip_alpha)  # 0.0=starke Variation, 0.2=leicht, 1.0=Rekonstruktion
 
             if alpha_skips <= 0:
                 model.decoder.set_skips(None)
@@ -712,7 +712,7 @@ class ConvNeXtVAE2D(HybridVAEBase):
         latent_hw = (H_pad // down, W_pad // down)
 
         # Determine latent vector dim for fc_decode (matches your fc_mu/fc_logvar output)
-        z_dim = int(getattr(self.cfg, "bottleneck_dim", 256))
+        z_dim = int(self.cfg.bottleneck_dim)
 
         with torch.no_grad():
             model._ensure_fcs(latent_hw, device)

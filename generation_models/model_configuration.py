@@ -30,12 +30,6 @@ class ModelConfiguration:
     @classmethod
     def from_value(cls, value):
         if isinstance(value, cls):
-            if not hasattr(value, "input_artefacts"):
-                value.input_artefacts = DEFAULT_INPUT_ARTEFACTS
-            if not hasattr(value, "immutable_params"):
-                value.immutable_params = set(IMMUTABLE_MODEL_PARAMS)
-            else:
-                value.immutable_params = set(value.immutable_params)
             return value
         if isinstance(value, Mapping):
             try:

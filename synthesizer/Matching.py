@@ -35,8 +35,8 @@ def template_matching(template, control, config=None):
     if any(t_dim > c_dim for t_dim, c_dim in zip(template.shape, control.shape)):
         return -2, None
 
-    intensity_weight = float(getattr(config, "matching_intensity_weight", 0.5))
-    gradient_weight = float(getattr(config, "matching_gradient_weight", 0.5))
+    intensity_weight = float(config.matching_intensity_weight)
+    gradient_weight = float(config.matching_gradient_weight)
     if intensity_weight <= 0 and gradient_weight <= 0:
         raise ValueError("At least one matching weight needs to be > 0.")
     score_maps = []

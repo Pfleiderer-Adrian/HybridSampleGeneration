@@ -6,9 +6,9 @@ from torch.utils.data import random_split, DataLoader, Dataset
 from tqdm import tqdm
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-from models.interfaces import StepOutput
-from models.model_configuration import ModelConfiguration
-from models.model_registry import get_model_spec
+from generation_models.interfaces import StepOutput
+from generation_models.model_configuration import ModelConfiguration
+from generation_models.model_registry import get_model_spec
 from synthesizer.Configuration import Configuration
 
 
@@ -318,12 +318,12 @@ def objective(trial: Trial, config: Configuration, dataset):
 
 
 def _apply_training_offset_augmentation(dataset, config: Configuration):
-    if not getattr(config, "random_offset", False):
+    if not config.random_offset:
         return dataset
 
     transform = _RandomSpatialOffset(
-        max_fraction=getattr(config, "random_offset_max_fraction", 1.0),
-        foreground_threshold_rel=getattr(config, "random_offset_foreground_threshold_rel", 0.001),
+        max_fraction=config.random_offset_max_fraction,
+        foreground_threshold_rel=config.random_offset_foreground_threshold_rel,
     )
     return _TrainingTransformDataset(dataset, transform)
 
@@ -480,7 +480,7 @@ def _move_to_device(value, device):
 
 def _extract_step_output(output):
     if not isinstance(output, StepOutput):
-        raise TypeError("training_step/validation_step must return models.interfaces.StepOutput.")
+        raise TypeError("training_step/validation_step must return generation_models.interfaces.StepOutput.")
     return output.loss, dict(output.metrics)
 
 
@@ -512,7 +512,7 @@ def _run_epoch(model, loader, optimizer, config, device, *, training: bool) -> d
     step_fn = model.training_step if training else model.validation_step
 
     metric_dicts = []
-    grad_clip_norm = getattr(config, "grad_clip_norm", None)
+    grad_clip_norm = config.grad_clip_norm
     iterator = tqdm(loader, desc=("train" if training else "val"), leave=False, dynamic_ncols=True)
 
     for batch_idx, batch in enumerate(iterator):
@@ -536,7 +536,7 @@ def _run_epoch(model, loader, optimizer, config, device, *, training: bool) -> d
             metrics["loss"] = _to_float(loss)
         metric_dicts.append(metrics)
 
-        monitor_key = getattr(config, "monitor_metric", None) or getattr(config, "objective_metric", None)
+        monitor_key = config.monitor_metric
         try:
             iterator.set_postfix(value=f"{_metric_value(metrics, preferred_key=monitor_key):.6f}")
         except ValueError:
@@ -561,7 +561,7 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
     val_history = []
     best_epoch = 0
     best_val = float("inf")
-    monitor_key = getattr(config, "monitor_metric", None) or getattr(config, "objective_metric", None)
+    monitor_key = config.monitor_metric
 
     with tqdm(desc="epoch", total=config.epochs) as pbar_outer:
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -571,7 +571,7 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
         model.warmup(
             config.anomaly_size,
             device=device,
-            dtype=getattr(config, "training_dtype", None),
+            dtype=config.training_dtype,
             config=config,
         )
 
@@ -579,12 +579,12 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
         if optimizer is None:
             raise ValueError(f"{model.__class__.__name__}.configure_optimizers() returned no optimizer.")
 
-        if scheduler is None and getattr(config, "lr_scheduler", False):
+        if scheduler is None and config.lr_scheduler:
             scheduler = ReduceLROnPlateau(optimizer, "min", **config.lr_scheduler_params)
 
         early_stopping = None
-        if getattr(config, "early_stopping", False):
-            early_stopping = _EarlyStoppingTracker(**getattr(config, "early_stopping_params", {}))
+        if config.early_stopping:
+            early_stopping = _EarlyStoppingTracker(**config.early_stopping_params)
 
         for epoch in range(config.epochs):
             model.on_epoch_start(epoch, config=config)
