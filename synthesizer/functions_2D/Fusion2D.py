@@ -87,11 +87,27 @@ def _target_median_from_relation(bg_median, relation, eps=1e-8):
     return bg_median
 
 
-def _normalize_anomaly_to_context(anom, bg_slice, anomaly_mask, context_mask, anomaly_meta, eps=1e-8):
+def _normalize_anomaly_to_context(
+    anom,
+    context_slice,
+    blend_bg_slice,
+    anomaly_mask,
+    context_mask,
+    anomaly_meta,
+    alpha_mask=None,
+    eps=1e-8,
+):
     anom = anom.copy()
+    alpha_eff = None
+    if alpha_mask is not None:
+        alpha_values = np.asarray(alpha_mask, dtype=np.float32)[anomaly_mask]
+        alpha_values = alpha_values[np.isfinite(alpha_values) & (alpha_values > eps)]
+        if alpha_values.size > 0:
+            alpha_eff = float(np.clip(np.max(alpha_values), eps, 1.0))
+
     for channel in range(anom.shape[0]):
         anomaly_values = anom[channel][anomaly_mask]
-        context_values = bg_slice[channel][context_mask]
+        context_values = context_slice[channel][context_mask]
         anomaly_stats = _region_stats(anomaly_values, eps=eps)
         context_stats = _region_stats(context_values, eps=eps)
         if anomaly_stats is None or context_stats is None:
@@ -105,7 +121,15 @@ def _normalize_anomaly_to_context(anom, bg_slice, anomaly_mask, context_mask, an
             if iqr_ratio is not None and np.isfinite(iqr_ratio):
                 target_iqr = max(float(context_stats["iqr"] * float(iqr_ratio)), float(eps))
 
-        matched = ((anomaly_values - anomaly_stats["median"]) / anomaly_stats["iqr"]) * target_iqr + target_median
+        pre_target_median = target_median
+        pre_target_iqr = target_iqr
+        if alpha_eff is not None and alpha_eff < 1.0:
+            inside_bg_stats = _region_stats(blend_bg_slice[channel][anomaly_mask], eps=eps)
+            if inside_bg_stats is not None:
+                pre_target_median = (target_median - inside_bg_stats["median"] * (1.0 - alpha_eff)) / alpha_eff
+                pre_target_iqr = max(float(target_iqr / alpha_eff), float(eps))
+
+        matched = ((anomaly_values - anomaly_stats["median"]) / anomaly_stats["iqr"]) * pre_target_iqr + pre_target_median
         anom[channel][anomaly_mask] = matched
 
     return anom
@@ -289,11 +313,19 @@ def fusion2d(
     valid_mask = target_mask > 0                    # (h,w)
 
     # ------------------------------------------------------------
-    # 9) Locally normalize anomaly values while preserving the extracted
-    #    anomaly/context relation. Robust medians/IQRs avoid single-pixel outliers.
+    # 9) Create alpha mask before normalization so relative intensity
+    #    restoration can compensate for the later alpha blending.
     # ------------------------------------------------------------
     binary_mask = valid_mask > 0
+    anom_proj = np.max(anom, axis=0)                         # (h,w)
+    alpha_mask = get_alpha_mask_sobel_final_2d(
+        anom_proj, config, target_mask
+    )  # (h,w)
 
+    # ------------------------------------------------------------
+    # 10) Locally normalize anomaly values while preserving the extracted
+    #     anomaly/context relation in the final alpha-blended result.
+    # ------------------------------------------------------------
     normalization_border_width = config.fusion_normalization_border_width
     restore_bg_relation = bool(getattr(config, "fusion_restore_anomaly_bg_relation", True))
     if normalization_border_width is not None and np.any(binary_mask):
@@ -308,8 +340,6 @@ def fusion2d(
             context_slice = bg_slice
             dilated_mask = binary_dilation(binary_mask, structure=dilation_structure)
             context_mask = dilated_mask & ~binary_mask
-            if not np.any(context_mask):
-                context_mask = dilated_mask
             context_meta = anomaly_meta if restore_bg_relation else None
         else:
             raise ValueError("fusion_normalization_border_width must be None, -1, or >= 0.")
@@ -318,20 +348,13 @@ def fusion2d(
             anom = _normalize_anomaly_to_context(
                 anom,
                 context_slice,
+                bg_slice,
                 binary_mask,
                 context_mask,
                 context_meta,
+                alpha_mask=alpha_mask,
                 eps=float(getattr(config, "normalization_eps", 1e-8)),
             )
-
-    anom_proj = np.max(anom, axis=0)                         # (h,w)
-
-    # ------------------------------------------------------------
-    # 10) Create alpha mask from Sobel+distance transform mask (edge-aware)
-    # ------------------------------------------------------------
-    alpha_mask = get_alpha_mask_sobel_final_2d(
-        anom_proj, config, target_mask
-    )  # (h,w)
 
     # Broadcast alpha from (h,w) to (1,h,w); it will broadcast across channels during blending
     alpha = alpha_mask[None, :, :]  # (1,h,w)
