@@ -100,9 +100,10 @@ def configure_mvtecad2_defaults(config: Configuration):
 
 
 def configure_can(config_save_path: str) -> Configuration:
+    model = "LatentDiffusionLoRA_2D"
     config = Configuration(
-        f"mvtecad2_{safe_name("can")}",
-        "VAE_ConvNeXt_2D",
+        f"mvtecad2_{safe_name('can_'+ model)}",
+        model,
         (3, 64, 64),
         save_path=config_save_path,
     )
@@ -134,7 +135,7 @@ def configure_can(config_save_path: str) -> Configuration:
     config.max_fusions_per_control_deviation = 1
 
     # Fusion settings
-    config.update_fusion_params(
+    config.fusion_params.set_fusion_params(
         max_alpha=1.0,
         sq=0.1,
         steepness_factor=5.0,
@@ -142,21 +143,19 @@ def configure_can(config_save_path: str) -> Configuration:
         sobel_threshold=0.01,
         dilation_size=1,
         shave_pixels=0,
+        fusion_variation=True,
+        alpha_variation=0.05,
+        sq_variation=0.1,
+        steepness_variation=1.0,
+        selected_confidence="90%",
     )
-    config.fusion_variation = True
-    config.fusion_variation_params = {
-        "alpha_variation": 0.05,
-        "sq_variation": 0.1,
-        "steepness_variation": 1.0,
-    }
-    config.selected_confidence = "90%"
-    config.confidence_z_score = config.confidence_levels[config.selected_confidence]
 
     # Training settings
     config.val_ratio = 0.1
     config.batch_size = 8
     config.epochs = 1000
-    config.lr = 1e-3
+    config.lr = 1e-4
+    config.grad_clip_norm = 1.0
     config.log_every = None
     config.early_stopping = True
     config.early_stopping_params = {
@@ -170,67 +169,28 @@ def configure_can(config_save_path: str) -> Configuration:
         "threshold": 1e-5,
     }
 
-    # Model hyperparameter search space for Optuna. The min and max dicts together define the search space.
-    config.model_params.set_hyperparameter_space(
-        # min_config
-        {
-            "in_channels": 3,
-            "n_res_blocks": 1,
-            "n_levels": 3,
-            "z_channels": 16,
-            "bottleneck_dim": 24,
-            "use_multires_skips": False,
-            "recon_weight": 6.0,
-            "beta_kl": 0.05,
-            "beta_kl_start": 0.0,
-            "beta_kl_max": 0.06,
-            "beta_kl_warmup_start": 0,
-            "beta_kl_warmup_epochs": 250,
-            "free_bits": 0.0,
-            "recon_loss": "smoothl1",
-            "recon_smoothl1_beta": 0.5,
-            "use_transpose_conv": False,
-            "fg_weight": 1.0,
-            "fg_threshold": 0.0,
-            "drop_path_rate": 0.0,
-            "dropout": 0.03,
-            "skip_dropout_p": 1.0,
-            "skip_alpha": 0.0,
-        },
-        # max_config
-        {
-            "in_channels": 3,
-            "n_res_blocks": 3,
-            "n_levels": 4,
-            "z_channels": 64,
-            "bottleneck_dim": 96,
-            "use_multires_skips": False,
-            "recon_weight": 18.0,
-            "beta_kl": 0.05,
-            "beta_kl_start": 0.0,
-            "beta_kl_max": 0.18,
-            "beta_kl_warmup_start": 0,
-            "beta_kl_warmup_epochs": 700,
-            "free_bits": 0.005,
-            "recon_loss": "smoothl1",
-            "recon_smoothl1_beta": 1.0,
-            "use_transpose_conv": False,
-            "fg_weight": 1.0,
-            "fg_threshold": 0.0,
-            "drop_path_rate": 0.05,
-            "dropout": 0.15,
-            "skip_dropout_p": 1.0,
-            "skip_alpha": 0.0,
-        },
+    # Diffusion model settings. num_anomaly_classes is filled after masks are loaded.
+    config.model_params.set_model_params(
+        prompt="a realistic close-up photo of a damaged can surface, industrial anomaly texture, high detail",
+        negative_prompt="blur, low quality, text, watermark",
+        resolution=512,
+        num_inference_steps=30,
+        guidance_scale=7.5,
+        strength=0.85,
+        prior_strength=0.999,
+        lora_rank=8,
+        lora_alpha=8,
+        lora_dropout=0.0,
     )
 
     return config
 
 
 def configure_fabric(config_save_path: str) -> Configuration:
+    model = "VAE_ConvNeXt_2D"
     config = Configuration(
-        f"mvtecad2_{safe_name("can")}",
-        "VAE_ConvNeXt_2D",
+        f"mvtecad2_{safe_name('can_'+ model)}",
+        model,
         (3, 64, 64),
         save_path=config_save_path,
     )
@@ -238,9 +198,10 @@ def configure_fabric(config_save_path: str) -> Configuration:
 
 
 def configure_fruit_jelly(config_save_path: str) -> Configuration:
+    model = "VAE_ConvNeXt_2D"
     config = Configuration(
-        f"mvtecad2_{safe_name("fruit_jelly")}",
-        "VAE_ConvNeXt_2D",
+        f"mvtecad2_{safe_name('fruit_jelly_' + model)}",
+        model,
         (3, 64, 64),
         save_path=config_save_path,
     )
@@ -248,9 +209,10 @@ def configure_fruit_jelly(config_save_path: str) -> Configuration:
 
 
 def configure_rice(config_save_path: str) -> Configuration:
+    model = "VAE_ConvNeXt_2D"
     config = Configuration(
-        f"mvtecad2_{safe_name("rice")}",
-        "VAE_ConvNeXt_2D",
+        f"mvtecad2_{safe_name('rice_' + model)}",
+        model,
         (3, 64, 64),
         save_path=config_save_path,
     )
@@ -258,9 +220,10 @@ def configure_rice(config_save_path: str) -> Configuration:
 
 
 def configure_sheet_metal(config_save_path: str) -> Configuration:
+    model = "VAE_ConvNeXt_2D"
     config = Configuration(
-        f"mvtecad2_{safe_name("sheet_metal")}",
-        "VAE_ConvNeXt_2D",
+        f"mvtecad2_{safe_name('sheet_metal_' + model)}",
+        model,
         (3, 64, 64),
         save_path=config_save_path,
     )
@@ -268,9 +231,10 @@ def configure_sheet_metal(config_save_path: str) -> Configuration:
 
 
 def configure_vial(config_save_path: str) -> Configuration:
+    model = "VAE_ConvNeXt_2D"
     config = Configuration(
-        f"mvtecad2_{safe_name("vial")}",
-        "VAE_ConvNeXt_2D",
+        f"mvtecad2_{safe_name('vial_' + model)}",
+        model,
         (3, 64, 64),
         save_path=config_save_path,
     )
@@ -278,9 +242,10 @@ def configure_vial(config_save_path: str) -> Configuration:
 
 
 def configure_wallplugs(config_save_path: str) -> Configuration:
+    model = "VAE_ConvNeXt_2D"
     config = Configuration(
-        f"mvtecad2_{safe_name("wallplugs")}",
-        "VAE_ConvNeXt_2D",
+        f"mvtecad2_{safe_name('wallplugs_' + model)}",
+        model,
         (3, 64, 64),
         save_path=config_save_path,
     )
@@ -289,9 +254,10 @@ def configure_wallplugs(config_save_path: str) -> Configuration:
 
 
 def configure_walnuts(config_save_path: str) -> Configuration:
+    model = "VAE_ConvNeXt_2D"
     config = Configuration(
-        f"mvtecad2_{safe_name("walnuts")}",
-        "VAE_ConvNeXt_2D",
+        f"mvtecad2_{safe_name('walnuts_' + model)}",
+        model,
         (3, 64, 64),
         save_path=config_save_path,
     )

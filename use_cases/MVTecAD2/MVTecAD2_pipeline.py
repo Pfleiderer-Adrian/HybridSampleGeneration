@@ -867,15 +867,17 @@ def _validate_dataset_root(root: Path) -> None:
 
 if __name__ == "__main__":
 
-    dataset_root = r"/path/to/mvtec_ad_2_dataset"
-    save_path = r"/path/to/save/results"
+    dataset_root = r"C:/Users/priva/Documents/datasets/mvtec_ad_2"
+    save_path = r"C:/Users/priva/Documents/experiments/mvtec_ad_2"
 
     run_hybrid_sample_generation_for_all_usecases(
         dataset_root,
         categories="can",
         no_of_trials=1,
-        steps=("extract", "train", "generate_synth", "matching", "fusion", "save"),
-        generator_trial_id=-2,  # -1: best Model, -2: newest Model, else Trial-/Model number
+        #steps=("generate_synth", "matching", "fusion", "save"),
+
+        steps=("train", "generate_synth", "matching", "fusion", "save"),
+        generator_trial_id=-2,  # -1: best Model, -2: newest Model, else Trial-/Modely number
         save_path=save_path
     )
 
