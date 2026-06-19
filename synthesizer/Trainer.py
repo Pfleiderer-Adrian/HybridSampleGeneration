@@ -5,10 +5,10 @@ from optuna import Trial
 from torch.utils.data import random_split, DataLoader, Dataset
 from tqdm import tqdm
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from early_stopping_pytorch import EarlyStopping
 
+from models.interfaces import StepOutput
 from models.model_configuration import ModelConfiguration
-from models.model_loader import model_loader
+from models.model_registry import get_model_spec
 from synthesizer.Configuration import Configuration
 
 
@@ -263,7 +263,7 @@ def objective(trial: Trial, config: Configuration, dataset):
 
 
     # 2. Create the model with chosen hyperparameters
-    model = model_loader(config.model_name, params)
+    model = get_model_spec(config.model_name).build(params)
 
     n_val = int(len(dataset) * config.val_ratio)
     n_train = len(dataset) - n_val
@@ -313,8 +313,8 @@ def objective(trial: Trial, config: Configuration, dataset):
     trial.set_user_attr("params", params)
     trial.set_user_attr("model_name", config.model_name)
 
-    # lowest validation error over all epochs
-    return min(val_losses)
+    # lowest validation/monitor error over all epochs
+    return min(val_losses) if val_losses else float(best_val)
 
 
 def _apply_training_offset_augmentation(dataset, config: Configuration):
@@ -377,122 +377,257 @@ def _unique_choices(values):
     return choices
 
 
-def beta_schedule(epoch, beta_start, beta_max, warmup_start, warmup_epochs):
-    if warmup_start >= epoch:
-        return 0.0
-    if warmup_epochs <= 0:
-        return beta_max
-    t = min(1.0, max(0.0, epoch / warmup_epochs))
-    return beta_start + t * (beta_max - beta_start)
+class _EarlyStoppingTracker:
+    """Small early-stopping helper that does not implicitly checkpoint the model."""
+
+    def __init__(self, *, patience=0, delta=0.0, **_ignored):
+        self.patience = int(patience)
+        self.delta = float(delta)
+        self.best = None
+        self.counter = 0
+
+    def step(self, value: float) -> bool:
+        if self.best is None or value < (self.best - self.delta):
+            self.best = value
+            self.counter = 0
+            return False
+
+        self.counter += 1
+        return self.counter >= self.patience
+
+
+def _current_lr(optimizer, scheduler=None) -> float:
+    if scheduler is not None and hasattr(scheduler, "get_last_lr"):
+        lrs = scheduler.get_last_lr()
+        if lrs:
+            return float(lrs[0])
+    if optimizer.param_groups:
+        return float(optimizer.param_groups[0].get("lr", 0.0))
+    return 0.0
+
+
+def _step_scheduler(scheduler, metric: float):
+    if scheduler is None:
+        return
+    if isinstance(scheduler, ReduceLROnPlateau):
+        scheduler.step(metric)
+    else:
+        scheduler.step()
+
+
+def _to_float(value) -> float:
+    if isinstance(value, torch.Tensor):
+        value = value.detach()
+        if value.numel() == 1:
+            return float(value.item())
+        return float(value.float().mean().item())
+    return float(value)
+
+
+def _metric_value(metrics: dict, *, preferred_key=None) -> float:
+    if not metrics:
+        raise ValueError("Model returned no training metrics.")
+
+    preferred_keys = [
+        preferred_key,
+        "total",
+        "loss",
+        "objective",
+        "val_loss",
+        "train_loss",
+    ]
+    for key in preferred_keys:
+        if key and key in metrics:
+            return _to_float(metrics[key])
+
+    for value in metrics.values():
+        try:
+            return _to_float(value)
+        except (TypeError, ValueError):
+            continue
+    raise ValueError(f"Could not find a scalar metric in: {metrics}")
+
+
+def _format_metrics(metrics: dict) -> str:
+    parts = []
+    for key, value in metrics.items():
+        try:
+            parts.append(f"{key}: {_to_float(value):.4f}")
+        except (TypeError, ValueError):
+            continue
+    return ", ".join(parts) if parts else "no scalar metrics"
+
+
+def _format_epoch_log(epoch, lr, train_metrics, val_metrics):
+    return (
+        f"\nEpoch {epoch:03d}: lr: {lr:0.5f}, "
+        f"train [{_format_metrics(train_metrics)}], "
+        f"val [{_format_metrics(val_metrics)}]"
+    )
+
+
+def _move_to_device(value, device):
+    if isinstance(value, torch.Tensor):
+        return value.to(device, non_blocking=True)
+    if isinstance(value, dict):
+        return {key: _move_to_device(item, device) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return tuple(_move_to_device(item, device) for item in value)
+    if isinstance(value, list):
+        return [_move_to_device(item, device) for item in value]
+    return value
+
+
+def _extract_step_output(output):
+    if not isinstance(output, StepOutput):
+        raise TypeError("training_step/validation_step must return models.interfaces.StepOutput.")
+    return output.loss, dict(output.metrics)
+
+
+def _metrics_to_float(metrics: dict) -> dict:
+    converted = {}
+    for key, value in metrics.items():
+        try:
+            converted[key] = _to_float(value)
+        except (TypeError, ValueError):
+            continue
+    return converted
+
+
+def _average_metric_dicts(metric_dicts: list[dict]) -> dict:
+    if not metric_dicts:
+        return {}
+
+    sums = {}
+    counts = {}
+    for metrics in metric_dicts:
+        for key, value in metrics.items():
+            sums[key] = sums.get(key, 0.0) + value
+            counts[key] = counts.get(key, 0) + 1
+    return {key: sums[key] / counts[key] for key in sums}
+
+
+def _run_epoch(model, loader, optimizer, config, device, *, training: bool) -> dict:
+    model.train(training)
+    step_fn = model.training_step if training else model.validation_step
+
+    metric_dicts = []
+    grad_clip_norm = getattr(config, "grad_clip_norm", None)
+    iterator = tqdm(loader, desc=("train" if training else "val"), leave=False, dynamic_ncols=True)
+
+    for batch_idx, batch in enumerate(iterator):
+        batch = _move_to_device(batch, device)
+
+        if training:
+            optimizer.zero_grad(set_to_none=True)
+
+        with torch.set_grad_enabled(training):
+            output = step_fn(batch, batch_idx, config)
+            loss, metrics = _extract_step_output(output)
+
+            if training:
+                loss.backward()
+                if grad_clip_norm is not None and grad_clip_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
+                optimizer.step()
+
+        metrics = _metrics_to_float(metrics)
+        if "loss" not in metrics:
+            metrics["loss"] = _to_float(loss)
+        metric_dicts.append(metrics)
+
+        monitor_key = getattr(config, "monitor_metric", None) or getattr(config, "objective_metric", None)
+        try:
+            iterator.set_postfix(value=f"{_metric_value(metrics, preferred_key=monitor_key):.6f}")
+        except ValueError:
+            pass
+
+    return _average_metric_dicts(metric_dicts)
 
 
 def train(model, train_loader, val_loader, config, *, best_model_path=None):
     """
-    Train a model for up to `config.epochs` epochs using `model.fit_epoch(...)`.
+    Train a model through the TrainableModule batch-level interface.
 
-    This function assumes the model implements:
-      model.fit_epoch(train_loader, val_loader, optimizer) -> (train_loss_dict, val_loss_dict)
-    where each dict contains at least a "total" key.
-
-    Inputs
-    ------
-    model:
-        PyTorch module-like object with `.parameters()` and `.fit_epoch(...)`.
-    train_loader:
-        DataLoader for training set.
-    val_loader:
-        DataLoader for validation set.
-    config:
-        Training configuration:
-          - epochs, lr, batch_size
-          - lr_scheduler (bool), early_stopping (bool)
-          - plus other flags/params
-
-    Outputs
-    -------
-    (train_history, val_history, best_epoch, best_val):
-        train_history: list[float]
-            Per-epoch training loss (train_loss["total"]).
-        val_history: list[float]
-            Per-epoch validation loss (val_loss["total"]).
-        best_epoch: int
-            Epoch index (1-based) with the lowest validation loss.
-        best_val: float
-            Lowest validation loss observed.
-
-    Side effects
-    ------------
-    - Prints training progress to stdout via tqdm.
-    - May stop early if early stopping triggers.
+    Required model methods:
+      - warmup(shape, device, dtype, config)
+      - training_step(batch, batch_idx, config)
+      - validation_step(batch, batch_idx, config)
+      - on_epoch_start(epoch, config)
+      - configure_optimizers(config) -> (optimizer, scheduler)
+      - save_checkpoint(path, **state)
     """
     train_history = []
     val_history = []
     best_epoch = 0
     best_val = float("inf")
-    log_template = "\nEpoch {ep:03d}: lr: {learning_rate:0.5f}, train_loss: {t_loss:0.4f}, val_loss {v_loss:0.4f}, val_recon {v_recon:0.4f}, val_recon_weighted {v_recon_w:0.4f}, val_kl {v_kl:0.4f}, val_kl_weighted {v_kl_w:0.4f}, kl_raw {v_kl_raw:0.4f}"
+    monitor_key = getattr(config, "monitor_metric", None) or getattr(config, "objective_metric", None)
 
     with tqdm(desc="epoch", total=config.epochs) as pbar_outer:
-
-        # define optimizer
         device = "cuda" if torch.cuda.is_available() else "cpu"
         device = torch.device(device)
 
         model.to(device)
-        model.warmup(config.anomaly_size)
-        optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)  # weight_decay für L2-Regularisierung
+        model.warmup(
+            config.anomaly_size,
+            device=device,
+            dtype=getattr(config, "training_dtype", None),
+            config=config,
+        )
 
-        # define loss function
-        # criterion = nn.MSELoss()  # nn.BCELoss()
+        optimizer, scheduler = model.configure_optimizers(config)
+        if optimizer is None:
+            raise ValueError(f"{model.__class__.__name__}.configure_optimizers() returned no optimizer.")
 
-        # define early stopping
-        early_stopping = EarlyStopping(**config.early_stopping_params)
+        if scheduler is None and getattr(config, "lr_scheduler", False):
+            scheduler = ReduceLROnPlateau(optimizer, "min", **config.lr_scheduler_params)
 
-        # define learning rate scheduler
-        scheduler = ReduceLROnPlateau(optimizer, 'min', **config.lr_scheduler_params)
+        early_stopping = None
+        if getattr(config, "early_stopping", False):
+            early_stopping = _EarlyStoppingTracker(**getattr(config, "early_stopping_params", {}))
 
-        # train model for specified number of epochs
         for epoch in range(config.epochs):
-            
-            # update beta_kl for current epoch
-            if hasattr(model.cfg, 'beta_kl'):
-                model.cfg.beta_kl = beta_schedule(
-                    epoch,
-                    model.cfg.beta_kl_start,
-                    model.cfg.beta_kl_max,
-                    model.cfg.beta_kl_warmup_start,
-                    model.cfg.beta_kl_warmup_epochs
-                    )
+            model.on_epoch_start(epoch, config=config)
 
-            # train step
-            train_loss, val_loss = model.fit_epoch(train_loader, val_loader, optimizer, device=device)
+            train_metrics = _run_epoch(model, train_loader, optimizer, config, device, training=True)
+            val_metrics = {}
+            if val_loader is not None:
+                with torch.no_grad():
+                    val_metrics = _run_epoch(model, val_loader, optimizer, config, device, training=False)
+            if not val_metrics:
+                val_metrics = train_metrics
 
-            # store results
-            train_history.append(train_loss["total"])
-            val_history.append(val_loss["total"])
+            train_value = _metric_value(train_metrics, preferred_key=monitor_key)
+            val_value = _metric_value(val_metrics, preferred_key=monitor_key)
+            train_history.append(train_value)
+            val_history.append(val_value)
 
-            # Track best epoch and optionally save best checkpoint
-            if val_loss["total"] < best_val:
-                best_val = float(val_loss["total"])
-                print("New best epoch! val_loss: "+str(best_val))
+            if val_value < best_val:
+                best_val = float(val_value)
+                print("New best epoch! val_loss: " + str(best_val))
                 best_epoch = epoch + 1
                 if best_model_path is not None:
-                    torch.save(model.state_dict(), best_model_path)
+                    model.save_checkpoint(
+                        best_model_path,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        epoch=best_epoch,
+                        metrics={"train": train_metrics, "val": val_metrics},
+                    )
 
-
-            # update progress bar
-            tqdm.write(log_template.format(ep=epoch + 1, learning_rate=scheduler.get_last_lr()[0], t_loss=train_loss["total"],
-                                           v_loss=val_loss["total"], v_recon=val_loss["recon"], v_recon_w=val_loss["recon_weighted"], v_kl=val_loss["kl"], v_kl_w=val_loss["kl_weighted"], v_kl_raw=val_loss["kl_raw"]))
-            pbar_outer.set_postfix(lr=f"{scheduler.get_last_lr()[0]:.5f}", t_loss=f"{val_loss['total']:.4f}", v_loss=f"{val_loss['total']:.4f}")
+            lr = _current_lr(optimizer, scheduler)
+            tqdm.write(_format_epoch_log(epoch + 1, lr, train_metrics, val_metrics))
+            pbar_outer.set_postfix(
+                lr=f"{lr:.5f}",
+                train=f"{train_value:.4f}",
+                val=f"{val_value:.4f}",
+            )
             pbar_outer.update(1)
 
-            # Learning Rate Scheduling
-            if config.lr_scheduler:
-                scheduler.step(val_loss["total"])
+            _step_scheduler(scheduler, val_value)
 
-            # Early stopping
-            if config.early_stopping:
-                early_stopping(val_loss["total"], model)
-                if early_stopping.early_stop:
-                    print("Early stopping")
-                    break
+            if early_stopping is not None and early_stopping.step(val_value):
+                print("Early stopping")
+                break
+
     return train_history, val_history, best_epoch, best_val

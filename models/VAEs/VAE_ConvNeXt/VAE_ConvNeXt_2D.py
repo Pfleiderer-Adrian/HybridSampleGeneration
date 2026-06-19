@@ -25,9 +25,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from tqdm import tqdm
 
-from models.model_interface import HybridModelInterface
+from models.VAEs.vae_base import HybridVAEBase
 from synthesizer.mask_manipulation import TransformGenerator
 
 
@@ -318,8 +317,8 @@ class ConvNeXtUNetDecoder2D(nn.Module):
             # Align spatial sizes (off-by-1 for odd inputs)
             if x.shape[-2:] != skip.shape[-2:]:
                 target = (min(x.shape[-2], skip.shape[-2]), min(x.shape[-1], skip.shape[-1]))
-                x = HybridModelInterface._crop_like(x, target)
-                skip = HybridModelInterface._crop_like(skip, target)
+                x = HybridVAEBase._crop_like(x, target)
+                skip = HybridVAEBase._crop_like(skip, target)
 
             # Apply skip scaling (can be used to weaken or disable skips)
             if self.skip_alpha != 1.0:
@@ -380,7 +379,7 @@ class Config:
     skip_alpha: float = 1.0      # Scale skips (0.0 disables skips, 0.2 keeps small guidance)
 
 
-class ConvNeXtVAE2D(HybridModelInterface):
+class ConvNeXtVAE2D(HybridVAEBase):
     """2D ConvNeXt-U-Net VAE.
 
     Expected input:
@@ -502,73 +501,7 @@ class ConvNeXtVAE2D(HybridModelInterface):
 
         raise TypeError(f"Unknown batch type: {type(batch)}")
 
-    def fit_epoch(
-        self,
-        train_dataloader,
-        val_dataloader,
-        optimizer,
-        *,
-        log_every=1,
-        grad_clip_norm: Optional[float] = None,
-        device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
-    ) -> tuple[dict, dict]:
-        """Train for one epoch (same API/behavior as the template)."""
-        device = torch.device(device)
-        model = self.to(device)
-
-        def run_epoch(loader: Iterable, training: bool) -> Dict[str, float]:
-            model.train(training)
-            run = {"total": 0.0, "recon": 0.0, "kl": 0.0, "recon_weighted": 0.0, "kl_weighted": 0.0, "kl_raw": 0.0}
-            n = 0
-
-            pbar = tqdm(loader, desc=("train" if training else "val"), leave=False, dynamic_ncols=True)
-            for step, batch in enumerate(pbar, start=1):
-                x = self._extract_x(batch=batch)
-                if not isinstance(x, torch.Tensor):
-                    x = torch.as_tensor(x)
-                x = x.to(device, non_blocking=True)
-
-                if x.ndim != 4:
-                    raise ValueError(f"Expected (B,C,H,W) from dataloader, got {tuple(x.shape)}")
-
-                if training:
-                    optimizer.zero_grad(set_to_none=True)
-
-                with torch.set_grad_enabled(training):
-                    out = model(x)
-                    losses = model.loss(out)
-                    loss = losses["total"]
-
-                    if training:
-                        loss.backward()
-                        if grad_clip_norm is not None and grad_clip_norm > 0:
-                            nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
-                        optimizer.step()
-
-                for k in run:
-                    if k in losses:
-                        run[k] += float(losses[k].detach().item())
-                n += 1
-
-                if log_every and (step % log_every == 0):
-                    postfix = {"total": f"{float(losses['total'].detach()):.6f}"}
-                    postfix["recon"] = f"{float(losses['recon'].detach()):.6f}"
-                    postfix["kl"] = f"{float(losses['kl'].detach()):.6f}"
-                    pbar.set_postfix(postfix)
-
-            denom = max(1, n)
-            return {k: run[k] / denom for k in run}
-
-        tr = run_epoch(train_dataloader, training=True)
-
-        va = {}
-        if val_dataloader is not None:
-            with torch.no_grad():
-                va = run_epoch(val_dataloader, training=False)
-
-        return tr, va
-
-    def generate_synth_sample(
+    def _generate_posterior(
         self,
         sample: Union[dict, np.ndarray, torch.Tensor],
         *,
@@ -682,7 +615,7 @@ class ConvNeXtVAE2D(HybridModelInterface):
         return recon_np, target_mask_generator.create_target_mask(synth_anomaly_image=recon_np)
 
 
-    def warmup(self, shape, device=None, dtype=None):
+    def warmup(self, shape, device=None, dtype=None, config=None):
         """Warm up the model to initialize lazy FC layers.
 
         shape must be (C,H,W).
@@ -722,7 +655,7 @@ class ConvNeXtVAE2D(HybridModelInterface):
 
         return self
 
-    def generate_synth_sample_prior(
+    def _generate_prior(
         self,
         sample: Union[dict, np.ndarray, torch.Tensor, None] = None,
         *,
@@ -818,8 +751,9 @@ if __name__ == "__main__":
     print({k: tuple(v.shape) for k, v in out.items()})
 
     # Posterior sampling: generate 5 variants per item
-    variants = model.generate_synth_sample(
+    variants = model.generate(
         {"img": x[0], "fname": "sanity.npy"},
+        mode="posterior",
         n=5,
         variation_strength=0.3,
         return_torch=True,

@@ -6,11 +6,11 @@ import numpy as np
 import os
 import jsonpickle
 
-from models.model_configuration import ModelConfiguration, get_model_configuration
+from models.model_configuration import ModelConfiguration
+from models.model_registry import get_model_spec, registered_model_names
 from synthesizer.StudyPaths import StudyPaths
 
-# Allowed model choices (fixed set)
-ALLOWED_MODELS = ["VAE_ResNet_3D", "VAE_ResNet_2D", "VAE_ConvNeXt_3D", "cVAE_ConvNeXt_3D", "VAE_ConvNeXt_2D", "cVAE_ConvNeXt_2D"]
+ALLOWED_MODELS = registered_model_names()
 
 
 # creates a new interactive config object/file for the data generator
@@ -68,6 +68,7 @@ class Configuration:
         self.study_name = study_name
         if model_name not in ALLOWED_MODELS:
             raise ValueError(f"Model {model_name} is not supported. \nCurrently Supported models: {ALLOWED_MODELS}")
+        model_spec = get_model_spec(model_name)
         self.model_name = model_name
         self.config_name = None
         if save_path is None:
@@ -100,7 +101,7 @@ class Configuration:
         self.add_bg_noise = True
 
 
-        self.conditional = "cVAE" in self.model_name
+        self.conditional = model_spec.uses_masks
         self.num_anomaly_classes = None # will be set in HDG (load_anomalies)
 
         # synthesizer parameter
@@ -176,7 +177,7 @@ class Configuration:
             "threshold": 1e-5,
         }
 
-        self.model_params = get_model_configuration(model_name, anomaly_size[0], debug=False)
+        self.model_params = model_spec.build_configuration(anomaly_size[0])
 
          # set to None for variable roi size
         self.fixed_roi_size = None

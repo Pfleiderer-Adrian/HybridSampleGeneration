@@ -82,8 +82,3 @@ def get_resnet_vae_2d_configuration(in_channels):
         input_artefacts=DEFAULT_VAE_INPUT_ARTEFACTS,
     )
 
-
-MODEL_CONFIGURATION_FACTORIES = {
-    "VAE_ResNet_3D": get_resnet_vae_3d_configuration,
-    "VAE_ResNet_2D": get_resnet_vae_2d_configuration,
-}

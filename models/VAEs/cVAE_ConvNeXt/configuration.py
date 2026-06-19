@@ -86,8 +86,3 @@ def get_convnext_cvae_2d_configuration(in_channels):
         input_artefacts=CONDITIONAL_VAE_INPUT_ARTEFACTS,
     )
 
-
-MODEL_CONFIGURATION_FACTORIES = {
-    "cVAE_ConvNeXt_3D": get_convnext_cvae_3d_configuration,
-    "cVAE_ConvNeXt_2D": get_convnext_cvae_2d_configuration,
-}

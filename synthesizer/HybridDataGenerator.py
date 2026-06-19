@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
 
-from models.model_loader import model_loader
+from models.model_registry import get_model_spec
 from synthesizer.mask_manipulation import TransformGenerator
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
 from synthesizer.functions_2D.Fusion2D import fusion2d
@@ -293,16 +293,24 @@ class HybridDataGenerator:
         # load model from study
         params = t.user_attrs['params']
         model_name = t.user_attrs['model_name']
-        self._model = model_loader(model_name, params) 
-        self._model.warmup(self._config.anomaly_size)
-        self._model.load_state_dict(torch.load(t.user_attrs['model_path']))
+        self._model = get_model_spec(model_name).build(params)
+        device = torch.device("cpu")
+        self._model.to(device)
+        self._model.warmup(
+            self._config.anomaly_size,
+            device=device,
+            dtype=getattr(self._config, "training_dtype", None),
+            config=self._config,
+        )
+        model_path = t.user_attrs['model_path']
+        self._model.load_checkpoint(model_path)
 
     def generate_synth_anomalies(self):
         """
         Generate synthetic anomalies for each anomaly in the loaded anomaly dataset.
 
         For each anomaly sample:
-          - run model.generate_synth_sample(sample)
+          - run model.generate(sample, mode="prior"|"posterior")
           - save output as .npy under sample["fname"]
 
         Outputs
@@ -322,6 +330,7 @@ class HybridDataGenerator:
         os.makedirs(tgt_mask_folder, exist_ok=True)
         self._anomaly_dataset.numpy_mode = True
         target_mask_generator = TransformGenerator.from_config(self._config)
+        generation_mode = "prior" if self._config.prior_sampling else "posterior"
 
 
         # use feedback system to generate similar anomalies
@@ -339,20 +348,13 @@ class HybridDataGenerator:
                 syn_anomaly_mask = None
                 i = 0
                 while best < self._config.feedback_threshold:
-                    if self._config.prior_sampling:
-                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(
-                            sample,
-                            variation_strength=getattr(self._config, "variation_strength", 1.0),
-                            clamp_01=self._config.clamp01_output,
-                            target_mask_generator=target_mask_generator,
-                        )
-                    else:
-                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(
-                            sample,
-                            variation_strength=getattr(self._config, "variation_strength", 1.0),
-                            clamp_01=self._config.clamp01_output,
-                            target_mask_generator=target_mask_generator,
-                        )
+                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate(
+                        sample,
+                        mode=generation_mode,
+                        variation_strength=getattr(self._config, "variation_strength", 1.0),
+                        clamp_01=self._config.clamp01_output,
+                        target_mask_generator=target_mask_generator,
+                    )
 
                     if best_image is None:
                         best_image = syn_anomaly_sample
@@ -394,20 +396,13 @@ class HybridDataGenerator:
         else:
             for sample in tqdm(self._anomaly_dataset):
                 basename = sample["fname"]
-                if self._config.prior_sampling:
-                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(
-                        sample,
-                        variation_strength=getattr(self._config, "variation_strength", 1.0),
-                        clamp_01=self._config.clamp01_output,
-                        target_mask_generator=target_mask_generator,
-                    )
-                else:
-                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(
-                        sample,
-                        variation_strength=getattr(self._config, "variation_strength", 1.0),
-                        clamp_01=self._config.clamp01_output,
-                        target_mask_generator=target_mask_generator,
-                    )
+                syn_anomaly_sample, syn_anomaly_mask = self._model.generate(
+                    sample,
+                    mode=generation_mode,
+                    variation_strength=getattr(self._config, "variation_strength", 1.0),
+                    clamp_01=self._config.clamp01_output,
+                    target_mask_generator=target_mask_generator,
+                )
                 save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
                 save_numpy_as_npy(syn_anomaly_mask, str(os.path.join(tgt_mask_folder, basename)), overwrite=True)
 
