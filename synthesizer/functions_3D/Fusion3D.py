@@ -53,7 +53,7 @@ def _spatial_label_mask(mask, spatial_ndim):
     raise ValueError(f"target mask must have {spatial_ndim} or {spatial_ndim + 1} dims. Got {mask.shape}")
 
 
-def _robust_region_stats(values, eps=1e-8):
+def _region_stats(values, eps=1e-8):
     values = np.asarray(values, dtype=np.float32)
     values = values[np.isfinite(values)]
     if values.size == 0:
@@ -94,8 +94,8 @@ def _normalize_anomaly_to_context(anom, bg_slice, anomaly_mask, context_mask, an
     for channel in range(anom.shape[0]):
         anomaly_values = anom[channel][anomaly_mask]
         context_values = bg_slice[channel][context_mask]
-        anomaly_stats = _robust_region_stats(anomaly_values, eps=eps)
-        context_stats = _robust_region_stats(context_values, eps=eps)
+        anomaly_stats = _region_stats(anomaly_values, eps=eps)
+        context_stats = _region_stats(context_values, eps=eps)
         if anomaly_stats is None or context_stats is None:
             continue
 
@@ -317,7 +317,10 @@ def fusion3d(
             dilation_kernel_size = border_width * 2 + 1
             dilation_structure = np.ones((dilation_kernel_size, dilation_kernel_size, dilation_kernel_size), dtype=bool)
             context_slice = bg_slice
-            context_mask = binary_dilation(binary_mask, structure=dilation_structure)
+            dilated_mask = binary_dilation(binary_mask, structure=dilation_structure)
+            context_mask = dilated_mask & ~binary_mask
+            if not np.any(context_mask):
+                context_mask = dilated_mask
             context_meta = anomaly_meta if restore_bg_relation else None
         else:
             raise ValueError("fusion_normalization_border_width must be None, -1, or >= 0.")

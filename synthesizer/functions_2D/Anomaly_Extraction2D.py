@@ -117,19 +117,16 @@ def _normalize_anomaly(arr, normalization, eps):
     raise ValueError(f"Unknown normalization: {normalization!r}")
 
 
-def _robust_region_stats(values, eps=1e-8):
+def _region_stats(values, eps=1e-8):
     values = np.asarray(values, dtype=np.float32)
     values = values[np.isfinite(values)]
     if values.size == 0:
         return None
 
     q25, q50, q75 = np.percentile(values, [25.0, 50.0, 75.0])
-    iqr = max(float(q75 - q25), float(eps))
     return {
         "median": float(q50),
-        "q25": float(q25),
-        "q75": float(q75),
-        "iqr": iqr,
+        "iqr": max(float(q75 - q25), float(eps)),
     }
 
 
@@ -149,8 +146,8 @@ def _anomaly_context_intensity_meta(roi, roi_mask, border_width, eps=1e-8):
 
     channels = []
     for channel in range(roi.shape[0]):
-        anomaly_stats = _robust_region_stats(roi[channel][spatial_mask], eps=eps)
-        context_stats = _robust_region_stats(roi[channel][context_mask], eps=eps)
+        anomaly_stats = _region_stats(roi[channel][spatial_mask], eps=eps)
+        context_stats = _region_stats(roi[channel][context_mask], eps=eps)
         if anomaly_stats is None or context_stats is None:
             channels.append(None)
             continue
@@ -457,7 +454,7 @@ def crop_and_center_anomaly_2d(
         
         roi_sample = crop_square_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False)
         roi_mask = crop_square_clip(seg, centroid_voxel, size_spatial, centroid_is_normalized=False)
-        relation_border_width = getattr(config, "fusion_normalization_border_width", 2)
+        relation_border_width = getattr(config, "fusion_normalization_border_width", 5)
         restore_bg_relation = bool(getattr(config, "fusion_restore_anomaly_bg_relation", True))
         if restore_bg_relation and relation_border_width is not None:
             meta_data.update(_anomaly_context_intensity_meta(

@@ -166,8 +166,9 @@ class Configuration:
         # -1 -- uses the entire image.
         self.fusion_normalization_border_width = 2
 
-        # If True, local fusion normalization preserves the extracted intensity relation
-        # between anomaly and its original surrounding background.
+        # If True, local fusion normalization transfers the extracted median and IQR intensity
+        # relation between the anomaly and its original surrounding background
+        # to the new local fusion context (before alpha blending).
         self.fusion_restore_anomaly_bg_relation = True
 
         # global training parameter, fixed during training
