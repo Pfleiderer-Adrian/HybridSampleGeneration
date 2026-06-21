@@ -104,7 +104,9 @@ Each iteration must yield:
 ### Extraction metadata
   During anomaly extraction, each saved anomaly receives transformation metadata in `anomaly_transformations.json`.
   This includes label, scale_factor, centroid, original shape and optional normalization metadata (`norm_type`, `norm_mean`/`norm_std` or `norm_median`/`norm_mad`) used to denormalize generated anomalies before fusion.
-  When `fusion_restore_anomaly_bg_relation` is enabled, extraction also stores per-channel anomaly/context intensity relation metadata (`median_delta`, `median_ratio` and `iqr_ratio`) for later fusion-time local normalization to restore the intensity relation.
+  When `fusion_restore_anomaly_bg_relation` is enabled, extraction also stores class-specific, per-channel anomaly/context intensity relation metadata (`median_delta`, `median_ratio` and `iqr_ratio`) for later fusion-time local normalization.
+  The relation context is a dilation ring around each anomaly class; all anomaly classes are excluded from that context, so one class is not treated as background for another.
+  If a class-specific context ring has fewer than `fusion_relation_min_context_size` pixels/voxels, extraction falls back to background outside the whole anomaly mask; if that is still too small, no relation is stored for that class and fusion falls back to direct local median/IQR normalization when enough local fusion context is available.
 
 ---
 
@@ -185,6 +187,8 @@ Each iteration must yield:
 ### Fusion logic
   Fusion inserts the matched synthetic anomaly into the target control sample at the position stored in matching_dict.csv and creates the corresponding segmentation mask.
   Before blending, the anomaly is cropped to the foreground defined by its target_mask, rescaled with the saved scale_factor and locally intensity-normalized to the insertion region of the control sample.
+  Local intensity normalization uses median/IQR statistics to reduce the impact of outliers and bright edges.
+  If class-specific anomaly/context relation metadata is available, fusion restores that original relation in the new local context; the normalization is alpha-aware, so the target median/IQR is compensated before blending by the maximum alpha value in the active class mask.
   The actual fusion uses an edge-aware alpha mask based on Sobel edges, morphology and a distance transform, so the anomaly interior can be blended more strongly than its boundary.
 
   Fusion parameters in config:
@@ -205,8 +209,11 @@ Each iteration must yield:
       Relative foreground threshold used when creating target masks and evaluation foreground masks. Fusion itself uses the generated or loaded target_mask to define the anomaly foreground for cropping, normalization and alpha-mask creation.
   - fusion_normalization_border_width:
       Background region used to estimate control intensity for anomaly normalization. None disables fusion-time intensity normalization; -1 uses the entire image; >= 0 uses a local border around the anomaly mask.
+      For relative normalization, the local border is defined as the dilation ring around the anomaly mask, matching the context definition used during extraction.
   - fusion_restore_anomaly_bg_relation:
-      If enabled, local border normalization preserves the extracted median/IQR intensity relation between an anomaly and its original surrounding background. Disable it to use only direct intensity normalization.
+      If enabled, local border normalization preserves the extracted class-specific median/IQR intensity relation between each anomaly class and its original surrounding context. Disable it to normalize only against the local fusion context without using the stored relation.
+  - fusion_relation_min_context_size:
+      Minimum number of pixels/voxels required for a class-specific context estimate. If the class ring is smaller, the code falls back to background outside all anomaly classes; if that is still too small, no relation is stored for that class. During fusion, classes without stored relation still use direct local median/IQR normalization when enough local fusion context is available; otherwise normalization for that class is skipped.
 
 ---
 
