@@ -171,6 +171,10 @@ class Configuration:
         # to the new local fusion context (before alpha blending).
         self.fusion_restore_anomaly_bg_relation = True
 
+        # Minimum number of pixels/voxels required for a class-specific context estimate.
+        # Smaller context rings fall back to the background outside all anomaly classes.
+        self.fusion_relation_min_context_size = 8
+
         # global training parameter, fixed during training
         self.val_ratio = 0.2
         self.batch_size = 64

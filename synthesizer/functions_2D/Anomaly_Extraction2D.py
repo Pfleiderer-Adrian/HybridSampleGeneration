@@ -130,23 +130,10 @@ def _region_stats(values, eps=1e-8):
     }
 
 
-def _anomaly_context_intensity_meta(roi, roi_mask, border_width, eps=1e-8):
-    spatial_mask = np.any(roi_mask > 0, axis=0)
-    if not np.any(spatial_mask):
-        return {}
-
-    kernel_size = max(int(border_width), 1) * 2 + 1
-    structure = np.ones((kernel_size, kernel_size), dtype=bool)
-    dilated_mask = binary_dilation(spatial_mask, structure=structure)
-    context_mask = dilated_mask & ~spatial_mask
-    if not np.any(context_mask):
-        context_mask = ~spatial_mask
-    if not np.any(context_mask):
-        return {}
-
+def _relation_channels_for_mask(roi, anomaly_mask, context_mask, eps=1e-8):
     channels = []
     for channel in range(roi.shape[0]):
-        anomaly_stats = _region_stats(roi[channel][spatial_mask], eps=eps)
+        anomaly_stats = _region_stats(roi[channel][anomaly_mask], eps=eps)
         context_stats = _region_stats(roi[channel][context_mask], eps=eps)
         if anomaly_stats is None or context_stats is None:
             channels.append(None)
@@ -165,9 +152,41 @@ def _anomaly_context_intensity_meta(roi, roi_mask, border_width, eps=1e-8):
             "iqr_ratio": float(anomaly_stats["iqr"] / max(context_stats["iqr"], eps)),
         })
 
+    return channels
+
+
+def _anomaly_context_intensity_meta(roi, roi_mask, border_width, eps=1e-8, min_context_size=8):
+    label_mask = np.max(roi_mask, axis=0)
+    spatial_mask = label_mask > 0
+    if not np.any(spatial_mask):
+        return {}
+
+    kernel_size = max(int(border_width), 1) * 2 + 1
+    structure = np.ones((kernel_size, kernel_size), dtype=bool)
+    classes = []
+    global_context_mask = None
+
+    for label in np.unique(label_mask): # create separate masks (anomaly, context) for every class
+        if label <= 0:
+            continue
+        class_mask = label_mask == label
+        dilated_mask = binary_dilation(class_mask, structure=structure)
+        context_mask = dilated_mask & ~spatial_mask # ignore other classes for context
+        if np.count_nonzero(context_mask) < int(min_context_size):
+            if global_context_mask is None:
+                global_context_mask = ~spatial_mask
+            context_mask = global_context_mask
+        if np.count_nonzero(context_mask) < int(min_context_size):
+            continue
+
+        classes.append({
+            "label": float(label),
+            "channels": _relation_channels_for_mask(roi, class_mask, context_mask, eps=eps),
+        })
+
     return {
         "intensity_relation_border_width": int(border_width),
-        "intensity_relation_channels": channels,
+        "intensity_relation_classes": classes,
     }
 
 
@@ -461,6 +480,7 @@ def crop_and_center_anomaly_2d(
                 roi_mask,
                 relation_border_width,
                 eps=float(normalization_eps),
+                min_context_size=getattr(config, "fusion_relation_min_context_size", 8),
             ))
 
         anomalies_roi.append(roi_sample)

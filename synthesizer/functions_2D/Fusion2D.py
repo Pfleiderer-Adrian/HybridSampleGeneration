@@ -64,13 +64,6 @@ def _region_stats(values, eps=1e-8):
     }
 
 
-def _relation_for_channel(anomaly_meta, channel):
-    relations = anomaly_meta.get("intensity_relation_channels") if anomaly_meta else None
-    if not isinstance(relations, (list, tuple)) or channel >= len(relations):
-        return None
-    relation = relations[channel]
-    return relation if isinstance(relation, dict) else None
-
 
 def _target_median_from_relation(bg_median, relation, eps=1e-8):
     if not relation:
@@ -94,6 +87,7 @@ def _normalize_anomaly_to_context(
     anomaly_mask,
     context_mask,
     anomaly_meta,
+    class_label=None,
     alpha_mask=None,
     eps=1e-8,
 ):
@@ -113,7 +107,21 @@ def _normalize_anomaly_to_context(
         if anomaly_stats is None or context_stats is None:
             continue
 
-        relation = _relation_for_channel(anomaly_meta, channel)
+        relation = None
+        if anomaly_meta:
+            if class_label is not None:
+                for class_meta in anomaly_meta.get("intensity_relation_classes", []):
+                    if not isinstance(class_meta, dict):
+                        continue
+                    if float(class_meta.get("label", -1)) != float(class_label):
+                        continue
+                    relations = class_meta.get("channels")
+                    if isinstance(relations, (list, tuple)) and channel < len(relations):
+                        candidate = relations[channel]
+                        if isinstance(candidate, dict):
+                            relation = candidate
+                    break
+
         target_median = _target_median_from_relation(context_stats["median"], relation, eps=eps)
         target_iqr = context_stats["iqr"]
         if relation is not None:
@@ -344,16 +352,33 @@ def fusion2d(
         else:
             raise ValueError("fusion_normalization_border_width must be None, -1, or >= 0.")
 
-        if np.any(context_mask):
+        labels = np.unique(target_mask[binary_mask])
+        labels = labels[labels > 0]
+        eps = float(getattr(config, "normalization_eps", 1e-8))
+        min_context_size = int(getattr(config, "fusion_relation_min_context_size", 8))
+        for label in labels:
+            class_mask = target_mask == label
+            if not np.any(class_mask):
+                continue
+            if border_width == -1:
+                class_context_mask = context_mask
+            else:
+                class_dilated_mask = binary_dilation(class_mask, structure=dilation_structure)
+                class_context_mask = class_dilated_mask & ~binary_mask
+                if np.count_nonzero(class_context_mask) < min_context_size:
+                    class_context_mask = context_mask
+            if np.count_nonzero(class_context_mask) < min_context_size:
+                continue
             anom = _normalize_anomaly_to_context(
                 anom,
                 context_slice,
                 bg_slice,
-                binary_mask,
-                context_mask,
+                class_mask,
+                class_context_mask,
                 context_meta,
+                class_label=label,
                 alpha_mask=alpha_mask,
-                eps=float(getattr(config, "normalization_eps", 1e-8)),
+                eps=eps,
             )
 
     # Broadcast alpha from (h,w) to (1,h,w); it will broadcast across channels during blending
