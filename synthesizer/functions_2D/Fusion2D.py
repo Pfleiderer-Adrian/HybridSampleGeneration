@@ -90,7 +90,7 @@ def fusion2d(
         Iterable length 2 (H,W), typically in [0,1]:
         Example: (0.5, 0.5) inserts anomaly centered in the middle of the image.
     fusion_mask_params:
-        dict containing parameters for alpha mask creation (see get_alpha_mask_sobel_final_2d):
+        dict containing parameters for alpha mask creation (see get_alpha_mask_2d):
           - "max_alpha"
           - "sq"
           - "steepness_factor"
@@ -231,7 +231,6 @@ def fusion2d(
     # ------------------------------------------------------------
     # Use max projection over channels to define foreground robustly
     anom_proj = np.max(anom, axis=0)                         # (h,w)
-    #valid_mask = anom_proj > background_threshold            # (h,w)
     valid_mask = target_mask > 0            # (h,w)
 
 
@@ -280,9 +279,9 @@ def fusion2d(
                 anom[c][binary_mask] = vp_matched
 
     # ------------------------------------------------------------
-    # 10) Create alpha mask from Sobel+distance transform mask (edge-aware)
+    # 10) Create alpha mask from target mask or Sobel+distance transform mask (edge-aware)
     # ------------------------------------------------------------
-    alpha_mask = get_alpha_mask_sobel_final_2d(
+    alpha_mask = get_alpha_mask_2d(
         anom_proj, config, target_mask
     )  # (h,w)
 
@@ -363,13 +362,11 @@ def fusion2d(
     return fused_image, segmentation, fused_roi, fused_roi_mask
 
 
-def get_alpha_mask_sobel_final_2d(anomaly_arr, config, valid_mask):
+def get_alpha_mask_2d(anomaly_arr, config, valid_mask):
     """
-    Build an alpha blending mask for a 2D anomaly image using:
-      - Sobel edges to detect boundaries
-      - morphological operations to close gaps and remove noise
-      - distance transform to produce a smooth mask interior
-      - non-linear shaping to control blending strength and falloff
+    Build an alpha blending mask for a 2D anomaly image using either the target mask
+    directly or, if configured, Sobel edges with morphology. The selected foreground
+    mask is converted to smooth alpha weights via distance transform and shaping.
 
     Inputs
     ------
@@ -385,8 +382,8 @@ def get_alpha_mask_sobel_final_2d(anomaly_arr, config, valid_mask):
           - "sq": int/float
           - "max_alpha": float
           - "shave_pixels": int
-    background_threshold:
-        float threshold to decide foreground vs background.
+    valid_mask:
+        Spatial mask defining where alpha may be non-zero.
 
     Outputs
     -------
@@ -417,22 +414,9 @@ def get_alpha_mask_sobel_final_2d(anomaly_arr, config, valid_mask):
         sampled_steepness = np.random.normal(steepness_factor, std_steepness)
         steepness_factor = float(np.maximum(0.1, sampled_steepness))
     
-
-
+    
     # Initialize alpha mask
     alpha_mask = np.zeros_like(anomaly_arr, dtype=np.float32)
-
-    # ------------------------------------------------------------
-    # Build structuring elements for morphology operations
-    # ------------------------------------------------------------
-    dilation_size = config.fusion_mask_params["dilation_size"]
-
-    # Circular 2D structuring element ("round brush") used to close gaps
-    y, x = np.ogrid[-dilation_size: dilation_size + 1, -dilation_size: dilation_size + 1]
-    struct_brush = x ** 2 + y ** 2 <= dilation_size ** 2
-
-    # 3x3-ish structure used for "shaving" boundary pixels
-    struct_shave = scipy.ndimage.generate_binary_structure(2, 2)
 
     slice_img = anomaly_arr
 
@@ -440,41 +424,53 @@ def get_alpha_mask_sobel_final_2d(anomaly_arr, config, valid_mask):
     if not np.any(valid_mask > 0):
         return alpha_mask
 
-    # ------------------------------------------------------------
-    # 1) Sobel edge detection
-    # ------------------------------------------------------------
-    sx = scipy.ndimage.sobel(slice_img, axis=0)
-    sy = scipy.ndimage.sobel(slice_img, axis=1)
-    grad_mag = np.hypot(sx, sy)
+    use_sobel_alpha = getattr(config, "fusion_use_sobel_for_alpha_mask", False)
+    if use_sobel_alpha:
+        # ------------------------------------------------------------
+        # Build structuring elements for Sobel morphology operations
+        # ------------------------------------------------------------
+        dilation_size = config.fusion_mask_params["dilation_size"]
+        y, x = np.ogrid[-dilation_size: dilation_size + 1, -dilation_size: dilation_size + 1]
+        struct_brush = x ** 2 + y ** 2 <= dilation_size ** 2
+        struct_shave = scipy.ndimage.generate_binary_structure(2, 2)
 
-    # Normalize gradient magnitude to [0,1]
-    if grad_mag.max() > 0:
-        grad_mag /= grad_mag.max()
+        # ------------------------------------------------------------
+        # 1) Sobel edge detection
+        # ------------------------------------------------------------
+        sx = scipy.ndimage.sobel(slice_img, axis=0)
+        sy = scipy.ndimage.sobel(slice_img, axis=1)
+        grad_mag = np.hypot(sx, sy)
 
-    # Edge mask = pixels with gradient magnitude above threshold
-    edge_mask = grad_mag > config.fusion_mask_params["sobel_threshold"]
+        # Normalize gradient magnitude to [0,1]
+        if grad_mag.max() > 0:
+            grad_mag /= grad_mag.max()
 
-    # ------------------------------------------------------------
-    # 2) Close gaps and fill the interior
-    # ------------------------------------------------------------
-    thick_edge = scipy.ndimage.binary_dilation(edge_mask, structure=struct_brush)
-    filled_body = scipy.ndimage.binary_fill_holes(thick_edge)
+        # Edge mask = pixels with gradient magnitude above threshold
+        edge_mask = grad_mag > config.fusion_mask_params["sobel_threshold"]
 
-    # Erode once to compensate for dilation thickening (shape reconstruction)
-    restored_mask = scipy.ndimage.binary_erosion(filled_body, structure=struct_brush, iterations=1)
+        # ------------------------------------------------------------
+        # 2) Close gaps and fill the interior
+        # ------------------------------------------------------------
+        thick_edge = scipy.ndimage.binary_dilation(edge_mask, structure=struct_brush)
+        filled_body = scipy.ndimage.binary_fill_holes(thick_edge)
 
-    # ------------------------------------------------------------
-    # 3) Optional "shaving" to remove boundary pixels (reduce blending artifacts)
-    # ------------------------------------------------------------
-    shave_pixels = config.fusion_mask_params["shave_pixels"]
-    if shave_pixels > 0:
-        shaved_mask = scipy.ndimage.binary_erosion(
-            restored_mask, structure=struct_shave, iterations=shave_pixels
-        )
+        # Erode once to compensate for dilation thickening (shape reconstruction)
+        restored_mask = scipy.ndimage.binary_erosion(filled_body, structure=struct_brush, iterations=1)
+
+        # ------------------------------------------------------------
+        # 3) Optional "shaving" to remove boundary pixels (reduce blending artifacts)
+        # ------------------------------------------------------------
+        shave_pixels = config.fusion_mask_params["shave_pixels"]
+        if shave_pixels > 0:
+            shaved_mask = scipy.ndimage.binary_erosion(
+                restored_mask, structure=struct_shave, iterations=shave_pixels
+            )
+        else:
+            shaved_mask = restored_mask
+
+        final_clean_mask = shaved_mask
     else:
-        shaved_mask = restored_mask
-
-    final_clean_mask = shaved_mask
+        final_clean_mask = valid_mask > 0
 
     # Skip empty mask
     if not np.any(final_clean_mask):

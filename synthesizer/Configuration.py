@@ -148,6 +148,7 @@ class Configuration:
             "sq_variation": 0.1,
             "steepness_variation": 0.1 
         }
+        self.fusion_use_sobel_for_alpha_mask = False
         self.confidence_levels = {
             "68%": 1.0,
             "80%": 1.28,
