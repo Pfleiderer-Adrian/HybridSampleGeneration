@@ -110,7 +110,7 @@ class LatentDiffusionLoRA2D(nn.Module):
         checkpoint = {
             "config": asdict(self.cfg),
             "trainable_state_dict": self._trainable_state_dict(),
-            "state": state,
+            "state": self._serializable_checkpoint_state(state),
         }
         torch.save(checkpoint, path)
 
@@ -118,7 +118,10 @@ class LatentDiffusionLoRA2D(nn.Module):
         if self.pipeline is None:
             self.warmup(kwargs.get("shape", (self.cfg.in_channels, self.cfg.resolution, self.cfg.resolution)))
 
-        checkpoint = torch.load(path, map_location="cpu")
+        # Older checkpoints stored optimizer/scheduler objects in "state".
+        # Loading those trusted project checkpoints requires PyTorch's full
+        # pickle loader since 2.6 defaults torch.load(weights_only=True).
+        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
         state_dict = checkpoint.get("trainable_state_dict", checkpoint)
         missing, unexpected = self.load_state_dict(state_dict, strict=False)
         unexpected_lora = [key for key in unexpected if "lora" in key.lower()]
@@ -545,3 +548,13 @@ class LatentDiffusionLoRA2D(nn.Module):
             for name, tensor in self.state_dict().items()
             if name in trainable_names
         }
+
+    @staticmethod
+    def _serializable_checkpoint_state(state):
+        serializable = {}
+        for key, value in state.items():
+            if hasattr(value, "state_dict"):
+                serializable[key] = value.state_dict()
+            else:
+                serializable[key] = value
+        return serializable

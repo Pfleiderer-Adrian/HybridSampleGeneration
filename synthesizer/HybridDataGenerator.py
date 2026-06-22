@@ -301,7 +301,7 @@ class HybridDataGenerator:
         params = t.user_attrs['params']
         model_name = t.user_attrs['model_name']
         self._model = get_model_spec(model_name).build(params)
-        device = torch.device("cpu")
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._model.to(device)
         self._model.warmup(
             self._config.anomaly_size,
