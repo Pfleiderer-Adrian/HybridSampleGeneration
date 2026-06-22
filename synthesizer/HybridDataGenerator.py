@@ -266,7 +266,7 @@ class HybridDataGenerator:
             path_to_db_model = "sqlite:///" + path_to_db_file
 
         study = optuna.load_study(
-            study_name=self._config.study_name,  # Name der Studie
+            study_name=self._config.study_name,
             storage=path_to_db_model
         )
 
@@ -381,13 +381,6 @@ class HybridDataGenerator:
                     if syn_anomaly_sample.shape != img.shape:
                         raise ValueError(str(syn_anomaly_sample.shape)+"vs"+str(img.shape))
 
-                    """               
-                    if self._config.random_offset:
-                        _background_threshold = self._config.background_threshold
-                        if _background_threshold is None:
-                            _background_threshold = np.min(syn_anomaly_sample)+0.01
-                        syn_anomaly_sample, _, _, _ = center_foreground_com(syn_anomaly_sample, _background_threshold, largest_only=True)
-                        img, _, _, _ = center_foreground_com(img, _background_threshold) """
                     similarity_score = ssim_01(img, syn_anomaly_sample)
 
                     if similarity_score > best:
@@ -397,8 +390,7 @@ class HybridDataGenerator:
                         print("New best Score: "+str(best))
 
                     if i % 100 == 0:
-                        if self._config.feedback_threshold > 0.15:
-                            self._config.feedback_threshold = self._config.feedback_threshold * self._config.threshold_relaxation_factor
+                        self._config.feedback_threshold = self._config.feedback_threshold * self._config.threshold_relaxation_factor
                     i = i + 1
                 if(best < 0.25):
                     bad_anomalies.append(basename)
