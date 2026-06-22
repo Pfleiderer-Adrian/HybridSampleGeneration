@@ -1,6 +1,6 @@
 from dataclasses import asdict, dataclass
 
-from fusion_models.fusion_configuration import FusionConfiguration
+from fusion_backend.fusion_configuration import FusionConfiguration
 
 
 CONFIDENCE_LEVELS = {

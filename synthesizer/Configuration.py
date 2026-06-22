@@ -8,8 +8,8 @@ import jsonpickle
 
 from generation_models.model_configuration import ModelConfiguration
 from generation_models.model_registry import get_model_spec, registered_model_names
-from fusion_models.fusion_configuration import FusionConfiguration
-from fusion_models.fusion_registry import get_fusion_backend_spec, registered_fusion_backend_names
+from fusion_backend.fusion_configuration import FusionConfiguration
+from fusion_backend.fusion_registry import get_fusion_backend_spec, registered_fusion_backend_names
 from synthesizer.StudyPaths import StudyPaths
 
 ALLOWED_MODELS = registered_model_names()

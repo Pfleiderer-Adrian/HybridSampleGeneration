@@ -47,6 +47,9 @@ if __name__ == "__main__":
     # 4) Or load already created matching dict
     HDG.load_matching_dict()
 
+    # 5) Initialize the configured fusion backend
+    HDG.load_fusion_backend()
+
     # set result folder
     paths = config.get_paths()
     img_folder = paths.generated_images
@@ -61,7 +64,7 @@ if __name__ == "__main__":
             print(basename+" not found in matching dict")
             continue
 
-        # 5) Fuse synthetic anomaly into one control sample
+        # 6) Fuse synthetic anomaly into one control sample
         img, seg = HDG.fusion_synth_anomalies(control_image, basename)
 
         # your own saving routine
@@ -77,8 +80,8 @@ if __name__ == "__main__":
 
     dataloader_samples_with_anomalies = NiftiDataloader(path_to_img, path_to_seg, "t2w")
 
-    # 6) Compute (textural and morphological) metric differences for real-synthetic pairs
+    # 7) Compute (textural and morphological) metric differences for real-synthetic pairs
     HDG.run_evaluation_pipeline(dataloader_samples_with_anomalies)
     
-    # 7) Start Outlier Viewer for manual inspection of generated samples
+    # 8) Start Outlier Viewer for manual inspection of generated samples
     HDG.visualize_evaluation_results()

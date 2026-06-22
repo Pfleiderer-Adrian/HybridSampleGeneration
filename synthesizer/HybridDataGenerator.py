@@ -11,8 +11,7 @@ from tqdm import tqdm
 from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
 
 from generation_models.model_registry import get_model_spec
-from fusion_models.fusion_configuration import FusionConfiguration
-from fusion_models.fusion_registry import get_fusion_backend_spec
+from fusion_backend.fusion_registry import get_fusion_backend_spec
 from synthesizer.mask_manipulation import TransformGenerator
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
@@ -55,13 +54,7 @@ class HybridDataGenerator:
         self._anomaly_dataset = None
         self._synth_anomaly_dataset = None
         self._model = None
-        backend_params = {
-            "fusion_params": FusionConfiguration.from_value(config.fusion_params).fixed_params(),
-        }
-        self._fusion_backend = get_fusion_backend_spec(config.fusion_backend).build(backend_params)
-
-        if config.fusion_backend_checkpoint:
-            self._fusion_backend.load_checkpoint(config.fusion_backend_checkpoint)
+        self._fusion_backend = None
 
     def _log_step(self, message: str) -> None:
         print(f"[HybridDataGenerator] {message}")
@@ -312,6 +305,24 @@ class HybridDataGenerator:
         model_path = t.user_attrs['model_path']
         self._model.load_checkpoint(model_path)
 
+    def load_fusion_backend(self, fusion_backend_checkpoint=None):
+        """
+        Initialize the configured fusion backend from the current configuration.
+
+        Outputs
+        -------
+        None
+            Side effect: sets self._fusion_backend and optionally loads its checkpoint.
+        """
+        self._log_step("Step 5/9: Loading fusion backend.")
+        backend_params = {"fusion_params": self._config.fusion_params}
+        self._fusion_backend = get_fusion_backend_spec(self._config.fusion_backend).build(backend_params)
+
+        if fusion_backend_checkpoint:
+            self._fusion_backend.load_checkpoint(fusion_backend_checkpoint)
+        elif self._config.fusion_backend_checkpoint:
+            self._fusion_backend.load_checkpoint(self._config.fusion_backend_checkpoint)
+
     def generate_synth_anomalies(self):
         """
         Generate synthetic anomalies for each anomaly in the loaded anomaly dataset.
@@ -559,6 +570,8 @@ class HybridDataGenerator:
 
         anomalies = self._config.matching_dict[basename_of_control_sample]
         img = control_samples_array.copy()
+        if self._fusion_backend is None:
+            self.load_fusion_backend()
         self._fusion_backend.warmup(img.shape, config=self._config)
 
         if anomalies is None or len(anomalies) == 0:

@@ -4,9 +4,9 @@ import numpy as np
 import scipy.ndimage
 from scipy.ndimage import binary_dilation, zoom
 
-from fusion_models.classical.configuration import CONFIDENCE_LEVELS, Config
-from fusion_models.fusion_configuration import FusionConfiguration
-from fusion_models.interfaces import FusionOutput
+from fusion_backend.classical.configuration import CONFIDENCE_LEVELS, Config
+from fusion_backend.fusion_configuration import FusionConfiguration
+from fusion_backend.interfaces import FusionOutput
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_square_clip, dynamic_roi_size as dynamic_roi_size_2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_cube_clip, dynamic_roi_size as dynamic_roi_size_3d
 

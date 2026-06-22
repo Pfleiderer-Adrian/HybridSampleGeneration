@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Type
 
-from fusion_models.interfaces import FusionBackend
-from fusion_models import ClassicalFusionBackend
-from fusion_models.classical import Config as ClassicalFusionConfig
-from fusion_models.classical import get_classical_fusion_configuration
+from fusion_backend.interfaces import FusionBackend
+from fusion_backend import ClassicalFusionBackend
+from fusion_backend.classical import Config as ClassicalFusionConfig
+from fusion_backend.classical import get_classical_fusion_configuration
 
 
 @dataclass(frozen=True)
