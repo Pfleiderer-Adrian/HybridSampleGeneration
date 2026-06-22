@@ -7,9 +7,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from tqdm import tqdm
 
-from models.model_interface import HybridModelInterface
+from generation_models.VAEs.vae_base import HybridVAEBase
 from synthesizer.mask_manipulation import TransformGenerator
 
 
@@ -311,6 +310,11 @@ class Config:
     use_multires_skips: bool = True
     recon_weight: float = 100.0
     beta_kl: float = 1.0
+    beta_kl_start: float = 0.0
+    beta_kl_max: float = 4.0
+    beta_kl_warmup_start: int = 0
+    beta_kl_warmup_epochs: int = 100
+    free_bits: float = 0.0
     recon_loss: str = "smoothl1"  # 'smoothl1' or 'mse'
     recon_smoothl1_beta: float = 1.0
     use_transpose_conv: bool = True
@@ -318,7 +322,7 @@ class Config:
     fg_threshold: float = 0.0
 
 
-class ResNetVAE3D(HybridModelInterface):
+class ResNetVAE3D(HybridVAEBase):
     """
     3D ResNet-VAE.
 
@@ -531,132 +535,16 @@ class ResNetVAE3D(HybridModelInterface):
 
         raise TypeError(f"Unknown batch type: {type(batch)}")
 
-    def fit_epoch(
-            self,
-            train_dataloader,
-            val_dataloader,
-            optimizer,
-            *,
-            epoch_idx: Optional[int] = None,
-            log_every=1,
-            grad_clip_norm: Optional[float] = None,
-            device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
-    ) -> tuple[dict, dict]:
-        """
-        Train for one epoch over train_dataloader and (optionally) validate over val_dataloader.
-
-        Expected dataloader output:
-          - batches where x can be extracted into shape (B,C,D,H,W)
-
-        Inputs
-        ------
-        train_dataloader:
-            Iterable over training batches.
-        val_dataloader:
-            Iterable over validation batches (or None to skip validation).
-        optimizer:
-            torch optimizer instance (e.g., Adam).
-        log_every:
-            Update tqdm postfix every N steps.
-        grad_clip_norm:
-            If set, gradient clipping norm value.
-        device:
-            Device string or torch.device.
-
-        Outputs
-        -------
-        (train_metrics, val_metrics):
-            Each is a dict with averaged losses:
-              - "total"
-              - "recon"
-              - "kl"
-        """
-        device = torch.device(device)
-        model = self.to(device)
-
-        def run_epoch(loader: Iterable, training: bool) -> Dict[str, float]:
-            # Switch model into train/eval mode
-            model.train(training)
-
-            # Accumulators for averaged metrics
-            run = {"total": 0.0, "recon": 0.0, "kl": 0.0, "kl_raw": 0.0, "recon_weighted": 0.0, "kl_weighted": 0.0}
-            n = 0
-
-            # Progress bar over batches
-            pbar = tqdm(loader, desc=("train" if training else "val"), leave=False, dynamic_ncols=True)
-
-            for step, batch in enumerate(pbar, start=1):
-                # Extract x from the batch in a robust way
-                x = self._extract_x(batch=batch)
-
-                # Ensure tensor type
-                if not isinstance(x, torch.Tensor):
-                    x = torch.as_tensor(x)
-
-                # Move to device
-                x = x.to(device, non_blocking=True)
-
-                # Validate shape
-                if x.ndim != 5:
-                    raise ValueError(f"Expected (B,C,D,H,W) from dataloader, got {tuple(x.shape)}")
-
-                if training:
-                    optimizer.zero_grad(set_to_none=True)
-
-                # Enable grads only during training
-                with torch.set_grad_enabled(training):
-                    out = model(x)
-                    losses = model.loss(out)
-                    loss = losses["total"]
-
-                    if training:
-                        loss.backward()
-
-                        # Optional gradient clipping
-                        if grad_clip_norm is not None and grad_clip_norm > 0:
-                            nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
-
-                        optimizer.step()
-
-                # Accumulate losses
-                for k in run:
-                    if k in losses:
-                        run[k] += float(losses[k].detach().item())
-                n += 1
-
-                # Live metrics in progress bar
-                if log_every and (step % log_every == 0):
-                    postfix = {"total": f"{float(losses['total'].detach()):.6f}"}
-                    if "recon" in losses:
-                        postfix["recon"] = f"{float(losses['recon'].detach()):.6f}"
-                    if "kl" in losses:
-                        postfix["kl"] = f"{float(losses['kl'].detach()):.6f}"
-                    pbar.set_postfix(postfix)
-
-            # Average metrics
-            denom = max(1, n)
-            return {k: run[k] / denom for k in run}
-
-        # Train epoch
-        tr = run_epoch(train_dataloader, training=True)
-
-        # Validation epoch
-        va = {}
-        if val_dataloader is not None:
-            with torch.no_grad():
-                va = run_epoch(val_dataloader, training=False)
-
-        return tr, va
-
-
-    def generate_synth_sample(
+    def _generate_posterior(
             self,
             sample: Union[dict, np.ndarray, torch.Tensor],
             *,
+            n: int = 1,
             variation_strength: float = 1.0,
             device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
             clamp_01: bool = True,
             target_mask_generator: Optional[TransformGenerator] = None,
+            return_torch: bool = False,
     ) -> np.ndarray:
         """
         Generate a synthetic sample (reconstruction) for a SINGLE input sample.
@@ -685,6 +573,8 @@ class ResNetVAE3D(HybridModelInterface):
             Reconstruction as float32, shape (C, D, H, W).
 
         """
+        if n <= 0:
+            raise ValueError(f"n must be > 0, got {n}")
         if variation_strength < 0:
             raise ValueError(f"variation_strength must be >= 0, got {variation_strength}")
 
@@ -697,8 +587,10 @@ class ResNetVAE3D(HybridModelInterface):
         x = x.float()
 
         # ensure batch dimension
+        single = False
         if x.ndim == 4:  # (C,D,H,W) -> (1,C,D,H,W)
             x = x.unsqueeze(0)
+            single = True
         elif x.ndim == 5:  # already batched (1,C,D,H,W) or (B,C,D,H,W)
             pass
         else:
@@ -725,27 +617,33 @@ class ResNetVAE3D(HybridModelInterface):
             logvar = model.fc_logvar(h_flat)
 
             if variation_strength == 0.0:
-                z = mu
+                z = mu.unsqueeze(1).expand(B, n, -1).reshape(B * n, -1)
             else:
                 std = torch.exp(0.5 * logvar)
-                z = mu + float(variation_strength) * std * torch.randn_like(std)
+                eps = torch.randn((B, n, mu.shape[-1]), device=device, dtype=mu.dtype)
+                z = (mu.unsqueeze(1) + float(variation_strength) * std.unsqueeze(1) * eps).reshape(B * n, -1)
 
-            h_dec = model.fc_decode(z).reshape(B, self.cfg.z_channels, *latent_dhw)
+            h_dec = model.fc_decode(z).reshape(B * n, self.cfg.z_channels, *latent_dhw)
             recon = model.decoder(h_dec)  # (B, C, D, H, W)
             recon = self._crop_like(recon, ref_dhw)
 
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)
 
-        recon = recon.detach().cpu()
+            recon = recon.view(B, n, self.cfg.in_channels, *ref_dhw)
+            if single:
+                recon = recon.squeeze(0).squeeze(0)
 
-        # Remove batch dimension: (1,C,...) -> (C,...)
-        recon_np = recon.squeeze(0).numpy().astype(np.float32, copy=False)
         if target_mask_generator is None:
             target_mask_generator = TransformGenerator()
+
+        if return_torch:
+            return recon, target_mask_generator.create_target_mask(synth_anomaly_image=recon)
+
+        recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
         return recon_np, target_mask_generator.create_target_mask(synth_anomaly_image=recon_np)
 
-    def generate_synth_sample_prior(
+    def _generate_prior(
         self,
         sample: Union[dict, np.ndarray, torch.Tensor, None] = None,
         *,
@@ -794,7 +692,7 @@ class ResNetVAE3D(HybridModelInterface):
         D_pad, H_pad, W_pad = D + pad_d, H + pad_h, W + pad_w
         latent_dhw = (D_pad // down, H_pad // down, W_pad // down)
 
-        z_dim = int(getattr(self.cfg, "bottleneck_dim", 256))
+        z_dim = int(self.cfg.bottleneck_dim)
 
         with torch.no_grad():
             model._ensure_fcs(latent_dhw, device)
@@ -820,7 +718,7 @@ class ResNetVAE3D(HybridModelInterface):
         recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
         return recon_np, target_mask_generator.create_target_mask(synth_anomaly_image=recon_np)
 
-    def warmup(self, shape, device=None, dtype=None):
+    def warmup(self, shape, device=None, dtype=None, config=None):
         """
         Warm up the model to initialize lazy FC layers (fc_mu, fc_logvar, fc_decode).
 

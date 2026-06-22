@@ -45,6 +45,7 @@ DEFAULT_GENERATION_STEPS = (
     "train_generator",
     "generate_synthetic_anomalies",
     "create_matching",
+    "load_fusion_backend",
     "generate_hybrid_samples",
     "save_config",
 )
@@ -57,6 +58,7 @@ GENERATION_STEP_ORDER = (
     "load_synthetic_anomalies",
     "create_matching",
     "load_matching",
+    "load_fusion_backend",
     "generate_hybrid_samples",
     "save_config",
 )
@@ -82,6 +84,10 @@ GENERATION_STEP_ALIASES = {
     "create_matching_dict": "create_matching",
     "load_matching": "load_matching",
     "load_matching_dict": "load_matching",
+    "load_fusion": "load_fusion_backend",
+    "load_fusion_backend": "load_fusion_backend",
+    "load_fusion_model": "load_fusion_backend",
+    "fusion_backend": "load_fusion_backend",
     "fusion": "generate_hybrid_samples",
     "hybrid": "generate_hybrid_samples",
     "generate_hybrid": "generate_hybrid_samples",
@@ -291,6 +297,9 @@ def run_hybrid_sample_generation_for_usecase(
         generator.create_matching_dict(use_case.control_dataloader)
     elif "load_matching" in selected_steps or _needs_matching_loaded(selected_steps):
         generator.load_matching_dict()
+
+    if "load_fusion_backend" in selected_steps or "generate_hybrid_samples" in selected_steps:
+        generator.load_fusion_backend()
 
     if "generate_hybrid_samples" in selected_steps:
         _generate_and_save_hybrid_samples(generator, use_case)
@@ -609,7 +618,7 @@ def _legacy_generation_steps(
     else:
         raise ValueError("Either create_matching or load_existing_matching must be True.")
 
-    steps.extend(["generate_hybrid_samples", "save_config"])
+    steps.extend(["load_fusion_backend", "generate_hybrid_samples", "save_config"])
     return tuple(steps)
 
 
@@ -867,15 +876,15 @@ def _validate_dataset_root(root: Path) -> None:
 
 if __name__ == "__main__":
 
-    dataset_root = r"/path/to/mvtec_ad_2_dataset"
-    save_path = r"/path/to/save/results"
+    dataset_root = r"C:/Users/priva/Documents/datasets/mvtec_ad_2"
+    save_path = r"C:/Users/priva/Documents/experiments/mvtec_ad_2"
 
     run_hybrid_sample_generation_for_all_usecases(
         dataset_root,
         categories="can",
         no_of_trials=1,
         steps=("extract", "train", "generate_synth", "matching", "fusion", "save"),
-        generator_trial_id=-2,  # -1: best Model, -2: newest Model, else Trial-/Model number
+        generator_trial_id=-2,  # -1: best Model, -2: newest Model, else Trial-/Modely number
         save_path=save_path
     )
 

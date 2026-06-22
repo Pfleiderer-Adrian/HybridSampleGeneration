@@ -1,10 +1,10 @@
 from dataclasses import asdict
 
-from models.model_configuration import ModelConfiguration
-from models.VAEs.cVAE_ConvNeXt import cVAE_ConvNeXt_2D, cVAE_ConvNeXt_3D
+from generation_models.model_configuration import ModelConfiguration
+from generation_models.VAEs.VAE_ConvNeXt import VAE_ConvNeXt_2D, VAE_ConvNeXt_3D
 
 
-CONDITIONAL_VAE_INPUT_ARTEFACTS = ("img", "fname", "ori_mask")
+DEFAULT_VAE_INPUT_ARTEFACTS = ("img", "fname")
 
 
 def _build_model_configuration(config_cls, in_channels, min_params, max_params, *, input_artefacts):
@@ -15,10 +15,8 @@ def _build_model_configuration(config_cls, in_channels, min_params, max_params, 
     )
 
 
-def get_convnext_cvae_3d_configuration(in_channels):
+def get_convnext_vae_3d_configuration(in_channels):
     base = {
-        "num_anomaly_classes": None,
-        "n_spade_blocks": 2,
         "z_channels": 128,
         "bottleneck_dim": 256,
         "use_multires_skips": True,
@@ -35,7 +33,7 @@ def get_convnext_cvae_3d_configuration(in_channels):
         "use_transpose_conv": False,
     }
     return _build_model_configuration(
-        cVAE_ConvNeXt_3D.Config,
+        VAE_ConvNeXt_3D.Config,
         in_channels,
         {
             **base,
@@ -49,15 +47,13 @@ def get_convnext_cvae_3d_configuration(in_channels):
             "n_levels": 6,
             "fg_weight": 2.0,
         },
-        input_artefacts=CONDITIONAL_VAE_INPUT_ARTEFACTS,
+        input_artefacts=DEFAULT_VAE_INPUT_ARTEFACTS,
     )
 
 
-def get_convnext_cvae_2d_configuration(in_channels):
+def get_convnext_vae_2d_configuration(in_channels):
     base = {
-        "num_anomaly_classes": None,
         "n_res_blocks": 4,
-        "n_spade_blocks": 2,
         "n_levels": 4,
         "z_channels": 32,
         "bottleneck_dim": 64,
@@ -79,15 +75,10 @@ def get_convnext_cvae_2d_configuration(in_channels):
         "fg_threshold": 0.0,
     }
     return _build_model_configuration(
-        cVAE_ConvNeXt_2D.Config,
+        VAE_ConvNeXt_2D.Config,
         in_channels,
         base,
         base,
-        input_artefacts=CONDITIONAL_VAE_INPUT_ARTEFACTS,
+        input_artefacts=DEFAULT_VAE_INPUT_ARTEFACTS,
     )
 
-
-MODEL_CONFIGURATION_FACTORIES = {
-    "cVAE_ConvNeXt_3D": get_convnext_cvae_3d_configuration,
-    "cVAE_ConvNeXt_2D": get_convnext_cvae_2d_configuration,
-}

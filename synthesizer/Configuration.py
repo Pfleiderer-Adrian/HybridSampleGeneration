@@ -6,11 +6,14 @@ import numpy as np
 import os
 import jsonpickle
 
-from models.model_configuration import ModelConfiguration, get_model_configuration
+from generation_models.model_configuration import ModelConfiguration
+from generation_models.model_registry import get_model_spec, registered_model_names
+from fusion_backend.fusion_configuration import FusionConfiguration
+from fusion_backend.fusion_registry import get_fusion_backend_spec, registered_fusion_backend_names
 from synthesizer.StudyPaths import StudyPaths
 
-# Allowed model choices (fixed set)
-ALLOWED_MODELS = ["VAE_ResNet_3D", "VAE_ResNet_2D", "VAE_ConvNeXt_3D", "cVAE_ConvNeXt_3D", "VAE_ConvNeXt_2D", "cVAE_ConvNeXt_2D"]
+ALLOWED_MODELS = registered_model_names()
+ALLOWED_FUSION_BACKENDS = registered_fusion_backend_names()
 
 
 # creates a new interactive config object/file for the data generator
@@ -32,7 +35,7 @@ class Configuration:
     def __setattr__(self, name, value):
         if (
             name in self._IMMUTABLE_FIELDS
-            and getattr(self, "_immutable_fields_locked", False)
+            and self.__dict__.get("_immutable_fields_locked", False)
             and name in self.__dict__
         ):
             raise AttributeError(
@@ -40,6 +43,8 @@ class Configuration:
             )
         if name == "model_params":
             value = ModelConfiguration.from_value(value)
+        if name == "fusion_params":
+            value = FusionConfiguration.from_value(value)
         super().__setattr__(name, value)
 
     def __init__(self, study_name, model_name, anomaly_size, save_path=None) -> None:
@@ -68,6 +73,7 @@ class Configuration:
         self.study_name = study_name
         if model_name not in ALLOWED_MODELS:
             raise ValueError(f"Model {model_name} is not supported. \nCurrently Supported models: {ALLOWED_MODELS}")
+        model_spec = get_model_spec(model_name)
         self.model_name = model_name
         self.config_name = None
         if save_path is None:
@@ -100,7 +106,7 @@ class Configuration:
         self.add_bg_noise = True
 
 
-        self.conditional = "cVAE" in self.model_name
+        self.conditional = model_spec.uses_masks
         self.num_anomaly_classes = None # will be set in HDG (load_anomalies)
 
         # synthesizer parameter
@@ -132,39 +138,9 @@ class Configuration:
         self.matching_intensity_weight = 0.5
         self.matching_gradient_weight = 0.5
 
-        # fusion parameter
-        self.fusion_mask_params = {
-            "max_alpha": 0.8,
-            "sq": 2,
-            "steepness_factor": 3,
-            "upsampling_factor": 2,
-            "sobel_threshold": 0.05,
-            "dilation_size": 2,
-            "shave_pixels": 1
-        }
-        self.fusion_variation = True    # use gaussian sampling for max_alpha, sq and steepness_factor
-        self.fusion_variation_params = {
-            "alpha_variation": 0.05, 
-            "sq_variation": 0.1,
-            "steepness_variation": 0.1 
-        }
-        self.confidence_levels = {
-            "68%": 1.0,
-            "80%": 1.28,
-            "90%": 1.645,   # with 1.645: deviation in one direction <= fusion_variation_params in 90% of cases; default
-            "95%": 1.960,
-            "99%": 2.576
-        }
-        self.selected_confidence = "90%" 
-        self.confidence_z_score = self.confidence_levels[self.selected_confidence]
-        
-        # Number of border pixels used to normalize the synthetic anomaly intensity to the surrounding fusion region.
-        # Border width in pixels around the anomaly mask used for local intensity normalization:
-        # None -- skips normalization
-        # 0 -- uses only the anomaly mask
-        # > 0 -- larger values use a wider surrounding region.
-        # -1 -- uses the entire image.
-        self.fusion_normalization_border_width = 2
+        self.fusion_backend = "classical"
+        self.fusion_backend_checkpoint = None
+        self.fusion_params = get_fusion_backend_spec(self.fusion_backend).build_configuration()
 
         # global training parameter, fixed during training
         self.val_ratio = 0.2
@@ -172,6 +148,9 @@ class Configuration:
         self.epochs = 3000
         self.lr = 1e-3
         self.log_every = None
+        self.training_dtype = None
+        self.grad_clip_norm = None
+        self.monitor_metric = None
         self.early_stopping = True
         self.early_stopping_params = {
             "patience": 2000,
@@ -184,7 +163,7 @@ class Configuration:
             "threshold": 1e-5,
         }
 
-        self.model_params = get_model_configuration(model_name, anomaly_size[0], debug=False)
+        self.model_params = model_spec.build_configuration(anomaly_size[0])
 
         # set to None for variable roi size
         self.fixed_roi_size = None
@@ -216,15 +195,14 @@ class Configuration:
         """
         Return the managed study path layout.
 
-        This method also upgrades older serialized configs that do not yet
-        contain a StudyPaths object.
+        This method keeps the StudyPaths object aligned with the current
+        study folder and name.
         """
         study_folder = os.path.normpath(os.fspath(self.study_folder))
-        paths = getattr(self, "paths", None)
         if (
-            not isinstance(paths, StudyPaths)
-            or paths.study_folder != study_folder
-            or paths.study_name != self.study_name
+            not isinstance(self.paths, StudyPaths)
+            or self.paths.study_folder != study_folder
+            or self.paths.study_name != self.study_name
         ):
             self.paths = StudyPaths(study_folder, self.study_name)
         return self.paths
@@ -366,59 +344,6 @@ class Configuration:
                 result[control] = anomalies
         self.matching_dict = result
 
-    def update_fusion_params(self, max_alpha=0.8, sq=2, steepness_factor=3, upsampling_factor=2,
-                             sobel_threshold=0.05, dilation_size=2, shave_pixels=1):
-        """
-        Update parameters controlling the fusion mask creation.
-
-        Inputs
-        ------
-        max_alpha:
-            Maximum blending alpha.
-        sq:
-            Exponent/shape parameter (implementation dependent in Fusion3D).
-        steepness_factor:
-            Controls transition steepness for blending mask.
-        upsampling_factor:
-            Upsampling factor used in mask computation.
-        sobel_threshold:
-            Threshold for Sobel edge detection.
-        dilation_size:
-            Dilation size used for mask refinement.
-        shave_pixels:
-            Number of pixels to shave from boundaries (artifact reduction).
-
-        Outputs
-        -------
-        None
-            Side effect: overwrites self.fusion_mask_params.
-        """
-        self.fusion_mask_params = {
-            "max_alpha": max_alpha,
-            "sq": sq,
-            "steepness_factor": steepness_factor,
-            "upsampling_factor": upsampling_factor,
-            "sobel_threshold": sobel_threshold,
-            "dilation_size": dilation_size,
-            "shave_pixels": shave_pixels
-        }
-
-    # print all values of config instance
-    def print_config(self):
-        """
-        Print all configuration fields and values to stdout.
-
-        Inputs
-        ------
-        None
-
-        Outputs
-        -------
-        None
-            Side effect: prints to stdout.
-        """
-        print(', \n'.join("%s: %s" % item for item in vars(self).items()))
-
 # load config file from JSON file
 def load_config_file(json_path):
     """
@@ -436,9 +361,6 @@ def load_config_file(json_path):
     """
     with open(json_path, 'r', encoding='utf-8') as fi:
         config = jsonpickle.decode(fi.read())
-    if not hasattr(config, "variation_strength"):
-        config.variation_strength = getattr(config, "s", 1.0)
-    if hasattr(config, "s"):
-        delattr(config, "s")
     config.model_params = ModelConfiguration.from_value(config.model_params)
+    config.fusion_params = FusionConfiguration.from_value(config.fusion_params)
     return config

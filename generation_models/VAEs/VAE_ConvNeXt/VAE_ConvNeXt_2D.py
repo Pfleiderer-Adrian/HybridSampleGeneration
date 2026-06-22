@@ -1,0 +1,761 @@
+from __future__ import annotations
+
+"""ConvNeXt2D-U-Net VAE
+
+2D variant of the ConvNeXt3D-U-Net VAE
+
+Features:
+- ConvNeXt2D blocks (depthwise conv + pointwise MLP)
+- GroupNorm instead of BatchNorm (stable for small batch sizes)
+- True U-Net skip connections (feature concatenation)
+- Posterior sampling for *lightly varied* variants around a given input
+
+Shapes:
+- Input x: (B, C, H, W)
+- Output recon: (B, C, H, W)
+
+
+"""
+
+from dataclasses import dataclass
+from typing import Optional, Tuple, Dict, Iterable, Union, List
+import math
+import numpy as np
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from generation_models.VAEs.vae_base import HybridVAEBase
+from synthesizer.mask_manipulation import TransformGenerator
+
+
+# -------------------------
+# blocks (2D)
+# -------------------------
+
+class DropPath(nn.Module):
+    """Stochastic Depth (per sample)."""
+
+    def __init__(self, drop_prob: float = 0.0):
+        super().__init__()
+        self.drop_prob = float(drop_prob)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.drop_prob == 0.0 or not self.training:
+            return x
+        keep_prob = 1.0 - self.drop_prob
+        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+        random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
+        random_tensor = torch.floor(random_tensor)
+        return x.div(keep_prob) * random_tensor
+
+
+def _best_gn_groups(default_groups: int, channels: int) -> int:
+    """Choose a GroupNorm group count that divides channels."""
+    g = min(default_groups, channels)
+    while g > 1 and (channels % g != 0):
+        g -= 1
+    return g
+
+
+class ConvNeXtBlock2D(nn.Module):
+    """ConvNeXt-style block for 2D images (channels-first).
+
+    Design:
+      depthwise conv (k=7 in classic ConvNeXt, here k=7) -> GroupNorm
+      -> pointwise expand -> GELU -> pointwise project
+      + residual
+
+    Notes:
+      - GroupNorm used to avoid channel-last permutations.
+      - Capacity can be scaled via mlp_ratio.
+    """
+
+    def __init__(
+        self,
+        channels: int,
+        mlp_ratio: float = 4.0,
+        gn_groups: int = 8,
+        drop_path: float = 0.0,
+        dropout: float = 0.0,
+        skip_dropout_p: float = 0.0,
+        skip_alpha: float = 1.0,
+    ):
+        super().__init__()
+
+        self.dwconv = nn.Conv2d(
+            channels,
+            channels,
+            kernel_size=7,
+            padding=3,
+            groups=channels,
+            bias=True,
+        )
+
+        groups = _best_gn_groups(gn_groups, channels)
+        self.norm = nn.GroupNorm(num_groups=groups, num_channels=channels, eps=1e-6)
+
+        hidden = int(channels * mlp_ratio)
+        self.pwconv1 = nn.Conv2d(channels, hidden, kernel_size=1, bias=True)
+        self.act = nn.GELU()
+        self.drop = nn.Dropout(p=float(dropout)) if dropout and dropout > 0 else nn.Identity()
+        self.pwconv2 = nn.Conv2d(hidden, channels, kernel_size=1, bias=True)
+
+        self.drop_path = DropPath(drop_path) if drop_path and drop_path > 0 else nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        residual = x
+        x = self.dwconv(x)
+        x = self.norm(x)
+        x = self.pwconv1(x)
+        x = self.act(x)
+        x = self.drop(x)
+        x = self.pwconv2(x)
+        x = self.drop_path(x)
+        return residual + x
+
+
+def _upsample_block2d(in_ch: int, out_ch: int, scale: int, use_transpose_conv: bool, gn_groups: int) -> nn.Sequential:
+    if use_transpose_conv:
+        return nn.Sequential(
+            nn.ConvTranspose2d(in_ch, out_ch, kernel_size=scale, stride=scale, padding=0, bias=True),
+            nn.GroupNorm(num_groups=_best_gn_groups(gn_groups, out_ch), num_channels=out_ch, eps=1e-6),
+            nn.GELU(),
+        )
+
+    return nn.Sequential(
+        nn.Upsample(scale_factor=scale, mode="bilinear", align_corners=False),
+        nn.Conv2d(in_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=True),
+        nn.GroupNorm(num_groups=_best_gn_groups(gn_groups, out_ch), num_channels=out_ch, eps=1e-6),
+        nn.GELU(),
+    )
+
+
+class ConvNeXtUNetEncoder2D(nn.Module):
+    """ConvNeXt2D encoder with U-Net skip outputs.
+
+    forward(x) returns:
+      - h: deepest latent feature map (B, z_channels, h', w')
+      - skips: list of feature maps at each resolution (for decoder), length n_levels
+
+    Channel schedule:
+      base=8 -> 16 -> 32 -> 64 -> ...
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        n_res_blocks: int,
+        n_levels: int,
+        z_channels: int,
+        use_multires_skips: bool = True,  # kept for API compatibility (not used)
+        leak: float = 0.2,               # kept for API compatibility
+        gn_groups: int = 8,
+        drop_path_rate: float = 0.0,
+        dropout: float = 0.0,
+        skip_dropout_p: float = 0.0,
+        skip_alpha: float = 1.0,
+    ):
+        super().__init__()
+        self.n_levels = n_levels
+
+        self.stem = nn.Sequential(
+            nn.Conv2d(in_channels, 8, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.GroupNorm(num_groups=_best_gn_groups(gn_groups, 8), num_channels=8, eps=1e-6),
+            nn.GELU(),
+        )
+
+        self.blocks: nn.ModuleList = nn.ModuleList()
+        self.downs: nn.ModuleList = nn.ModuleList()
+
+        total_blocks = n_levels * n_res_blocks
+        if drop_path_rate and drop_path_rate > 0 and total_blocks > 0:
+            dp_rates = torch.linspace(0.0, float(drop_path_rate), steps=total_blocks).tolist()
+        else:
+            dp_rates = [0.0] * total_blocks
+        dp_i = 0
+
+        for i in range(n_levels):
+            ch = 2 ** (i + 3)       # 8, 16, 32, 64...
+            ch_next = 2 ** (i + 4)  # 16, 32, 64, 128...
+
+            stage = []
+            for _ in range(n_res_blocks):
+                stage.append(ConvNeXtBlock2D(ch, mlp_ratio=4.0, gn_groups=gn_groups, drop_path=dp_rates[dp_i], dropout=dropout))
+                dp_i += 1
+            self.blocks.append(nn.Sequential(*stage))
+
+            self.downs.append(
+                nn.Sequential(
+                    nn.Conv2d(ch, ch_next, kernel_size=2, stride=2, padding=0, bias=True),
+                    nn.GroupNorm(num_groups=_best_gn_groups(gn_groups, ch_next), num_channels=ch_next, eps=1e-6),
+                    nn.GELU(),
+                )
+            )
+
+        bottom_ch = 2 ** (n_levels + 3)
+        self.to_z = nn.Conv2d(bottom_ch, z_channels, kernel_size=3, stride=1, padding=1, bias=True)
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+        x = self.stem(x)
+        skips: List[torch.Tensor] = []
+
+        for i in range(self.n_levels):
+            x = self.blocks[i](x)
+            skips.append(x)
+            x = self.downs[i](x)
+
+        h = self.to_z(x)
+        return h, skips
+
+
+class ConvNeXtUNetDecoder2D(nn.Module):
+    """ConvNeXt2D decoder with U-Net skips.
+
+    For API compatibility, forward(z) only takes `z`.
+    Skips must be set via set_skips(skips) before forward.
+    """
+
+    def __init__(
+        self,
+        out_channels: int,
+        n_res_blocks: int,
+        n_levels: int,
+        z_channels: int,
+        use_multires_skips: bool = True,  # kept for API compatibility (not used)
+        leak: float = 0.2,               # kept for API compatibility
+        use_transpose_conv: bool = True,
+        gn_groups: int = 8,
+        drop_path_rate: float = 0.0,
+        dropout: float = 0.0,
+        skip_dropout_p: float = 0.0,
+        skip_alpha: float = 1.0,
+    ):
+        super().__init__()
+        self.n_levels = n_levels
+        self.use_transpose_conv = use_transpose_conv
+        self._skips: Optional[List[torch.Tensor]] = None
+        self.skip_dropout_p = float(skip_dropout_p)
+        self.skip_alpha = float(skip_alpha)
+
+        self.bottom_ch = 2 ** (n_levels + 3)
+        self.from_z = nn.Sequential(
+            nn.Conv2d(z_channels, self.bottom_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.GroupNorm(num_groups=_best_gn_groups(gn_groups, self.bottom_ch), num_channels=self.bottom_ch, eps=1e-6),
+            nn.GELU(),
+        )
+
+        self.ups: nn.ModuleList = nn.ModuleList()
+        self.fuse: nn.ModuleList = nn.ModuleList()
+        self.blocks: nn.ModuleList = nn.ModuleList()
+
+        total_blocks = n_levels * n_res_blocks
+        if drop_path_rate and drop_path_rate > 0 and total_blocks > 0:
+            dp_rates = torch.linspace(0.0, float(drop_path_rate), steps=total_blocks).tolist()
+        else:
+            dp_rates = [0.0] * total_blocks
+        dp_i = 0
+
+
+        prev_ch = self.bottom_ch
+        for i in range(n_levels):
+            # mirror channel schedule of encoder
+            ch = 2 ** (n_levels - i + 2)
+
+            self.ups.append(_upsample_block2d(prev_ch, ch, scale=2, use_transpose_conv=use_transpose_conv, gn_groups=gn_groups))
+
+            # skip channels at matching resolution
+            skip_ch = 2 ** (n_levels - i + 2)
+            self.fuse.append(
+                nn.Sequential(
+                    nn.Conv2d(ch + skip_ch, ch, kernel_size=1, stride=1, padding=0, bias=True),
+                    nn.GroupNorm(num_groups=_best_gn_groups(gn_groups, ch), num_channels=ch, eps=1e-6),
+                    nn.GELU(),
+                )
+            )
+
+            stage = []
+            for _ in range(n_res_blocks):
+                stage.append(ConvNeXtBlock2D(ch, mlp_ratio=4.0, gn_groups=gn_groups, drop_path=dp_rates[dp_i], dropout=dropout))
+                dp_i += 1
+            self.blocks.append(nn.Sequential(*stage))
+
+            prev_ch = ch
+
+        self.out = nn.Conv2d(prev_ch, out_channels, kernel_size=3, stride=1, padding=1, bias=True)
+
+    def set_skips(self, skips: Optional[List[torch.Tensor]]) -> None:
+        self._skips = skips
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        """Decode latent feature map `z` into an image.
+
+        If skips are not provided (self._skips is None), skip tensors are treated as zeros.
+        During training, optional skip-dropout can be applied per sample to force latent usage.
+        """
+        x = self.from_z(z)
+
+        skips = self._skips
+        if skips is not None and len(skips) != self.n_levels:
+            raise ValueError(f"Expected {self.n_levels} skips, got {len(skips)}")
+
+        for i in range(self.n_levels):
+            x = self.ups[i](x)
+
+            if skips is None:
+                # No skips provided -> treat as zeros (forces latent usage)
+                skip_ch = 2 ** (self.n_levels - i + 2)
+                skip = torch.zeros(
+                    (x.shape[0], skip_ch, x.shape[-2], x.shape[-1]),
+                    device=x.device,
+                    dtype=x.dtype,
+                )
+            else:
+                skip = skips[-1 - i]
+
+            # Align spatial sizes (off-by-1 for odd inputs)
+            if x.shape[-2:] != skip.shape[-2:]:
+                target = (min(x.shape[-2], skip.shape[-2]), min(x.shape[-1], skip.shape[-1]))
+                x = HybridVAEBase._crop_like(x, target)
+                skip = HybridVAEBase._crop_like(skip, target)
+
+            # Apply skip scaling (can be used to weaken or disable skips)
+            if self.skip_alpha != 1.0:
+                skip = skip * self.skip_alpha
+
+            # Skip-Dropout (drop entire skip tensor per sample during training)
+            p = self.skip_dropout_p
+            if p > 0.0 and self.training:
+                keep_prob = 1.0 - p
+                mask = (torch.rand((skip.shape[0], 1, 1, 1), device=skip.device, dtype=skip.dtype) < keep_prob).to(skip.dtype)
+                skip = skip * mask / max(keep_prob, 1e-6)
+
+            x = torch.cat([x, skip], dim=1)
+            x = self.fuse[i](x)
+            x = self.blocks[i](x)
+
+        return self.out(x)
+
+
+# -------------------------
+# VAE 2D
+# -------------------------
+
+@dataclass
+class Config:
+    """Hyperparameters for ConvNeXtVAE2D.
+
+    Notes:
+      - use_multires_skips is kept but ignored by the U-Net implementation.
+      - use_transpose_conv is honored.
+    """
+    in_channels:int = None
+    n_res_blocks: int = 8
+    n_levels: int = 4
+    z_channels: int = 250
+    bottleneck_dim: int = 250
+    use_multires_skips: bool = True
+    recon_weight: float = 100.0
+    beta_kl: float = 1.0
+    beta_kl_start: float = 0.0
+    beta_kl_max: float = 0.03
+    beta_kl_warmup_start: int = 20
+    beta_kl_warmup_epochs: int = 30
+    free_bits: float = 0.0
+
+    recon_loss: str = "smoothl1"  # 'smoothl1' or 'mse'
+    recon_smoothl1_beta: float = 1.0
+    use_transpose_conv: bool = True
+    fg_weight: float = 1.0
+    fg_threshold: float = 0.0
+
+    # Regularization
+    drop_path_rate: float = 0.10  # Stochastic depth max rate (0.0 disables)
+    dropout: float = 0.05         # Dropout inside MLP (0.0 disables)
+
+    # Skip regularization (helps force latent usage)
+    skip_dropout_p: float = 0.0  # Drop entire skip-tensors per sample during training (0.0 disables)
+    skip_alpha: float = 1.0      # Scale skips (0.0 disables skips, 0.2 keeps small guidance)
+
+
+class ConvNeXtVAE2D(HybridVAEBase):
+    """2D ConvNeXt-U-Net VAE.
+
+    Expected input:
+      - x: (B, C, H, W)
+
+    Forward output dict:
+      - recon: reconstructed x (B,C,H,W)
+      - mu: mean vector (B, bottleneck_dim)
+      - logvar: log-variance vector (B, bottleneck_dim)
+      - x_ref: reference input used for reconstruction loss (cropped/padded version)
+    """
+
+    def __init__(self, cfg: Config):
+        super().__init__()
+        self.cfg = cfg
+
+        self.encoder = ConvNeXtUNetEncoder2D(
+            in_channels=cfg.in_channels,
+            n_res_blocks=cfg.n_res_blocks,
+            n_levels=cfg.n_levels,
+            z_channels=cfg.z_channels,
+            use_multires_skips=cfg.use_multires_skips,
+            drop_path_rate=cfg.drop_path_rate,
+            dropout=cfg.dropout,
+            skip_dropout_p=cfg.skip_dropout_p,
+            skip_alpha=cfg.skip_alpha,
+        )
+
+        self.decoder = ConvNeXtUNetDecoder2D(
+            out_channels=cfg.in_channels,
+            n_res_blocks=cfg.n_res_blocks,
+            n_levels=cfg.n_levels,
+            z_channels=cfg.z_channels,
+            use_multires_skips=cfg.use_multires_skips,
+            use_transpose_conv=cfg.use_transpose_conv,
+            drop_path_rate=cfg.drop_path_rate,
+            dropout=cfg.dropout,
+            skip_dropout_p=cfg.skip_dropout_p,
+            skip_alpha=cfg.skip_alpha,
+        )
+
+        # Lazy FC layers (depend on latent spatial size)
+        self.fc_mu: Optional[nn.Linear] = None
+        self.fc_logvar: Optional[nn.Linear] = None
+        self.fc_decode: Optional[nn.Linear] = None
+        self._latent_hw: Optional[Tuple[int, int]] = None
+
+    def _ensure_fcs(self, latent_hw: Tuple[int, int], device: torch.device):
+        """Lazily create bottleneck fully-connected layers when latent size changes."""
+        if self._latent_hw == latent_hw and self.fc_mu is not None:
+            return
+
+        self._latent_hw = latent_hw
+        flat = int(self.cfg.z_channels * math.prod(latent_hw))
+
+        self.fc_mu = nn.Linear(flat, self.cfg.bottleneck_dim).to(device)
+        self.fc_logvar = nn.Linear(flat, self.cfg.bottleneck_dim).to(device)
+        self.fc_decode = nn.Linear(self.cfg.bottleneck_dim, flat).to(device)
+
+    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """Forward pass through encoder -> bottleneck -> decoder."""
+        if x.ndim != 4:
+            raise ValueError(f"Expected (B,C,H,W), got {tuple(x.shape)}")
+        if x.shape[1] != self.cfg.in_channels:
+            raise ValueError(f"Expected C={self.cfg.in_channels}, got C={x.shape[1]}")
+
+        x = x.float()
+        device = x.device
+        B = x.shape[0]
+        ref_hw = tuple(x.shape[-2:])
+
+        multiple = 2 ** self.cfg.n_levels
+        x_pad, pad = self._pad_to_multiple(x, multiple)
+
+        h, skips = self.encoder(x_pad)
+        latent_hw = tuple(h.shape[-2:])
+        self._ensure_fcs(latent_hw, device)
+
+        h_flat = h.reshape(B, -1)
+        mu = self.fc_mu(h_flat)
+        logvar = self.fc_logvar(h_flat)
+
+        z = self.reparameterize(mu, logvar)
+
+        h_dec = self.fc_decode(z).reshape(B, self.cfg.z_channels, *latent_hw)
+        self.decoder.set_skips(skips)
+        recon = self.decoder(h_dec)
+
+        recon = self._crop_like(recon, ref_hw)
+        x_ref = self._crop_like(x_pad, ref_hw) if sum(pad) else x
+
+        return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
+
+    def _extract_x(self, batch) -> torch.Tensor:
+        """Extract the input tensor x from a batch (kept compatible with the template)."""
+        if isinstance(batch, list) and len(batch) == 2:
+            if isinstance(batch[0], torch.Tensor):
+                return batch[0]
+
+        if isinstance(batch, torch.Tensor):
+            return batch
+
+        if isinstance(batch, np.ndarray):
+            return torch.as_tensor(batch)
+
+        if isinstance(batch, (tuple, list)) and len(batch) > 0:
+            x = batch[0]
+            if isinstance(x, torch.Tensor):
+                return x
+            return torch.as_tensor(x)
+
+        if isinstance(batch, dict):
+            for key in ("img", "x", "image", "inputs"):
+                if key in batch:
+                    v = batch[key]
+                    if isinstance(v, torch.Tensor):
+                        return v
+                    return torch.as_tensor(v)
+
+        raise TypeError(f"Unknown batch type: {type(batch)}")
+
+    def _generate_posterior(
+        self,
+        sample: Union[dict, np.ndarray, torch.Tensor],
+        *,
+        n: int = 1,
+        variation_strength: float = 0.5,
+        device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
+        clamp_01: bool = True,
+        target_mask_generator: Optional[TransformGenerator] = None,
+        return_torch: bool = False,
+    ) -> Union[np.ndarray, torch.Tensor]:
+        """Generate *n* slightly varied variants around a given sample.
+
+        This performs posterior sampling:
+            z = mu + variation_strength * sigma * eps,  eps ~ N(0, I)
+
+        Parameters:
+          - n: number of variants per input sample.
+          - variation_strength: strength of the variation.
+               variation_strength=0.0 -> deterministic reconstruction (uses mu only)
+               variation_strength~0.2-0.5 -> small variations (recommended)
+               variation_strength>=1.0 -> large variations (can drift away)
+
+        Input:
+          - sample: dict containing "img", or raw (C,H,W) / (B,C,H,W)
+
+        Output:
+          - if input is (C,H,W): (n,C,H,W)
+          - if input is (B,C,H,W): (B,n,C,H,W)
+        """
+        if n <= 0:
+            raise ValueError(f"n must be > 0, got {n}")
+        if variation_strength < 0:
+            raise ValueError(f"variation_strength must be >= 0, got {variation_strength}")
+
+        device = torch.device(device)
+        model = self.to(device)
+        model.eval()
+
+        x = self._extract_x(sample)
+
+        x = x.float()
+        single = False
+        if x.ndim == 3:
+            x = x.unsqueeze(0)  # (1,C,H,W)
+            single = True
+        elif x.ndim == 4:
+            pass
+        else:
+            raise ValueError(f"Expected (C,H,W) or (B,C,H,W), got {tuple(x.shape)}")
+
+        if clamp_01:
+            x = x.clamp(0.0, 1.0)
+
+        x = x.to(device)
+        #model.train()      # wichtig!
+
+        with torch.no_grad():
+            ref_hw = tuple(x.shape[-2:])
+            multiple = 2 ** self.cfg.n_levels
+            x_pad, pad = self._pad_to_multiple(x, multiple)
+
+            h, skips = model.encoder(x_pad)
+            latent_hw = tuple(h.shape[-2:])
+            model._ensure_fcs(latent_hw, device)
+
+            B = x.shape[0]
+            h_flat = h.reshape(B, -1)
+            mu = model.fc_mu(h_flat)
+            logvar = model.fc_logvar(h_flat)
+            std = torch.exp(0.5 * logvar)
+
+
+            if variation_strength == 0.0:
+                z = mu.unsqueeze(1).expand(B, n, -1).reshape(B * n, -1)
+            else:
+                eps = torch.randn((B, n, mu.shape[-1]), device=device, dtype=mu.dtype)
+                z = (mu.unsqueeze(1) + (variation_strength * std).unsqueeze(1) * eps).reshape(B * n, -1)
+
+            h_dec = model.fc_decode(z).reshape(B * n, self.cfg.z_channels, *latent_hw)
+
+
+            alpha_skips = float(self.cfg.skip_alpha)  # 0.0=starke Variation, 0.2=leicht, 1.0=Rekonstruktion
+
+            if alpha_skips <= 0:
+                model.decoder.set_skips(None)
+            else:
+                rep_skips = [(alpha_skips * sk).repeat_interleave(n, dim=0) for sk in skips]
+                model.decoder.set_skips(rep_skips)
+
+            
+            recon = model.decoder(h_dec)
+            recon = self._crop_like(recon, ref_hw)
+
+            if clamp_01:
+                recon = recon.clamp(0.0, 1.0)
+
+            recon = recon.view(B, n, self.cfg.in_channels, *ref_hw)
+
+            if single:
+                recon = recon.squeeze(0) 
+                recon = recon.squeeze(0)  # (n,C,H,W)
+ # (n,C,H,W)
+
+        if target_mask_generator is None:
+            target_mask_generator = TransformGenerator()
+
+        if return_torch:
+            return recon, target_mask_generator.create_target_mask(synth_anomaly_image=recon)
+
+        recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
+        return recon_np, target_mask_generator.create_target_mask(synth_anomaly_image=recon_np)
+
+
+    def warmup(self, shape, device=None, dtype=None, config=None):
+        """Warm up the model to initialize lazy FC layers.
+
+        shape must be (C,H,W).
+        """
+        if not (isinstance(shape, (tuple, list)) and len(shape) == 3):
+            raise ValueError(f"shape must be (C,H,W), got: {shape}")
+
+        C, H, W = map(int, shape)
+        if min(C, H, W) <= 0:
+            raise ValueError(f"All dimensions must be > 0, got: {shape}")
+
+        try:
+            p = next(self.parameters())
+            model_device = p.device
+            model_dtype = p.dtype
+        except StopIteration:
+            model_device = torch.device("cpu")
+            model_dtype = torch.float32
+
+        if device is None:
+            device = model_device
+        else:
+            device = torch.device(device)
+
+        if dtype is None:
+            dtype = model_dtype
+
+        was_training = self.training
+        self.eval()
+
+        with torch.no_grad():
+            x = torch.zeros((1, C, H, W), device=device, dtype=dtype)
+            _ = self(x)
+
+        if was_training:
+            self.train()
+
+        return self
+
+    def _generate_prior(
+        self,
+        sample: Union[dict, np.ndarray, torch.Tensor, None] = None,
+        *,
+        out_hw: tuple[int, int] | None = None,
+        variation_strength: float = 1.0,
+        device: str | torch.device = "cuda" if torch.cuda.is_available() else "cpu",
+        clamp_01: bool = True,
+        target_mask_generator: Optional[TransformGenerator] = None,
+        return_torch: bool = False,
+    ) -> np.ndarray | torch.Tensor:
+        """
+        Generate ONE synthetic sample via *prior sampling* (no input sample required).
+
+        Samples:
+            z ~ N(0, I)  (scaled by variation_strength), then decode to image space.
+
+        Parameters:
+        - out_hw: output (H, W). If None, tries cfg.sample_hw or cfg.image_hw, else defaults to (256,256).
+        - variation_strength: prior diversity strength (1.0 is standard; <1.0 more conservative; >1.0 more diverse).
+        - clamp_01: clamp outputs to [0,1].
+        - return_torch: return torch.Tensor instead of np.ndarray.
+
+        Output:
+        - (C, H, W)
+        """
+        if variation_strength < 0:
+            raise ValueError(f"variation_strength must be >= 0, got {variation_strength}")
+
+        
+        # pick output size
+        if out_hw is None and sample is not None:
+            out_hw = tuple(self._extract_x(sample).shape[-2:])
+        if not (isinstance(out_hw, (tuple, list)) and len(out_hw) == 2):
+            raise ValueError(f"out_hw must be (H,W), got {out_hw}")
+        H, W = int(out_hw[0]), int(out_hw[1])
+        if H <= 0 or W <= 0:
+            raise ValueError(f"out_hw must be positive, got {out_hw}")
+
+        device = torch.device(device)
+        model = self.to(device)
+        model.eval()
+
+        # Ensure decoder doesn't expect encoder skips (we have none for pure prior sampling)
+        model.decoder.set_skips(None)
+
+
+        # Compute latent spatial size (assuming 2x downsample per level)
+        down = 2 ** int(self.cfg.n_levels)
+
+        # Pad to be divisible by down (so latent grid is integer)
+        pad_h = (down - (H % down)) % down
+        pad_w = (down - (W % down)) % down
+        H_pad, W_pad = H + pad_h, W + pad_w
+        latent_hw = (H_pad // down, W_pad // down)
+
+        # Determine latent vector dim for fc_decode (matches your fc_mu/fc_logvar output)
+        z_dim = int(self.cfg.bottleneck_dim)
+
+        with torch.no_grad():
+            model._ensure_fcs(latent_hw, device)
+
+            # Prior sampling: z ~ N(0, I)
+            if variation_strength == 0.0:
+                z = torch.zeros((1, z_dim), device=device)
+            else:
+                z = torch.randn((1, z_dim), device=device) * float(variation_strength)
+
+            # Map z -> decoder feature map and decode
+            h_dec = model.fc_decode(z).reshape(1, int(self.cfg.z_channels), *latent_hw)
+            recon = model.decoder(h_dec)  # (1, C, H_pad, W_pad) typically
+
+            # Crop back to requested size and drop batch dim
+            recon = recon[..., :H, :W].squeeze(0)
+
+            if clamp_01:
+                recon = recon.clamp(0.0, 1.0)
+
+        if target_mask_generator is None:
+            target_mask_generator = TransformGenerator()
+
+        if return_torch:
+            return recon, target_mask_generator.create_target_mask(synth_anomaly_image=recon)
+
+        recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
+        return recon_np, target_mask_generator.create_target_mask(synth_anomaly_image=recon_np)
+
+if __name__ == "__main__":
+    # Quick sanity check
+    cfg = Config(n_res_blocks=2, n_levels=4, z_channels=64, bottleneck_dim=64)
+    model = ConvNeXtVAE2D(in_channels=1, cfg=cfg)
+    x = torch.randn(2, 1, 128, 128)
+    out = model(x)
+    print({k: tuple(v.shape) for k, v in out.items()})
+
+    # Posterior sampling: generate 5 variants per item
+    variants = model.generate(
+        {"img": x[0], "fname": "sanity.npy"},
+        mode="posterior",
+        n=5,
+        variation_strength=0.3,
+        return_torch=True,
+    )
+    print("variants:", tuple(variants.shape))

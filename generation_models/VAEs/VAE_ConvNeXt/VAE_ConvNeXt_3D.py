@@ -17,9 +17,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from tqdm import tqdm
 
-from models.model_interface import HybridModelInterface
+from generation_models.VAEs.vae_base import HybridVAEBase
 from synthesizer.mask_manipulation import TransformGenerator
 
 
@@ -278,8 +277,8 @@ class ConvNeXtUNetDecoder3D(nn.Module):
                     min(x.shape[-2], skip.shape[-2]),
                     min(x.shape[-1], skip.shape[-1]),
                 )
-                x = HybridModelInterface._crop_like(x, target)
-                skip = HybridModelInterface._crop_like(skip, target)
+                x = HybridVAEBase._crop_like(x, target)
+                skip = HybridVAEBase._crop_like(skip, target)
 
             # Skip gating: downscale skip strength to reduce bypass and force latent usage
             skip = skip * self.skip_alpha
@@ -341,6 +340,7 @@ class Config:
     beta_kl_max: float = 4.0
     beta_kl_warmup_start: float = 0
     beta_kl_warmup_epochs: int = 100
+    free_bits: float = 0.0
     recon_loss: str = "smoothl1"  # 'smoothl1' or 'mse'
     recon_smoothl1_beta: float = 1.0
     use_transpose_conv: bool = True
@@ -356,7 +356,7 @@ class Config:
     skip_alpha: float = 1.0
 
 
-class ConvNeXtVAE3D(HybridModelInterface):
+class ConvNeXtVAE3D(HybridVAEBase):
     """3D ConvNeXt-U-Net VAE.
 
     Expected input:
@@ -391,8 +391,8 @@ class ConvNeXtVAE3D(HybridModelInterface):
             z_channels=cfg.z_channels,
             use_multires_skips=cfg.use_multires_skips,
             use_transpose_conv=cfg.use_transpose_conv,
-            skip_dropout_p=getattr(cfg, 'skip_dropout_p', 0.0),
-            skip_alpha=getattr(cfg, 'skip_alpha', 1.0),
+            skip_dropout_p=cfg.skip_dropout_p,
+            skip_alpha=cfg.skip_alpha,
         )
 
         # Lazy FC layers (depend on latent spatial size)
@@ -483,75 +483,7 @@ class ConvNeXtVAE3D(HybridModelInterface):
 
         raise TypeError(f"Unknown batch type: {type(batch)}")
 
-    def fit_epoch(
-        self,
-        train_dataloader,
-        val_dataloader,
-        optimizer,
-        *,
-        epoch_idx: Optional[int] = None,
-        log_every=1,
-        grad_clip_norm: Optional[float] = None,
-        device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
-    ) -> tuple[dict, dict]:
-        """Train for one epoch (unchanged API/behavior)."""
-        device = torch.device(device)
-        model = self.to(device)
-
-        def run_epoch(loader: Iterable, training: bool) -> Dict[str, float]:
-            model.train(training)
-            run = {"total": 0.0, "recon": 0.0, "kl": 0.0, "kl_raw": 0.0, "recon_weighted": 0.0, "kl_weighted": 0.0}
-            n = 0
-
-            pbar = tqdm(loader, desc=("train" if training else "val"), leave=False, dynamic_ncols=True)
-            for step, batch in enumerate(pbar, start=1):
-                x = self._extract_x(batch=batch)
-                if not isinstance(x, torch.Tensor):
-                    x = torch.as_tensor(x)
-                x = x.to(device, non_blocking=True)
-
-                if x.ndim != 5:
-                    raise ValueError(f"Expected (B,C,D,H,W) from dataloader, got {tuple(x.shape)}")
-
-                if training:
-                    optimizer.zero_grad(set_to_none=True)
-
-                with torch.set_grad_enabled(training):
-                    out = model(x)
-                    losses = model.loss(out)
-                    loss = losses["total"]
-
-                    if training:
-                        loss.backward()
-                        if grad_clip_norm is not None and grad_clip_norm > 0:
-                            nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
-                        optimizer.step()
-
-                for k in run:
-                    if k in losses:
-                        run[k] += float(losses[k].detach().item())
-                n += 1
-
-                if log_every and (step % log_every == 0):
-                    postfix = {"total": f"{float(losses['total'].detach()):.6f}"}
-                    postfix["recon"] = f"{float(losses['recon'].detach()):.6f}"
-                    postfix["kl"] = f"{float(losses['kl'].detach()):.6f}"
-                    pbar.set_postfix(postfix)
-
-            denom = max(1, n)
-            return {k: run[k] / denom for k in run}
-
-        tr = run_epoch(train_dataloader, training=True)
-
-        va = {}
-        if val_dataloader is not None:
-            with torch.no_grad():
-                va = run_epoch(val_dataloader, training=False)
-
-        return tr, va
-
-
-    def generate_synth_sample(
+    def _generate_posterior(
         self,
         sample: Union[dict, np.ndarray, torch.Tensor],
         *,
@@ -668,7 +600,7 @@ class ConvNeXtVAE3D(HybridModelInterface):
         recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
         return recon_np, target_mask_generator.create_target_mask(synth_anomaly_image=recon_np)
 
-    def warmup(self, shape, device=None, dtype=None):
+    def warmup(self, shape, device=None, dtype=None, config=None):
         """Warm up the model to initialize lazy FC layers (unchanged API)."""
         if not (isinstance(shape, (tuple, list)) and len(shape) == 4):
             raise ValueError(f"shape must be (C,D,H,W), got: {shape}")
@@ -705,7 +637,7 @@ class ConvNeXtVAE3D(HybridModelInterface):
 
         return self
     
-    def generate_synth_sample_prior(
+    def _generate_prior(
         self,
         sample: Union[dict, np.ndarray, torch.Tensor, None] = None,
         *,
@@ -765,7 +697,7 @@ class ConvNeXtVAE3D(HybridModelInterface):
         latent_dhw = (D_pad // down, H_pad // down, W_pad // down)
 
         # Determine latent vector dim for fc_decode (matches your fc_mu/fc_logvar output)
-        z_dim = int(getattr(self.cfg, "bottleneck_dim", 256))
+        z_dim = int(self.cfg.bottleneck_dim)
 
         with torch.no_grad():
             model._ensure_fcs(latent_dhw, device)

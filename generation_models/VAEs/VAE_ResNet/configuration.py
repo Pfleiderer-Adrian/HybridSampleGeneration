@@ -1,7 +1,7 @@
 from dataclasses import asdict
 
-from models.model_configuration import ModelConfiguration
-from models.VAEs.VAE_ResNet import VAE_ResNet_2D, VAE_ResNet_3D
+from generation_models.model_configuration import ModelConfiguration
+from generation_models.VAEs.VAE_ResNet import VAE_ResNet_2D, VAE_ResNet_3D
 
 
 DEFAULT_VAE_INPUT_ARTEFACTS = ("img", "fname")
@@ -82,8 +82,3 @@ def get_resnet_vae_2d_configuration(in_channels):
         input_artefacts=DEFAULT_VAE_INPUT_ARTEFACTS,
     )
 
-
-MODEL_CONFIGURATION_FACTORIES = {
-    "VAE_ResNet_3D": get_resnet_vae_3d_configuration,
-    "VAE_ResNet_2D": get_resnet_vae_2d_configuration,
-}

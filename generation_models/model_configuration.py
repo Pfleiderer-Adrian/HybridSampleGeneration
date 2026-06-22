@@ -1,23 +1,9 @@
 from collections.abc import Mapping
 from dataclasses import asdict, is_dataclass
 
-from models.VAEs.VAE_ConvNeXt import VAE_ConvNeXt_2D, VAE_ConvNeXt_3D
-from models.VAEs.VAE_ResNet import VAE_ResNet_2D, VAE_ResNet_3D
-from models.VAEs.cVAE_ConvNeXt import cVAE_ConvNeXt_2D, cVAE_ConvNeXt_3D
-
 
 DEFAULT_INPUT_ARTEFACTS = ("img", "fname")
 IMMUTABLE_MODEL_PARAMS = {"in_channels"}
-
-
-MODEL_CONFIG_CLASSES = {
-    "VAE_ResNet_3D": VAE_ResNet_3D.Config,
-    "VAE_ResNet_2D": VAE_ResNet_2D.Config,
-    "VAE_ConvNeXt_3D": VAE_ConvNeXt_3D.Config,
-    "cVAE_ConvNeXt_3D": cVAE_ConvNeXt_3D.Config,
-    "VAE_ConvNeXt_2D": VAE_ConvNeXt_2D.Config,
-    "cVAE_ConvNeXt_2D": cVAE_ConvNeXt_2D.Config,
-}
 
 
 class ModelConfiguration:
@@ -44,12 +30,6 @@ class ModelConfiguration:
     @classmethod
     def from_value(cls, value):
         if isinstance(value, cls):
-            if not hasattr(value, "input_artefacts"):
-                value.input_artefacts = DEFAULT_INPUT_ARTEFACTS
-            if not hasattr(value, "immutable_params"):
-                value.immutable_params = set(IMMUTABLE_MODEL_PARAMS)
-            else:
-                value.immutable_params = set(value.immutable_params)
             return value
         if isinstance(value, Mapping):
             try:
@@ -152,38 +132,3 @@ class ModelConfiguration:
         if isinstance(config, Mapping):
             return dict(config)
         raise TypeError("Model config must be a dataclass instance or mapping.")
-
-
-def get_model_config_class(model_name):
-    try:
-        return MODEL_CONFIG_CLASSES[model_name]
-    except KeyError:
-        raise ValueError(f"Unknown model: {model_name}. Supported models: {list(MODEL_CONFIG_CLASSES)}")
-
-
-def get_model_configuration(model_name, in_channels, debug=False):
-    from models.VAEs.VAE_ConvNeXt.configuration import (
-        MODEL_CONFIGURATION_FACTORIES as CONVNEXT_VAE_CONFIGURATION_FACTORIES,
-    )
-    from models.VAEs.VAE_ResNet.configuration import (
-        MODEL_CONFIGURATION_FACTORIES as RESNET_VAE_CONFIGURATION_FACTORIES,
-    )
-    from models.VAEs.cVAE_ConvNeXt.configuration import (
-        MODEL_CONFIGURATION_FACTORIES as CONVNEXT_CVAE_CONFIGURATION_FACTORIES,
-    )
-
-    model_configuration_factories = {
-        **RESNET_VAE_CONFIGURATION_FACTORIES,
-        **CONVNEXT_VAE_CONFIGURATION_FACTORIES,
-        **CONVNEXT_CVAE_CONFIGURATION_FACTORIES,
-    }
-
-    try:
-        model_params = model_configuration_factories[model_name](in_channels)
-    except KeyError:
-        raise ValueError(f"Unknown model: {model_name}. Supported models: {list(MODEL_CONFIG_CLASSES)}")
-
-    if debug:
-        model_params.set_hyperparameter_space(model_params.max, model_params.max)
-
-    return model_params

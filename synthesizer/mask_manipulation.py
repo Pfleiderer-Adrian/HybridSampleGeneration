@@ -416,13 +416,13 @@ class TransformGenerator:
     @classmethod
     def from_config(cls, config):
         return cls(
-            getattr(config, "mask_transform_probs", None),
-            use_default_mask_transforms=getattr(config, "use_default_mask_transforms", False),
-            transform_params=getattr(config, "mask_transform_params", None),
-            priorities=getattr(config, "mask_transform_priorities", None),
-            rng=getattr(config, "rng", None),
-            anomaly_size=getattr(config, "anomaly_size", None),
-            background_threshold=getattr(config, "background_threshold", 0.01),
+            config.mask_transform_probs,
+            use_default_mask_transforms=config.use_default_mask_transforms,
+            transform_params=config.mask_transform_params,
+            priorities=config.mask_transform_priorities,
+            rng=config.rng,
+            anomaly_size=config.anomaly_size,
+            background_threshold=config.background_threshold,
         )
 
     GLOBAL_TRANSFORMS = {

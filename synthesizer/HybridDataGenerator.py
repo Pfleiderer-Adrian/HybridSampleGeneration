@@ -10,13 +10,12 @@ from tqdm import tqdm
 
 from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
 
-from models.model_loader import model_loader
+from generation_models.model_registry import get_model_spec
+from fusion_backend.fusion_registry import get_fusion_backend_spec
 from synthesizer.mask_manipulation import TransformGenerator
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
-from synthesizer.functions_2D.Fusion2D import fusion2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
 from synthesizer.Configuration import Configuration
-from synthesizer.functions_3D.Fusion3D import fusion3d
 from synthesizer.Matching import center_foreground_com, combine_label_masks, create_matching_dictionary, crop_border, ssim_01, template_matching
 from synthesizer.Trainer import optimize
 from synthesizer.Evaluation import evaluation_pipeline
@@ -55,6 +54,7 @@ class HybridDataGenerator:
         self._anomaly_dataset = None
         self._synth_anomaly_dataset = None
         self._model = None
+        self._fusion_backend = None
 
     def _log_step(self, message: str) -> None:
         print(f"[HybridDataGenerator] {message}")
@@ -293,16 +293,42 @@ class HybridDataGenerator:
         # load model from study
         params = t.user_attrs['params']
         model_name = t.user_attrs['model_name']
-        self._model = model_loader(model_name, params) 
-        self._model.warmup(self._config.anomaly_size)
-        self._model.load_state_dict(torch.load(t.user_attrs['model_path']))
+        self._model = get_model_spec(model_name).build(params)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self._model.to(device)
+        self._model.warmup(
+            self._config.anomaly_size,
+            device=device,
+            dtype=self._config.training_dtype,
+            config=self._config,
+        )
+        model_path = t.user_attrs['model_path']
+        self._model.load_checkpoint(model_path)
+
+    def load_fusion_backend(self, fusion_backend_checkpoint=None):
+        """
+        Initialize the configured fusion backend from the current configuration.
+
+        Outputs
+        -------
+        None
+            Side effect: sets self._fusion_backend and optionally loads its checkpoint.
+        """
+        self._log_step("Step 5/9: Loading fusion backend.")
+        backend_params = {"fusion_params": self._config.fusion_params}
+        self._fusion_backend = get_fusion_backend_spec(self._config.fusion_backend).build(backend_params)
+
+        if fusion_backend_checkpoint:
+            self._fusion_backend.load_checkpoint(fusion_backend_checkpoint)
+        elif self._config.fusion_backend_checkpoint:
+            self._fusion_backend.load_checkpoint(self._config.fusion_backend_checkpoint)
 
     def generate_synth_anomalies(self):
         """
         Generate synthetic anomalies for each anomaly in the loaded anomaly dataset.
 
         For each anomaly sample:
-          - run model.generate_synth_sample(sample)
+          - run model.generate(sample, mode="prior"|"posterior")
           - save output as .npy under sample["fname"]
 
         Outputs
@@ -322,6 +348,7 @@ class HybridDataGenerator:
         os.makedirs(tgt_mask_folder, exist_ok=True)
         self._anomaly_dataset.numpy_mode = True
         target_mask_generator = TransformGenerator.from_config(self._config)
+        generation_mode = "prior" if self._config.prior_sampling else "posterior"
 
 
         # use feedback system to generate similar anomalies
@@ -339,20 +366,13 @@ class HybridDataGenerator:
                 syn_anomaly_mask = None
                 i = 0
                 while best < self._config.feedback_threshold:
-                    if self._config.prior_sampling:
-                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(
-                            sample,
-                            variation_strength=getattr(self._config, "variation_strength", 1.0),
-                            clamp_01=self._config.clamp01_output,
-                            target_mask_generator=target_mask_generator,
-                        )
-                    else:
-                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(
-                            sample,
-                            variation_strength=getattr(self._config, "variation_strength", 1.0),
-                            clamp_01=self._config.clamp01_output,
-                            target_mask_generator=target_mask_generator,
-                        )
+                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate(
+                        sample,
+                        mode=generation_mode,
+                        variation_strength=self._config.variation_strength,
+                        clamp_01=self._config.clamp01_output,
+                        target_mask_generator=target_mask_generator,
+                    )
 
                     if best_image is None:
                         best_image = syn_anomaly_sample
@@ -394,20 +414,13 @@ class HybridDataGenerator:
         else:
             for sample in tqdm(self._anomaly_dataset):
                 basename = sample["fname"]
-                if self._config.prior_sampling:
-                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample_prior(
-                        sample,
-                        variation_strength=getattr(self._config, "variation_strength", 1.0),
-                        clamp_01=self._config.clamp01_output,
-                        target_mask_generator=target_mask_generator,
-                    )
-                else:
-                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate_synth_sample(
-                        sample,
-                        variation_strength=getattr(self._config, "variation_strength", 1.0),
-                        clamp_01=self._config.clamp01_output,
-                        target_mask_generator=target_mask_generator,
-                    )
+                syn_anomaly_sample, syn_anomaly_mask = self._model.generate(
+                    sample,
+                    mode=generation_mode,
+                    variation_strength=self._config.variation_strength,
+                    clamp_01=self._config.clamp01_output,
+                    target_mask_generator=target_mask_generator,
+                )
                 save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
                 save_numpy_as_npy(syn_anomaly_mask, str(os.path.join(tgt_mask_folder, basename)), overwrite=True)
 
@@ -557,6 +570,9 @@ class HybridDataGenerator:
 
         anomalies = self._config.matching_dict[basename_of_control_sample]
         img = control_samples_array.copy()
+        if self._fusion_backend is None:
+            self.load_fusion_backend()
+        self._fusion_backend.warmup(img.shape, config=self._config)
 
         if anomalies is None or len(anomalies) == 0:
             print(f"No matched anomaly found for control sample {basename_of_control_sample} in matching dict.")
@@ -585,26 +601,18 @@ class HybridDataGenerator:
                 artifact="tgt_mask",
             )
 
-            if control_samples_array.ndim == 3:
-                img, seg, roi, roi_mask = fusion2d(
-                    img,
-                    synth_anomaly_image,
-                    anomaly_meta,
-                    fusion_position,
-                    self._config,
-                    target_mask=target_mask,
-                )
-            elif control_samples_array.ndim == 4:
-                img, seg, roi, roi_mask = fusion3d(
-                    img,
-                    synth_anomaly_image,
-                    anomaly_meta,
-                    fusion_position,
-                    self._config,
-                    target_mask=target_mask,
-                )
-            else:
-                raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
+            fusion_output = self._fusion_backend.fuse(
+                img,
+                synth_anomaly_image,
+                anomaly_meta,
+                fusion_position,
+                target_mask=target_mask,
+                config=self._config,
+            )
+            img = fusion_output.image
+            seg = fusion_output.segmentation
+            roi = fusion_output.roi
+            roi_mask = fusion_output.roi_mask
             
             if seg_final is None:
                 seg_final = seg
@@ -623,14 +631,14 @@ class HybridDataGenerator:
                 os.makedirs(os.path.dirname(roi_path), exist_ok=True)
                 save_numpy_as_npy(roi, roi_path, overwrite=True)
 
-                # Save the ROI mask
-                roi_mask_path = os.path.join(
-                    self._config.get_paths().synth_roi_mask_data,
-                    basename_of_control_sample,
-                    anomaly_basename,
-                )
-                os.makedirs(os.path.dirname(roi_mask_path), exist_ok=True)
-                save_numpy_as_npy(roi_mask, roi_mask_path, overwrite=True)
+                if roi_mask is not None:
+                    roi_mask_path = os.path.join(
+                        self._config.get_paths().synth_roi_mask_data,
+                        basename_of_control_sample,
+                        anomaly_basename,
+                    )
+                    os.makedirs(os.path.dirname(roi_mask_path), exist_ok=True)
+                    save_numpy_as_npy(roi_mask, roi_mask_path, overwrite=True)
 
         if save_npy:
             paths = self._config.get_paths()

@@ -6,15 +6,18 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from generation_models.interfaces import StepOutput
 from synthesizer.mask_manipulation import TransformGenerator
 
 
-class HybridModelInterface(nn.Module, ABC):
+class HybridVAEBase(nn.Module, ABC):
     """
-    Abstract interface for models used by Trainer and HybridDataGenerator.
+    Shared implementation for VAE-style hybrid generation models.
 
-    This class documents the external contract and hosts behavior shared by all
-    current generator models.
+    The generic architecture contracts live in generation_models.interfaces. This class is
+    intentionally VAE-specific: it provides padding/cropping utilities, VAE
+    reparameterization, reconstruction+KL loss, training steps, checkpointing,
+    and generate(mode=...) dispatch for the existing VAE/cVAE generation models.
     """
 
     cfg: Any
@@ -47,7 +50,7 @@ class HybridModelInterface(nn.Module, ABC):
             )
 
         pad_per_dim = [
-            HybridModelInterface._compute_symmetric_pad(size, multiple)
+            HybridVAEBase._compute_symmetric_pad(size, multiple)
             for size in x.shape[-spatial_dims:]
         ]
         pad = tuple(value for pair in reversed(pad_per_dim) for value in pair)
@@ -83,30 +86,94 @@ class HybridModelInterface(nn.Module, ABC):
 
     @staticmethod
     def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
-        """
-        Reparameterization trick: sample z ~ N(mu, sigma^2) using mu + eps*sigma.
-        """
+        """Sample z ~ N(mu, sigma^2) using the reparameterization trick."""
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
         return mu + eps * std
 
+    def on_epoch_start(self, epoch: int, config=None) -> None:
+        """Update optional VAE KL schedule at the start of each epoch."""
+        cfg = self.cfg
+        warmup_start = cfg.beta_kl_warmup_start
+        warmup_epochs = cfg.beta_kl_warmup_epochs
+        beta_start = cfg.beta_kl_start
+        beta_max = cfg.beta_kl_max
+
+        if warmup_start >= epoch:
+            cfg.beta_kl = 0.0
+            return
+        if warmup_epochs <= 0:
+            cfg.beta_kl = beta_max
+            return
+
+        t = min(1.0, max(0.0, epoch / warmup_epochs))
+        cfg.beta_kl = beta_start + t * (beta_max - beta_start)
+
+    def configure_optimizers(self, config):
+        """Return optimizer and optional scheduler for trainable model parameters."""
+        trainable_params = [param for param in self.parameters() if param.requires_grad]
+        if not trainable_params:
+            raise ValueError(f"{self.__class__.__name__} has no trainable parameters.")
+        return torch.optim.Adam(trainable_params, lr=config.lr), None
+
+    def training_step(self, batch, batch_idx: int, config=None) -> StepOutput:
+        """Compute one training batch loss and metrics."""
+        return self._shared_step(batch)
+
+    def validation_step(self, batch, batch_idx: int, config=None) -> StepOutput:
+        """Compute one validation batch loss and metrics."""
+        return self._shared_step(batch)
+
+    def _shared_step(self, batch) -> StepOutput:
+        out = self._forward_from_batch(batch)
+        losses = self.loss(out)
+        return StepOutput(loss=losses["total"], metrics=losses)
+
+    def _forward_from_batch(self, batch):
+        return self(*self._forward_args_from_batch(batch))
+
+    def _forward_args_from_batch(self, batch) -> tuple:
+        if isinstance(batch, dict):
+            for key in ("img", "x", "image", "inputs"):
+                if key in batch:
+                    value = batch[key]
+                    if isinstance(value, torch.Tensor):
+                        return (value,)
+                    return (torch.as_tensor(value),)
+        if isinstance(batch, (tuple, list)) and batch:
+            return (batch[0],)
+        if isinstance(batch, np.ndarray):
+            return (torch.as_tensor(batch),)
+        return (batch,)
+
+    def save_checkpoint(self, path: str, **_state) -> None:
+        torch.save(self.state_dict(), path)
+
+    def load_checkpoint(self, path: str, **_kwargs) -> None:
+        self.load_state_dict(torch.load(path, map_location="cpu"))
+
+    def generate(self, sample, *, mode: str, **kwargs):
+        """Unified generation entry point used by HybridDataGenerator."""
+        mode = str(mode).lower()
+        if mode in ("prior", "prior_sampling"):
+            return self._generate_prior(sample, **kwargs)
+        if mode in ("posterior", "posterior_sampling", "img2img"):
+            return self._generate_posterior(sample, **kwargs)
+        raise ValueError(f"Unknown generation mode {mode!r}. Expected 'prior' or 'posterior'.")
+
     def loss(self, out: dict) -> dict:
         """
-        Compute the shared VAE loss for all hybrid generator models.
+        Compute the shared VAE loss.
 
-        Expected forward output:
-            recon, x_ref, mu, logvar
-
-        Returned metrics are intentionally stable because synthesizer.Trainer
-        logs these keys for every model.
+        Expected forward output: recon, x_ref, mu, logvar.
         """
         recon = out["recon"]
         x = out["x_ref"]
         mu, logvar = out["mu"], out["logvar"]
 
-        loss_name = str(getattr(self.cfg, "recon_loss", "smoothl1")).lower()
+        loss_name = str(self.cfg.recon_loss).lower()
         if loss_name in ("smoothl1", "smooth_l1", "huber"):
-            beta = float(getattr(self.cfg, "recon_smoothl1_beta", 1.0))
+            beta = float(self.cfg.recon_smoothl1_beta)
             try:
                 recon_per_element = F.smooth_l1_loss(recon, x, reduction="none", beta=beta)
             except TypeError:
@@ -115,12 +182,12 @@ class HybridModelInterface(nn.Module, ABC):
             recon_per_element = (recon - x) ** 2
         else:
             raise ValueError(
-                f"Unknown cfg.recon_loss={getattr(self.cfg, 'recon_loss', None)!r}. "
+                f"Unknown cfg.recon_loss={self.cfg.recon_loss!r}. "
                 "Supported: 'smoothl1' | 'mse'"
             )
 
-        fg_weight = float(getattr(self.cfg, "fg_weight", 1.0))
-        fg_threshold = float(getattr(self.cfg, "fg_threshold", 0.0))
+        fg_weight = float(self.cfg.fg_weight)
+        fg_threshold = float(self.cfg.fg_threshold)
         if fg_weight != 1.0:
             fg_mask = (x > fg_threshold).float()
             weights = torch.where(fg_mask > 0, fg_weight, 1.0)
@@ -131,7 +198,7 @@ class HybridModelInterface(nn.Module, ABC):
         kl_per_dim = 0.5 * (mu.pow(2) + logvar.exp() - 1.0 - logvar)
         kl_raw = kl_per_dim.sum(dim=1).mean()
 
-        free_bits = float(getattr(self.cfg, "free_bits", 0.0) or 0.0)
+        free_bits = float(self.cfg.free_bits or 0.0)
         if free_bits > 0.0:
             kl_used = kl_per_dim.clamp(min=free_bits).sum(dim=1).mean()
         else:
@@ -151,35 +218,12 @@ class HybridModelInterface(nn.Module, ABC):
         }
 
     @abstractmethod
-    def warmup(self, shape, device=None, dtype=None):
-        """
-        Initialize shape-dependent or lazy layers before optimizer creation or checkpoint loading.
-        """
+    def warmup(self, shape, device=None, dtype=None, config=None):
+        """Initialize shape-dependent or lazy layers before training/loading."""
         raise NotImplementedError
 
     @abstractmethod
-    def fit_epoch(
-        self,
-        train_dataloader,
-        val_dataloader,
-        optimizer,
-        *,
-        log_every=1,
-        grad_clip_norm: Optional[float] = None,
-        device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
-    ) -> Tuple[dict, dict]:
-        """
-        Train one epoch and optionally validate.
-
-        Expected by synthesizer.Trainer.train().
-        Implementations should return train_metrics and val_metrics. Both dicts
-        should include at least "total", "recon", "kl", "recon_weighted",
-        "kl_weighted", and "kl_raw" when validation is used by the trainer.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def generate_synth_sample(
+    def _generate_posterior(
         self,
         sample: Union[dict, np.ndarray, torch.Tensor],
         *,
@@ -188,17 +232,9 @@ class HybridModelInterface(nn.Module, ABC):
         target_mask_generator: Optional[TransformGenerator] = None,
         **kwargs,
     ):
-        """
-        Generate a synthetic anomaly sample from an existing anomaly sample.
-
-        Expected by synthesizer.HybridDataGenerator.generate_synth_anomalies().
-        variation_strength controls the latent sampling strength.
-        Implementations should use target_mask_generator to create the returned target_mask.
-        Conditional models use it before decoding; non-conditional models use it after synthesis.
-        """
         raise NotImplementedError
 
-    def generate_synth_sample_prior(
+    def _generate_prior(
         self,
         sample: Union[dict, np.ndarray, torch.Tensor, None] = None,
         *,
@@ -207,11 +243,6 @@ class HybridModelInterface(nn.Module, ABC):
         target_mask_generator: Optional[TransformGenerator] = None,
         **kwargs,
     ):
-        """
-        Optional prior-sampling entry point used when config.prior_sampling is true.
-        variation_strength controls the prior sampling strength.
-        Implementations should use target_mask_generator to create the returned target_mask.
-        """
         raise NotImplementedError(
             f"{self.__class__.__name__} does not implement prior sampling."
         )
