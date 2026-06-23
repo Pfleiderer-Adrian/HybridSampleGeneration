@@ -38,6 +38,23 @@ class ClassicalFusionBackend:
     def load_checkpoint(self, path: str, **kwargs) -> None:
         return None
 
+    def train_model(
+        self,
+        sample_dataloader,
+        *,
+        epochs: int | None = None,
+        lr: float | None = None,
+        checkpoint_path: str | None = None,
+        device=None,
+        config=None,
+    ) -> dict:
+        print("ClassicalFusionBackend is not trainable. Skipping fusion backend training.")
+        return {
+            "skipped": True,
+            "reason": "ClassicalFusionBackend is not trainable.",
+            "checkpoint_path": None,
+        }
+
     def fuse(
         self,
         control,

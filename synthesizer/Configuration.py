@@ -202,10 +202,25 @@ class Configuration:
         if (
             not isinstance(self.paths, StudyPaths)
             or self.paths.study_folder != study_folder
-            or self.paths.study_name != self.study_name
+                or self.paths.study_name != self.study_name
         ):
             self.paths = StudyPaths(study_folder, self.study_name)
         return self.paths
+
+    def set_fusion_backend(self, name, *, reset_params=True):
+        """
+        Select the fusion backend and optionally reset fusion parameters to
+        that backend's defaults.
+        """
+        if name not in ALLOWED_FUSION_BACKENDS:
+            raise ValueError(
+                f"Fusion backend {name} is not supported. "
+                f"Currently supported fusion backends: {ALLOWED_FUSION_BACKENDS}"
+            )
+        self.fusion_backend = name
+        self.fusion_backend_checkpoint = None
+        if reset_params:
+            self.fusion_params = get_fusion_backend_spec(name).build_configuration()
 
     # save config as JSON
     def save_config_file(self, overwrite=False):
