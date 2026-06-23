@@ -25,6 +25,8 @@ if __name__ == "__main__":
 
     # define a basic configuration
     config = Configuration("brain_T1", "VAE_ConvNeXt_3D", (1, 32, 96, 96))
+    # Optional trainable fusion backend:
+    # config.set_fusion_backend("learned_residual_alpha")
 
     HDG = HybridDataGenerator(config)
     # 1) Extract anomaly cutouts + ROI cutouts from anomaly-labeled samples
@@ -47,6 +49,8 @@ if __name__ == "__main__":
     # 4) Or load already created matching dict
     HDG.load_matching_dict()
 
+    # Optional when using a trainable fusion backend:
+    # HDG.train_fusion_backend(dataloader_samples_with_anomalies)
     # 5) Initialize the configured fusion backend
     HDG.load_fusion_backend()
 

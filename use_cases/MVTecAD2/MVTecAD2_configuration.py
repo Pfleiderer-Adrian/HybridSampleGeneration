@@ -122,19 +122,21 @@ def configure_can(config_save_path: str) -> Configuration:
     config.clamp01_output = False
     config.normalization = "z-score"
     config.normalization_eps = 1e-6
-    config.background_threshold = 0.1
-    config.prior_sampling = True
+    config.background_threshold = 0.18
+    config.prior_sampling = False
     config.use_feedback = False
     config.feedback_threshold = 0.01
     config.threshold_relaxation_factor = 0.9
+    config.variation_strength = 1.0
 
     # matching settings
     config.matching_routine = "local"
     config.anomaly_duplicates = True
     config.fusions_per_control = 2
     config.max_fusions_per_control_deviation = 1
-
+    
     # Fusion settings
+    config.set_fusion_backend("classical")
     config.fusion_params.set_fusion_params(
         max_alpha=1.0,
         sq=0.1,
@@ -148,8 +150,30 @@ def configure_can(config_save_path: str) -> Configuration:
         sq_variation=0.1,
         steepness_variation=1.0,
         selected_confidence="90%",
-    )
+    ) 
+    """
+    config.set_fusion_backend("learned_residual_alpha")
+    config.fusion_params.set_fusion_params(
+    base_alpha=0.70,
+    base_alpha_blur_sigma=2.0,
+    alpha_delta_scale=0.35,
+    residual_scale=0.35,
+    residual_border_width=6,
+    fusion_normalization_border_width=None,
+    clamp_output=False,
 
+    train_epochs=50,
+    train_lr=1e-3,
+    train_weight_decay=1e-5,
+    train_crop_margin=32,
+    train_inpaint_blur_sigma=10.0,
+    foreground_loss_weight=3.0,
+    support_loss_weight=4.0,
+    alpha_delta_l1=1e-4,
+    residual_l1=5e-5,
+    grad_clip_norm=1.0,
+    )
+    """
     # Training settings
     config.val_ratio = 0.1
     config.batch_size = 8

@@ -4,9 +4,11 @@ from dataclasses import dataclass
 from typing import Callable, Type
 
 from fusion_backend.interfaces import FusionBackend
-from fusion_backend import ClassicalFusionBackend
+from fusion_backend import ClassicalFusionBackend, LearnedResidualAlphaFusionBackend
 from fusion_backend.classical import Config as ClassicalFusionConfig
 from fusion_backend.classical import get_classical_fusion_configuration
+from fusion_backend.learned_residual_alpha import Config as LearnedResidualAlphaFusionConfig
+from fusion_backend.learned_residual_alpha import get_learned_residual_alpha_fusion_configuration
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,13 @@ FUSION_BACKEND_REGISTRY: dict[str, FusionBackendSpec] = {
         backend_cls=ClassicalFusionBackend,
         config_cls=ClassicalFusionConfig,
         config_factory=get_classical_fusion_configuration,
+    ),
+    "learned_residual_alpha": FusionBackendSpec(
+        name="learned_residual_alpha",
+        backend_cls=LearnedResidualAlphaFusionBackend,
+        config_cls=LearnedResidualAlphaFusionConfig,
+        config_factory=get_learned_residual_alpha_fusion_configuration,
+        trainable=True,
     ),
 }
 

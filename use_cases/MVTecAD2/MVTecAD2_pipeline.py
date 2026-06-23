@@ -58,6 +58,7 @@ GENERATION_STEP_ORDER = (
     "load_synthetic_anomalies",
     "create_matching",
     "load_matching",
+    "train_fusion_backend",
     "load_fusion_backend",
     "generate_hybrid_samples",
     "save_config",
@@ -84,6 +85,9 @@ GENERATION_STEP_ALIASES = {
     "create_matching_dict": "create_matching",
     "load_matching": "load_matching",
     "load_matching_dict": "load_matching",
+    "train_fusion": "train_fusion_backend",
+    "train_fusion_backend": "train_fusion_backend",
+    "train_fusion_model": "train_fusion_backend",
     "load_fusion": "load_fusion_backend",
     "load_fusion_backend": "load_fusion_backend",
     "load_fusion_model": "load_fusion_backend",
@@ -245,6 +249,9 @@ def run_hybrid_sample_generation_for_usecase(
     load_existing_matching: bool = False,
     generator_db_path: Path | str | None = None,
     generator_trial_id: int = -1,
+    fusion_backend_epochs: int | None = None,
+    fusion_backend_lr: float | None = None,
+    fusion_backend_checkpoint: Path | str | None = None,
 ) -> Configuration:
     """
     Execute HybridSampleGeneration for one prepared MVTec AD 2 use case.
@@ -297,6 +304,14 @@ def run_hybrid_sample_generation_for_usecase(
         generator.create_matching_dict(use_case.control_dataloader)
     elif "load_matching" in selected_steps or _needs_matching_loaded(selected_steps):
         generator.load_matching_dict()
+
+    if "train_fusion_backend" in selected_steps:
+        generator.train_fusion_backend(
+            use_case.anomaly_dataloader,
+            epochs=fusion_backend_epochs,
+            lr=fusion_backend_lr,
+            checkpoint_path=None if fusion_backend_checkpoint is None else str(fusion_backend_checkpoint),
+        )
 
     if "load_fusion_backend" in selected_steps or "generate_hybrid_samples" in selected_steps:
         generator.load_fusion_backend()
@@ -883,7 +898,7 @@ if __name__ == "__main__":
         dataset_root,
         categories="can",
         no_of_trials=1,
-        steps=("extract", "train", "generate_synth", "matching", "fusion", "save"),
+        steps=("extract", "train", "generate_synth", "matching", "train_fusion", "fusion", "save"),
         generator_trial_id=-2,  # -1: best Model, -2: newest Model, else Trial-/Modely number
         save_path=save_path
     )

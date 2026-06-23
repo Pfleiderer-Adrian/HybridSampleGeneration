@@ -305,6 +305,68 @@ class HybridDataGenerator:
         model_path = t.user_attrs['model_path']
         self._model.load_checkpoint(model_path)
 
+    def train_fusion_backend(
+        self,
+        sample_dataloader: Iterator[Tuple[np.ndarray, np.ndarray, str]],
+        *,
+        epochs: int | None = None,
+        lr: float | None = None,
+        checkpoint_path: str | None = None,
+        device=None,
+    ):
+        """
+        Train the configured fusion backend if it exposes a training routine.
+
+        Inputs
+        ------
+        sample_dataloader:
+            Iterator yielding real anomalous samples (img, seg, basename). The
+            trainable backend uses these masks to create self-supervised fusion
+            training pairs.
+        epochs:
+            Optional override for the backend's configured training epochs.
+        lr:
+            Optional override for the backend's configured learning rate.
+        checkpoint_path:
+            Optional target path for the trained fusion backend checkpoint.
+            If omitted, a backend-specific file below trained_fusion_backends is used.
+        device:
+            Optional torch device string/object.
+
+        Outputs
+        -------
+        dict
+            Backend-specific training summary.
+        """
+        self._log_step("Step 5/9: Training fusion backend.")
+        fusion_spec = get_fusion_backend_spec(self._config.fusion_backend)
+
+        self.load_fusion_backend()
+        train_model = getattr(self._fusion_backend, "train_model", None)
+        if train_model is None:
+            raise ValueError(f"Fusion backend {self._config.fusion_backend!r} does not implement train_model().")
+
+        if fusion_spec.trainable and checkpoint_path is None:
+            checkpoint_dir = self._config.get_paths().trained_fusion_backends
+            os.makedirs(checkpoint_dir, exist_ok=True)
+            checkpoint_path = os.path.join(checkpoint_dir, f"{self._config.fusion_backend}.pth")
+
+        summary = train_model(
+            sample_dataloader,
+            epochs=epochs,
+            lr=lr,
+            checkpoint_path=checkpoint_path,
+            device=device,
+            config=self._config,
+        )
+
+        summary_checkpoint_path = checkpoint_path
+        if isinstance(summary, dict):
+            summary_checkpoint_path = summary.get("checkpoint_path", checkpoint_path)
+        if summary_checkpoint_path:
+            self._config.fusion_backend_checkpoint = summary_checkpoint_path
+        return summary
+
     def load_fusion_backend(self, fusion_backend_checkpoint=None):
         """
         Initialize the configured fusion backend from the current configuration.
@@ -318,10 +380,11 @@ class HybridDataGenerator:
         backend_params = {"fusion_params": self._config.fusion_params}
         self._fusion_backend = get_fusion_backend_spec(self._config.fusion_backend).build(backend_params)
 
-        if fusion_backend_checkpoint:
-            self._fusion_backend.load_checkpoint(fusion_backend_checkpoint)
-        elif self._config.fusion_backend_checkpoint:
-            self._fusion_backend.load_checkpoint(self._config.fusion_backend_checkpoint)
+        checkpoint_path = fusion_backend_checkpoint or self._config.fusion_backend_checkpoint
+        if checkpoint_path:
+            self._fusion_backend.load_checkpoint(checkpoint_path)
+            if fusion_backend_checkpoint:
+                self._config.fusion_backend_checkpoint = fusion_backend_checkpoint
 
     def generate_synth_anomalies(self):
         """

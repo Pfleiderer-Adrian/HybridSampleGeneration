@@ -94,6 +94,10 @@ class StudyPaths:
         return self._join("trained_models")
 
     @property
+    def trained_fusion_backends(self):
+        return self._join("trained_fusion_backends")
+
+    @property
     def anomaly_data(self):
         return self._join("anomaly_data")
 

@@ -27,6 +27,18 @@ class FusionBackend(Protocol):
     def load_checkpoint(self, path: str, **kwargs) -> None:
         ...
 
+    def train_model(
+        self,
+        sample_dataloader,
+        *,
+        epochs: int | None = None,
+        lr: float | None = None,
+        checkpoint_path: str | None = None,
+        device=None,
+        config=None,
+    ) -> dict:
+        ...
+
     def fuse(
         self,
         control,
