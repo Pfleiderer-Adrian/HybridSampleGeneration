@@ -1982,10 +1982,9 @@ class FusedAnomalyTab(_ArrayTabBase):
         self.hybrid_segmentations_dir = self.paths.generated_segmentations_npy
         self.synth_roi_dir = self.paths.synth_roi_data
         self.synth_roi_mask_dir = self.paths.synth_roi_mask_data
-        self.synth_anomaly_dir = self.paths.synth_anomaly_data
-        self.generated_mask_dir = self.paths.anomaly_tgt_mask_data
         self.anomaly_dir = self.paths.anomaly_data
         self.anomaly_roi_dir = self.paths.anomaly_roi_data
+        self.anomaly_roi_mask_dir = self.paths.anomaly_mask_roi_data
         self.anomaly_mask_dir = self.paths.anomaly_mask_data
         self.show_mask_overlays_var = tk.BooleanVar(value=True)
         self.files: List[str] = []
@@ -2088,7 +2087,7 @@ class FusedAnomalyTab(_ArrayTabBase):
             ]
             bottom_items = [
                 _array_item("Selected synthetic ROI", None, self.synth_roi_dir),
-                _array_item("Matched anomaly", None, self.synth_anomaly_dir),
+                _array_item("Original ROI", None, self.anomaly_roi_dir),
             ]
             self.fig_hybrid.suptitle("fused anomaly", fontsize=13, fontweight="bold")
             self.fig_bottom.suptitle("")
@@ -2099,27 +2098,27 @@ class FusedAnomalyTab(_ArrayTabBase):
             if roi_name and self.current_roi_dir:
                 roi_path = os.path.join(self.current_roi_dir, roi_name)
                 roi_expected = os.path.join(self.expected_roi_dir, roi_name)
-                anomaly_path, anomaly_expected = _resolve_file_by_name(self.synth_anomaly_dir, roi_name)
-                anomaly_roi_path, _anomaly_roi_expected = _resolve_file_by_name(self.anomaly_roi_dir, roi_name)
-                anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, roi_name)
+                original_roi_path, original_roi_expected = _resolve_file_by_name(self.anomaly_roi_dir, roi_name)
             else:
                 roi_path = None
                 roi_expected = self.expected_roi_dir
-                anomaly_path = None
-                anomaly_expected = os.path.join(self.synth_anomaly_dir, "<selected_roi>.npy")
-                anomaly_roi_path = None
-                anomaly_meta = None
+                original_roi_path = None
+                original_roi_expected = os.path.join(self.anomaly_roi_dir, "<selected_roi>.npy")
             roi_mask_dir, roi_mask_expected_dir = _resolve_dir_by_name(self.synth_roi_mask_dir, selected)
             if roi_name and roi_mask_dir:
                 roi_mask_path, roi_mask_expected = _resolve_file_by_name(roi_mask_dir, roi_name)
             else:
                 roi_mask_path = None
                 roi_mask_expected = os.path.join(roi_mask_expected_dir, roi_name or "<selected_roi>.npy")
-            anomaly_mask_path, anomaly_mask_expected = _resolve_file_by_name(self.generated_mask_dir, roi_name)
+            original_roi_mask_path, original_roi_mask_expected = _resolve_file_by_name(
+                self.anomaly_roi_mask_dir, roi_name
+            )
             show_mask_overlays = bool(self.show_mask_overlays_var.get())
             hybrid_overlay_path = (hybrid_mask_path or hybrid_mask_expected) if show_mask_overlays else None
             roi_overlay_path = (roi_mask_path or roi_mask_expected) if show_mask_overlays else None
-            anomaly_overlay_path = (anomaly_mask_path or anomaly_mask_expected) if show_mask_overlays else None
+            original_roi_overlay_path = (
+                original_roi_mask_path or original_roi_mask_expected
+            ) if show_mask_overlays else None
 
             top_items = [
                 _array_item(
@@ -2135,10 +2134,9 @@ class FusedAnomalyTab(_ArrayTabBase):
                     overlay_mask_expected_path=roi_mask_expected,
                 ),
                 _array_item(
-                    "Matched anomaly", anomaly_path, anomaly_expected,
-                    meta=anomaly_meta, window_path=anomaly_roi_path,
-                    overlay_mask_path=anomaly_overlay_path,
-                    overlay_mask_expected_path=anomaly_mask_expected,
+                    "Original ROI", original_roi_path, original_roi_expected,
+                    overlay_mask_path=original_roi_overlay_path,
+                    overlay_mask_expected_path=original_roi_mask_expected,
                 ),
             ]
             roi_suffix = f" | ROI: {roi_name}" if roi_name else " | no ROI found"
