@@ -156,7 +156,7 @@ def _relation_channels_for_mask(roi, anomaly_mask, context_mask, eps=1e-8):
     return channels
 
 
-def _anomaly_context_intensity_meta(roi, roi_mask, border_width, eps=1e-8, min_context_size=8):
+def _anomaly_context_intensity_meta(roi, roi_mask, border_width, eps=1e-8, min_context_size=8, norm_classes_separately=False):
     label_mask = np.max(roi_mask, axis=0)
     spatial_mask = label_mask > 0
     if not np.any(spatial_mask):
@@ -164,6 +164,28 @@ def _anomaly_context_intensity_meta(roi, roi_mask, border_width, eps=1e-8, min_c
 
     kernel_size = max(int(border_width), 1) * 2 + 1
     structure = np.ones((kernel_size, kernel_size, kernel_size), dtype=bool)
+
+    
+    if not norm_classes_separately: # only take ring around whole mask and norm whole extracted anomaly as one
+        dilated_mask = binary_dilation(spatial_mask, structure=structure)
+        context_mask = dilated_mask & ~spatial_mask
+        if np.count_nonzero(context_mask) < int(min_context_size):
+            context_mask = ~spatial_mask
+        if np.count_nonzero(context_mask) < int(min_context_size):
+            return {
+                "intensity_relation_border_width": int(border_width),
+                "intensity_relation_norm_classes_separately": norm_classes_separately,
+                "intensity_relation_channels": None,
+            }
+
+        return {
+            "intensity_relation_border_width": int(border_width),
+            "intensity_relation_norm_classes_separately": norm_classes_separately,
+            "intensity_relation_channels": _relation_channels_for_mask(
+                roi, spatial_mask, context_mask, eps=eps
+            ),
+        }
+
     classes = []
     global_context_mask = None
 
@@ -187,6 +209,7 @@ def _anomaly_context_intensity_meta(roi, roi_mask, border_width, eps=1e-8, min_c
 
     return {
         "intensity_relation_border_width": int(border_width),
+        "intensity_relation_norm_classes_separately": norm_classes_separately,
         "intensity_relation_classes": classes,
     }
 
@@ -508,6 +531,7 @@ def crop_and_center_anomaly_3d(
                 relation_border_width,
                 eps=float(normalization_eps),
                 min_context_size=getattr(config, "fusion_relation_min_context_size", 8),
+                norm_classes_separately=getattr(config, "fusion_relation_norm_classes_separately", False),
             ))
 
         anomalies_roi.append(roi_sample)

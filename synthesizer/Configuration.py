@@ -157,6 +157,7 @@ class Configuration:
         }
         self.selected_confidence = "90%" 
         self.confidence_z_score = self.confidence_levels[self.selected_confidence]
+
         
         # Number of border pixels used to normalize the synthetic anomaly intensity to the surrounding fusion region.
         # Border width in pixels around the anomaly mask used for local intensity normalization:
@@ -171,10 +172,9 @@ class Configuration:
         # to the new local fusion context (before alpha blending).
         self.fusion_restore_anomaly_bg_relation = True
         self.fusion_relation_mode = "delta" # alternatively use ratio if intensities are not around 0
-
-        # Minimum number of pixels/voxels required for a class-specific context estimate.
-        # Smaller context rings fall back to the background outside all anomaly classes.
+        self.fusion_relation_norm_classes_separately = False
         self.fusion_relation_min_context_size = 8
+
 
         # global training parameter, fixed during training
         self.val_ratio = 0.2

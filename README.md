@@ -104,9 +104,7 @@ Each iteration must yield:
 ### Extraction metadata
   During anomaly extraction, each saved anomaly receives transformation metadata in `anomaly_transformations.json`.
   This includes label, scale_factor, centroid, original shape and optional normalization metadata (`norm_type`, `norm_mean`/`norm_std` or `norm_median`/`norm_mad`) used to denormalize generated anomalies before fusion.
-  When `fusion_restore_anomaly_bg_relation` is enabled, extraction also stores class-specific, per-channel anomaly/context intensity relation metadata (`median_delta`, `median_ratio` and `iqr_ratio`) for later fusion-time local normalization.
-  The relation context is a dilation ring around each anomaly class; all anomaly classes are excluded from that context, so one class is not treated as background for another.
-  If a class-specific context ring has fewer than `fusion_relation_min_context_size` pixels/voxels, extraction falls back to background outside the whole anomaly mask; if that is still too small, no relation is stored for that class and fusion falls back to direct local median/IQR normalization when enough local fusion context is available.
+  When `fusion_restore_anomaly_bg_relation` is enabled, extraction also stores per-channel anomaly/context intensity relation metadata (`median_delta`, `median_ratio` and `iqr_ratio`) for later fusion-time local normalization. Depending on `fusion_relation_norm_classes_separately`, this metadata is stored once for the combined anomaly mask or separately per class.
 
 ---
 
@@ -211,9 +209,11 @@ Each iteration must yield:
       Background region used to estimate control intensity for anomaly normalization. None disables fusion-time intensity normalization; -1 uses the entire image; >= 0 uses a local border around the anomaly mask.
       For relative normalization, the local border is defined as the dilation ring around the anomaly mask, matching the context definition used during extraction.
   - fusion_restore_anomaly_bg_relation:
-      If enabled, local border normalization preserves the extracted class-specific median/IQR intensity relation between each anomaly class and its original surrounding context. Disable it to normalize only against the local fusion context without using the stored relation.
+      If enabled, local border normalization preserves the extracted median/IQR intensity relation between anomaly and original surrounding context. Disable it to normalize only against the local fusion context without using the stored relation.
+  - fusion_relation_norm_classes_separately:
+      False normalizes the complete multiclass anomaly mask once against the outer ring around all classes. True keeps the previous behavior and normalizes every anomaly class against its own local ring.
   - fusion_relation_min_context_size:
-      Minimum number of pixels/voxels required for a class-specific context estimate. If the class ring is smaller, the code falls back to background outside all anomaly classes; if that is still too small, no relation is stored for that class. During fusion, classes without stored relation still use direct local median/IQR normalization when enough local fusion context is available; otherwise normalization for that class is skipped.
+      Minimum number of pixels/voxels required for a context estimate. If the ring is smaller, the code falls back to background outside all anomaly classes; if that is still too small, no relation is stored. During fusion, classes/scopes without stored relation still use direct local median/IQR normalization when enough local fusion context is available; otherwise normalization is skipped.
 
 ---
 

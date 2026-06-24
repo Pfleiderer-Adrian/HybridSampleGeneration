@@ -115,10 +115,14 @@ def _normalize_anomaly_to_context(
 
         relation = None
         if anomaly_meta:
-            if class_label is not None:
+            if class_label is None: # norm all classes together
+                relations = anomaly_meta.get("intensity_relation_channels")
+                if isinstance(relations, (list, tuple)) and channel < len(relations):
+                    candidate = relations[channel]
+                    if isinstance(candidate, dict):
+                        relation = candidate
+            else:   # norm classes separately
                 for class_meta in anomaly_meta.get("intensity_relation_classes", []):
-                    if not isinstance(class_meta, dict):
-                        continue
                     if float(class_meta.get("label", -1)) != float(class_label):
                         continue
                     relations = class_meta.get("channels")
@@ -372,31 +376,47 @@ def fusion3d(
         eps = float(getattr(config, "normalization_eps", 1e-8))
         min_context_size = int(getattr(config, "fusion_relation_min_context_size", 8))
         relation_mode = getattr(config, "fusion_relation_mode", "delta")
-        for label in labels:
-            class_mask = target_mask == label
-            if not np.any(class_mask):
-                continue
-            if border_width == -1:
-                class_context_mask = context_mask
-            else:
-                class_dilated_mask = binary_dilation(class_mask, structure=dilation_structure)
-                class_context_mask = class_dilated_mask & ~binary_mask
-                if np.count_nonzero(class_context_mask) < min_context_size:
+        norm_classes_separately = bool(getattr(config, "fusion_relation_norm_classes_separately", False))
+        if not norm_classes_separately:
+            if np.count_nonzero(context_mask) >= min_context_size:
+                anom = _normalize_anomaly_to_context(
+                    anom,
+                    context_slice,
+                    bg_slice,
+                    binary_mask,
+                    context_mask,
+                    context_meta,
+                    relation_mode,
+                    class_label=None,
+                    alpha_mask=alpha_mask,
+                    eps=eps,
+                )
+        else:
+            for label in labels:
+                class_mask = target_mask == label
+                if not np.any(class_mask):
+                    continue
+                if border_width == -1:
                     class_context_mask = context_mask
-            if np.count_nonzero(class_context_mask) < min_context_size:
-                continue
-            anom = _normalize_anomaly_to_context(
-                anom,
-                context_slice,
-                bg_slice,
-                class_mask,
-                class_context_mask,
-                context_meta,
-                relation_mode,
-                class_label=label,
-                alpha_mask=alpha_mask,
-                eps=eps,
-            )
+                else:
+                    class_dilated_mask = binary_dilation(class_mask, structure=dilation_structure)
+                    class_context_mask = class_dilated_mask & ~binary_mask
+                    if np.count_nonzero(class_context_mask) < min_context_size:
+                        class_context_mask = context_mask
+                if np.count_nonzero(class_context_mask) < min_context_size:
+                    continue
+                anom = _normalize_anomaly_to_context(
+                    anom,
+                    context_slice,
+                    bg_slice,
+                    class_mask,
+                    class_context_mask,
+                    context_meta,
+                    relation_mode,
+                    class_label=label,
+                    alpha_mask=alpha_mask,
+                    eps=eps,
+                )
 
     # Broadcast alpha from (d,h,w) to (1,d,h,w); it will broadcast across channels during blending
     alpha = alpha_mask[None, :, :, :]  # (1,d,h,w)
