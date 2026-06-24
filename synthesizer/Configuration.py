@@ -170,6 +170,7 @@ class Configuration:
         # relation between the anomaly and its original surrounding background
         # to the new local fusion context (before alpha blending).
         self.fusion_restore_anomaly_bg_relation = True
+        self.fusion_relation_mode = "delta" # alternatively use ratio if intensities are not around 0
 
         # Minimum number of pixels/voxels required for a class-specific context estimate.
         # Smaller context rings fall back to the background outside all anomaly classes.

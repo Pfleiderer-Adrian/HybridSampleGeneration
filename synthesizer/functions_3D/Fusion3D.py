@@ -66,20 +66,23 @@ def _region_stats(values, eps=1e-8):
     }
 
 
-
-def _target_median_from_relation(bg_median, relation, eps=1e-8):
+def _target_median_from_relation(bg_median, relation, relation_mode, eps=1e-8):
     if not relation:
         return bg_median
 
-    ratio = relation.get("median_ratio")
-    if ratio is not None and np.isfinite(ratio) and abs(bg_median) > eps:
-        return float(bg_median * float(ratio))
+    if relation_mode == "delta":
+        delta = relation.get("median_delta")
+        if delta is not None and np.isfinite(delta):
+            return float(bg_median + float(delta))
+        return bg_median
 
-    delta = relation.get("median_delta")
-    if delta is not None and np.isfinite(delta):
-        return float(bg_median + float(delta))
+    if relation_mode == "ratio":
+        ratio = relation.get("median_ratio")
+        if ratio is not None and np.isfinite(ratio) and abs(bg_median) > eps:
+            return float(bg_median * float(ratio))
+        return bg_median
 
-    return bg_median
+    raise ValueError(f"fusion_relation_mode must be 'delta' or 'ratio'. Got {relation_mode!r}.")
 
 
 def _normalize_anomaly_to_context(
@@ -89,6 +92,7 @@ def _normalize_anomaly_to_context(
     anomaly_mask,
     context_mask,
     anomaly_meta,
+    relation_mode,
     class_label=None,
     alpha_mask=None,
     eps=1e-8,
@@ -124,7 +128,7 @@ def _normalize_anomaly_to_context(
                             relation = candidate
                     break
 
-        target_median = _target_median_from_relation(context_stats["median"], relation, eps=eps)
+        target_median = _target_median_from_relation(context_stats["median"], relation, relation_mode, eps=eps)
         target_iqr = context_stats["iqr"]
         if relation is not None:
             iqr_ratio = relation.get("iqr_ratio")
@@ -367,6 +371,7 @@ def fusion3d(
         labels = labels[labels > 0]
         eps = float(getattr(config, "normalization_eps", 1e-8))
         min_context_size = int(getattr(config, "fusion_relation_min_context_size", 8))
+        relation_mode = getattr(config, "fusion_relation_mode", "delta")
         for label in labels:
             class_mask = target_mask == label
             if not np.any(class_mask):
@@ -387,6 +392,7 @@ def fusion3d(
                 class_mask,
                 class_context_mask,
                 context_meta,
+                relation_mode,
                 class_label=label,
                 alpha_mask=alpha_mask,
                 eps=eps,
