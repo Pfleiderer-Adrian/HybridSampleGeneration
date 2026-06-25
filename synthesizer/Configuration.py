@@ -91,7 +91,7 @@ class Configuration:
         self.separated_anomaly = True
 
         # mask augmentation parameter
-        self.use_default_mask_transforms = False
+        self.use_default_mask_transforms = True
         # override dicts for changing transform probabilities and parameters manually
         self.mask_transform_probs = {}
         self.mask_transform_params = {}

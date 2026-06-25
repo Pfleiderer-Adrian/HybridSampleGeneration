@@ -51,9 +51,22 @@ class ModelConfiguration:
     def set_hyperparameter_space(self, min_config, max_config):
         """
         Override the hyperparameter search space used by Optuna.
+
+        Unspecified known model parameters keep their current fixed values so
+        use-case overrides can tune a subset without dropping required fields.
         """
-        self.min = self.model_config_to_dict(min_config)
-        self.max = self.model_config_to_dict(max_config)
+        min_config = self.model_config_to_dict(min_config)
+        max_config = self.model_config_to_dict(max_config)
+        self.validate_model_param_names(set(min_config) | set(max_config))
+
+        self._preserve_immutable_params(min_config, max_config)
+
+        for name in (set(self.min) | set(self.max)) - (set(min_config) | set(max_config)):
+            min_config[name] = self.min.get(name, self.max.get(name))
+            max_config[name] = self.max.get(name, self.min.get(name))
+
+        self.min = min_config
+        self.max = max_config
 
     def set_model_param(self, name, value):
         """
@@ -99,6 +112,33 @@ class ModelConfiguration:
             raise AttributeError(
                 f"Model parameter {name!r} is derived from anomaly_size and cannot be changed afterwards."
             )
+
+    def validate_model_param_names(self, names):
+        valid_names = set(self.min) | set(self.max)
+        invalid_names = set(names) - valid_names
+        if invalid_names:
+            raise KeyError(
+                f"Unknown model parameter(s) {sorted(invalid_names)!r}. "
+                f"Available parameters: {sorted(valid_names)}"
+            )
+
+    def _preserve_immutable_params(self, min_config, max_config):
+        for name in self.immutable_params:
+            current_min = self.min.get(name, self.max.get(name))
+            current_max = self.max.get(name, self.min.get(name))
+            if current_min is None and current_max is None:
+                continue
+
+            if (
+                (name in min_config and min_config[name] != current_min)
+                or (name in max_config and max_config[name] != current_max)
+            ):
+                raise AttributeError(
+                    f"Model parameter {name!r} is derived from anomaly_size and cannot be changed afterwards."
+                )
+
+            min_config[name] = current_min
+            max_config[name] = current_max
 
     def to_dict(self):
         return {

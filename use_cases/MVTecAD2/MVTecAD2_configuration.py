@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from synthesizer.Configuration import Configuration
@@ -23,6 +23,28 @@ MVTECAD2_CATEGORIES = (
 CATEGORY_ALIASES = {
     "wall_plugs": "wallplugs",
     "wall plugs": "wallplugs",
+}
+
+CATEGORY_ANOMALY_SHAPES: dict[str, tuple[int, int, int]] = {
+    "can": (3, 64, 64),
+    "fabric": (3, 128, 128),
+    "fruit_jelly": (3, 64, 64),
+    "rice": (3, 64, 64),
+    "sheet_metal": (1, 64, 64),
+    "vial": (3, 64, 64),
+    "wallplugs": (3, 64, 64),
+    "walnuts": (3, 64, 64),
+}
+
+CATEGORY_GENERATION_MODEL: dict[str, str] = {
+    "can": "cVAE_ConvNeXt_2D",
+    "fabric": "cVAE_ConvNeXt_2D",
+    "fruit_jelly": "cVAE_ConvNeXt_2D",
+    "rice": "cVAE_ConvNeXt_2D",
+    "sheet_metal": "cVAE_ConvNeXt_2D",
+    "vial": "cVAE_ConvNeXt_2D",
+    "wallplugs": "cVAE_ConvNeXt_2D",
+    "walnuts": "cVAE_ConvNeXt_2D",
 }
 
 
@@ -49,12 +71,17 @@ def create_mvtecad2_configuration(
 
     category = canonical_category(category)
     config_save_path = save_path if save_path is not None else results_root
+    generation_model = CATEGORY_GENERATION_MODEL[category]
 
-    config = CATEGORY_CONFIGURATORS[category](config_save_path)
+    config = Configuration(
+        f"mvtecad2_{safe_name(f'{category}_{generation_model}')}",
+        generation_model,
+        CATEGORY_ANOMALY_SHAPES[category],
+        save_path=config_save_path,
+    )
     config = configure_mvtecad2_defaults(config)
     if apply_category_overrides:
-        config = configure_mvtecad2_defaults(config)
-
+        config = CATEGORY_CONFIGURATORS[category](config)
     return config
 
 
@@ -96,21 +123,11 @@ def configure_mvtecad2_defaults(config: Configuration):
     """
     Shared MVTec AD 2 defaults for all categories.
     """
-    return config
-
-
-def configure_can(config_save_path: str) -> Configuration:
-    model = "VAE_ConvNeXt_2D"
-    config = Configuration(
-        f"mvtecad2_{safe_name('can_'+ model)}",
-        model,
-        (3, 64, 64),
-        save_path=config_save_path,
-    )
+    image_channels = int(config.anomaly_size[0])
 
     # extraction settings
-    config.fixed_roi_size = (256, 256)
-    config.random_offset = False
+    config.fixed_roi_size = None
+    config.random_offset = True
     config.random_offset_max_fraction = 0.8
     config.random_offset_foreground_threshold_rel = 0.01
     config.add_bg_noise = False
@@ -127,14 +144,14 @@ def configure_can(config_save_path: str) -> Configuration:
     config.use_feedback = False
     config.feedback_threshold = 0.01
     config.threshold_relaxation_factor = 0.9
-    config.variation_strength = 1.0
+    config.variation_strength = 1.25
 
     # matching settings
     config.matching_routine = "local"
     config.anomaly_duplicates = True
     config.fusions_per_control = 2
     config.max_fusions_per_control_deviation = 1
-    
+
     # Fusion settings
     config.set_fusion_backend("classical")
     config.fusion_params.set_fusion_params(
@@ -150,7 +167,7 @@ def configure_can(config_save_path: str) -> Configuration:
         sq_variation=0.1,
         steepness_variation=1.0,
         selected_confidence="90%",
-    ) 
+    )
     """
     config.set_fusion_backend("learned_residual_alpha")
     config.fusion_params.set_fusion_params(
@@ -197,55 +214,61 @@ def configure_can(config_save_path: str) -> Configuration:
     config.model_params.set_hyperparameter_space(
         # min_config
         {
-            "in_channels": 3,
-            "n_res_blocks": 1,
+            "in_channels": image_channels,
+            "n_res_blocks": 2,
             "n_levels": 3,
             "z_channels": 16,
-            "bottleneck_dim": 24,
+            "bottleneck_dim": 32,
             "use_multires_skips": False,
-            "recon_weight": 6.0,
-            "beta_kl": 0.05,
+            "recon_weight": 4.0,
+            "beta_kl": 0.03,
             "beta_kl_start": 0.0,
             "beta_kl_max": 0.06,
             "beta_kl_warmup_start": 0,
-            "beta_kl_warmup_epochs": 250,
+            "beta_kl_warmup_epochs": 150,
             "free_bits": 0.0,
             "recon_loss": "smoothl1",
-            "recon_smoothl1_beta": 0.5,
+            "recon_smoothl1_beta": 0.35,
             "use_transpose_conv": False,
-            "fg_weight": 1.0,
+            "fg_weight": 0.8,
             "fg_threshold": 0.0,
             "drop_path_rate": 0.0,
-            "dropout": 0.03,
-            "skip_dropout_p": 1.0,
+            "dropout": 0.01,
+            "skip_dropout_p": 0.75,
             "skip_alpha": 0.0,
         },
         # max_config
         {
-            "in_channels": 3,
-            "n_res_blocks": 3,
+            "in_channels": image_channels,
+            "n_res_blocks": 4,
             "n_levels": 4,
-            "z_channels": 64,
-            "bottleneck_dim": 96,
+            "z_channels": 96,
+            "bottleneck_dim": 160,
             "use_multires_skips": False,
-            "recon_weight": 18.0,
-            "beta_kl": 0.05,
+            "recon_weight": 24.0,
+            "beta_kl": 0.08,
             "beta_kl_start": 0.0,
-            "beta_kl_max": 0.18,
+            "beta_kl_max": 0.25,
             "beta_kl_warmup_start": 0,
-            "beta_kl_warmup_epochs": 700,
-            "free_bits": 0.005,
+            "beta_kl_warmup_epochs": 900,
+            "free_bits": 0.01,
             "recon_loss": "smoothl1",
-            "recon_smoothl1_beta": 1.0,
+            "recon_smoothl1_beta": 1.25,
             "use_transpose_conv": False,
-            "fg_weight": 1.0,
+            "fg_weight": 1.5,
             "fg_threshold": 0.0,
-            "drop_path_rate": 0.05,
-            "dropout": 0.15,
+            "drop_path_rate": 0.08,
+            "dropout": 0.20,
             "skip_dropout_p": 1.0,
-            "skip_alpha": 0.0,
+            "skip_alpha": 0.20,
         },
     )
+    return config
+
+
+def configure_can(config: Configuration) -> Configuration:
+    config.variation_strength = 1.5
+    config.fusion_params.set_fusion_params(max_alpha=0.5)
 
     """
     # Prototype diffusion model settings for can category. These parameters are not tuned.
@@ -267,85 +290,36 @@ def configure_can(config_save_path: str) -> Configuration:
     return config
 
 
-def configure_fabric(config_save_path: str) -> Configuration:
-    model = "VAE_ConvNeXt_2D"
-    config = Configuration(
-        f"mvtecad2_{safe_name('can_'+ model)}",
-        model,
-        (3, 64, 64),
-        save_path=config_save_path,
-    )
+def configure_fabric(config: Configuration) -> Configuration:
+    config.min_roi_size = (128, 128)
     return config
 
 
-def configure_fruit_jelly(config_save_path: str) -> Configuration:
-    model = "VAE_ConvNeXt_2D"
-    config = Configuration(
-        f"mvtecad2_{safe_name('fruit_jelly_' + model)}",
-        model,
-        (3, 64, 64),
-        save_path=config_save_path,
-    )
+def configure_fruit_jelly(config: Configuration) -> Configuration:
     return config
 
 
-def configure_rice(config_save_path: str) -> Configuration:
-    model = "VAE_ConvNeXt_2D"
-    config = Configuration(
-        f"mvtecad2_{safe_name('rice_' + model)}",
-        model,
-        (3, 64, 64),
-        save_path=config_save_path,
-    )
+def configure_rice(config: Configuration) -> Configuration:
     return config
 
 
-def configure_sheet_metal(config_save_path: str) -> Configuration:
-    model = "VAE_ConvNeXt_2D"
-    config = Configuration(
-        f"mvtecad2_{safe_name('sheet_metal_' + model)}",
-        model,
-        (3, 64, 64),
-        save_path=config_save_path,
-    )
+def configure_sheet_metal(config: Configuration) -> Configuration:
     return config
 
 
-def configure_vial(config_save_path: str) -> Configuration:
-    model = "VAE_ConvNeXt_2D"
-    config = Configuration(
-        f"mvtecad2_{safe_name('vial_' + model)}",
-        model,
-        (3, 64, 64),
-        save_path=config_save_path,
-    )
+def configure_vial(config: Configuration) -> Configuration:
     return config
 
 
-def configure_wallplugs(config_save_path: str) -> Configuration:
-    model = "VAE_ConvNeXt_2D"
-    config = Configuration(
-        f"mvtecad2_{safe_name('wallplugs_' + model)}",
-        model,
-        (3, 64, 64),
-        save_path=config_save_path,
-    )
-    return config
-    
-
-
-def configure_walnuts(config_save_path: str) -> Configuration:
-    model = "VAE_ConvNeXt_2D"
-    config = Configuration(
-        f"mvtecad2_{safe_name('walnuts_' + model)}",
-        model,
-        (3, 64, 64),
-        save_path=config_save_path,
-    )
+def configure_wallplugs(config: Configuration) -> Configuration:
     return config
 
 
-CATEGORY_CONFIGURATORS: dict[str, Callable[[Configuration], None]] = {
+def configure_walnuts(config: Configuration) -> Configuration:
+    return config
+
+
+CATEGORY_CONFIGURATORS: dict[str, Callable[[Configuration], Configuration]] = {
     "can": configure_can,
     "fabric": configure_fabric,
     "fruit_jelly": configure_fruit_jelly,
