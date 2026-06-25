@@ -27,12 +27,12 @@ CATEGORY_ALIASES = {
 
 CATEGORY_ANOMALY_SHAPES: dict[str, tuple[int, int, int]] = {
     "can": (3, 64, 64),
-    "fabric": (3, 128, 128),
+    "fabric": (3, 64, 64),
     "fruit_jelly": (3, 64, 64),
     "rice": (3, 64, 64),
     "sheet_metal": (1, 64, 64),
-    "vial": (3, 64, 64),
-    "wallplugs": (3, 64, 64),
+    "vial": (1, 64, 64),
+    "wallplugs": (1, 64, 64),
     "walnuts": (3, 64, 64),
 }
 
