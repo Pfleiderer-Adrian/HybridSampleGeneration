@@ -215,7 +215,7 @@ Each iteration must yield:
   - fusion_relation_norm_classes_separately:
       False normalizes the complete multiclass anomaly mask once against the outer ring around all classes. True normalizes every anomaly class against its own local ring (with other anomalies excluded from the context).
   - fusion_relation_min_context_size:
-      Minimum number of pixels/voxels required for a context estimate. If the ring is smaller, extraction falls back to background outside all anomaly classes; if that is still too small, no relation is stored. During fusion, classes/scopes without enough local fusion context are skipped.
+      Minimum number of pixels/voxels required for a context estimate. If the ring is smaller, extraction falls back to background outside all anomaly classes; if that is still too small, no relation is stored. During fusion, if a class-specific local ring is too small, it falls back to the combined anomaly ring; if that is still too small, that class/scope is skipped.
 
 ---
 
