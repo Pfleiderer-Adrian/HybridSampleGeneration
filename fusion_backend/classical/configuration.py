@@ -21,6 +21,7 @@ class Config:
     sobel_threshold: float = 0.05
     dilation_size: int = 2
     shave_pixels: int = 1
+    fusion_use_sobel_for_alpha_mask: bool = False
     fusion_variation: bool = True
     alpha_variation: float = 0.05
     sq_variation: float = 0.1
