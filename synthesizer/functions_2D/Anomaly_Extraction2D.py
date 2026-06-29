@@ -178,14 +178,10 @@ def _anomaly_context_intensity_meta(
             context_mask = ~spatial_mask
         if np.count_nonzero(context_mask) < int(min_context_size):
             return {
-                "intensity_relation_border_width": int(border_width),
-                "intensity_relation_norm_classes_separately": norm_classes_separately,
                 "intensity_relation_channels": None,
             }
 
         return {
-            "intensity_relation_border_width": int(border_width),
-            "intensity_relation_norm_classes_separately": norm_classes_separately,
             "intensity_relation_channels": _relation_channels_for_mask(
                 roi, spatial_mask, context_mask, eps=eps
             ),
@@ -213,8 +209,6 @@ def _anomaly_context_intensity_meta(
         })
 
     return {
-        "intensity_relation_border_width": int(border_width),
-        "intensity_relation_norm_classes_separately": norm_classes_separately,
         "intensity_relation_classes": classes,
     }
 
@@ -502,7 +496,7 @@ def crop_and_center_anomaly_2d(
         roi_sample = crop_square_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False)
         roi_mask = crop_square_clip(seg, centroid_voxel, size_spatial, centroid_is_normalized=False)
         relation_border_width = config.fusion_params.get("fusion_normalization_border_width", 2)
-        restore_bg_relation = bool(config.fusion_params.get("fusion_restore_anomaly_bg_relation", True))
+        restore_bg_relation = bool(config.fusion_params.get("fusion_restore_anomaly_bg_relation", None))
         if restore_bg_relation and relation_border_width is not None:
             meta_data.update(_anomaly_context_intensity_meta(
                 roi_sample,

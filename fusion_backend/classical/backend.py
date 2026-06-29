@@ -340,7 +340,7 @@ class ClassicalFusionBackend:
     ):
         """Match anomaly intensity to local context, optionally restoring extracted relation metadata."""
         binary_mask = valid_mask > 0
-        normalization_border_width = params["fusion_normalization_border_width"]
+        normalization_border_width = params.get("fusion_normalization_border_width", 2)
         if normalization_border_width is None or not np.any(binary_mask):
             return anom
 
@@ -356,7 +356,7 @@ class ClassicalFusionBackend:
             context_slice = bg_slice
             dilated_mask = binary_dilation(binary_mask, structure=dilation_structure)
             context_mask = dilated_mask & ~binary_mask
-            if params.get("fusion_restore_anomaly_bg_relation", True):
+            if params.get("fusion_restore_anomaly_bg_relation", None):
                 context_meta = anomaly_meta
         else:
             raise ValueError("fusion_normalization_border_width must be None, -1, or >= 0.")
