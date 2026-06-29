@@ -238,16 +238,28 @@ class ClassicalFusionBackend:
         valid_mask = target_mask > 0
 
         # ------------------------------------------------------------
-        # 8) Locally normalize anomaly values per channel to match the
-        #    target area plus optional surrounding border.
-        # ------------------------------------------------------------
-        anom = self._match_local_intensity(anom, ctrl, bg_slice, valid_mask, self.params)
-
-        # ------------------------------------------------------------
-        # 9) Create alpha mask from the target mask (or optionally
-        #    from Sobel edges) plus distance transform.
+        # 8) Create alpha mask from the target mask (or optionally
+        #    from Sobel edges) plus distance transform
+        #    before normalization so relation restoration
+        #    can compensate for the later alpha blending.
         # ------------------------------------------------------------
         alpha_mask = alpha_builder(anom_proj, self.params, target_mask)
+
+        # ------------------------------------------------------------
+        # 9) Locally normalize anomaly values while preserving the extracted
+        #    anomaly/context relation in the final alpha-blended result.
+        # ------------------------------------------------------------
+        anom = self._match_local_intensity(
+            anom,
+            ctrl,
+            bg_slice,
+            valid_mask,
+            target_mask,
+            anomaly_meta,
+            alpha_mask,
+            self.params,
+            normalization_eps=getattr(config, "normalization_eps", 1e-8),
+        )
         alpha = alpha_mask[None, ...]
 
         # ------------------------------------------------------------
@@ -315,49 +327,199 @@ class ClassicalFusionBackend:
         )
 
     @staticmethod
-    def _match_local_intensity(anom, ctrl, bg_slice, valid_mask, params):
-        """Match anomaly intensity statistics to the target control region."""
+    def _match_local_intensity(
+        anom,
+        ctrl,
+        bg_slice,
+        valid_mask,
+        target_mask,
+        anomaly_meta,
+        alpha_mask,
+        params,
+        normalization_eps=1e-8,
+    ):
+        """Match anomaly intensity to local context, optionally restoring extracted relation metadata."""
         binary_mask = valid_mask > 0
         normalization_border_width = params["fusion_normalization_border_width"]
         if normalization_border_width is None or not np.any(binary_mask):
             return anom
 
         border_width = int(normalization_border_width)
+        context_meta = None
         if border_width == -1:
-            normalization_mask = None
+            context_slice = ctrl
+            context_mask = np.ones(ctrl.shape[1:], dtype=bool)
+            dilation_structure = None
         elif border_width >= 0:
             dilation_kernel_size = border_width * 2 + 1
             dilation_structure = np.ones((dilation_kernel_size,) * binary_mask.ndim, dtype=bool)
-            normalization_mask = binary_dilation(binary_mask, structure=dilation_structure)
+            context_slice = bg_slice
+            dilated_mask = binary_dilation(binary_mask, structure=dilation_structure)
+            context_mask = dilated_mask & ~binary_mask
+            if params.get("fusion_restore_anomaly_bg_relation", True):
+                context_meta = anomaly_meta
         else:
             raise ValueError("fusion_normalization_border_width must be None, -1, or >= 0.")
 
-        if border_width != -1 and not np.any(normalization_mask):
-            return anom
+        labels = np.unique(target_mask[binary_mask])
+        labels = labels[labels > 0]
+        eps = float(normalization_eps)
+        min_context_size = int(params.get("fusion_relation_min_context_size", 8))
+        relation_mode = params.get("fusion_relation_mode", "delta")
+        norm_classes_separately = bool(params.get("fusion_relation_norm_classes_separately", False))
 
-        matched = anom.copy()
-        for channel in range(matched.shape[0]):
-            # Anomaly intensity inside the intended foreground.
-            anomaly_values = matched[channel][binary_mask]
-            if anomaly_values.size == 0:
+        if not norm_classes_separately:
+            if np.count_nonzero(context_mask) < min_context_size:
+                return anom
+            return _normalize_anomaly_to_context(
+                anom,
+                context_slice,
+                bg_slice,
+                binary_mask,
+                context_mask,
+                context_meta,
+                relation_mode,
+                class_label=None,
+                alpha_mask=alpha_mask,
+                eps=eps,
+            )
+
+        # norm classes separately
+        matched = anom
+        for label_value in labels:
+            class_mask = target_mask == label_value
+            if not np.any(class_mask):
                 continue
-
-            # Background intensity either from the whole control image
-            # or from the local region around the target mask.
-            background_values = ctrl[channel].ravel() if border_width == -1 else bg_slice[channel][normalization_mask]
-            if background_values.size == 0:
+            if border_width == -1:
+                class_context_mask = context_mask
+            else:
+                class_dilated_mask = binary_dilation(class_mask, structure=dilation_structure)
+                class_context_mask = class_dilated_mask & ~binary_mask
+                if np.count_nonzero(class_context_mask) < min_context_size:
+                    class_context_mask = context_mask
+            if np.count_nonzero(class_context_mask) < min_context_size:
                 continue
-
-            # Mean/std matching in z-score space.
-            anomaly_std = np.std(anomaly_values)
-            if anomaly_std == 0:
-                anomaly_std = 1e-5
-
-            matched[channel][binary_mask] = (
-                (anomaly_values - np.mean(anomaly_values)) / anomaly_std
-            ) * np.std(background_values) + np.mean(background_values)
+            matched = _normalize_anomaly_to_context(
+                matched,
+                context_slice,
+                bg_slice,
+                class_mask,
+                class_context_mask,
+                context_meta,
+                relation_mode,
+                class_label=label_value,
+                alpha_mask=alpha_mask,
+                eps=eps,
+            )
 
         return matched
+
+
+def _region_stats(values, eps=1e-8):
+    values = np.asarray(values, dtype=np.float32)
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return None
+
+    q25, q50, q75 = np.percentile(values, [25.0, 50.0, 75.0])
+    return {
+        "median": float(q50),
+        "iqr": max(float(q75 - q25), float(eps)),
+    }
+
+
+def _target_median_from_relation(bg_median, relation, relation_mode, eps=1e-8):
+    if not relation:
+        return bg_median
+
+    if relation_mode == "delta":
+        delta = relation.get("median_delta")
+        if delta is not None and np.isfinite(delta):
+            return float(bg_median + float(delta))
+        return bg_median
+
+    if relation_mode == "ratio":
+        ratio = relation.get("median_ratio")
+        if ratio is not None and np.isfinite(ratio) and abs(bg_median) > eps:
+            return float(bg_median * float(ratio))
+        return bg_median
+
+    raise ValueError(f"fusion_relation_mode must be 'delta' or 'ratio'. Got {relation_mode!r}.")
+
+
+def _relation_for_channel(anomaly_meta, channel, class_label=None):
+    if not anomaly_meta:
+        return None
+
+    if class_label is None:
+        relations = anomaly_meta.get("intensity_relation_channels")
+        if isinstance(relations, (list, tuple)) and channel < len(relations):
+            candidate = relations[channel]
+            if isinstance(candidate, dict):
+                return candidate
+        return None
+
+    for class_meta in anomaly_meta.get("intensity_relation_classes", []):
+        if float(class_meta.get("label", -1)) != float(class_label):
+            continue
+        relations = class_meta.get("channels")
+        if isinstance(relations, (list, tuple)) and channel < len(relations):
+            candidate = relations[channel]
+            if isinstance(candidate, dict):
+                return candidate
+        break
+    return None
+
+
+def _normalize_anomaly_to_context(
+    anom,
+    context_slice,
+    blend_bg_slice,
+    anomaly_mask,
+    context_mask,
+    anomaly_meta,
+    relation_mode,
+    class_label=None,
+    alpha_mask=None,
+    eps=1e-8,
+):
+    matched = anom.copy()
+    alpha_eff = None
+    if alpha_mask is not None:
+        alpha_values = np.asarray(alpha_mask, dtype=np.float32)[anomaly_mask]
+        alpha_values = alpha_values[np.isfinite(alpha_values) & (alpha_values > eps)]
+        if alpha_values.size > 0:
+            alpha_eff = float(np.clip(np.max(alpha_values), eps, 1.0))
+
+    for channel in range(matched.shape[0]): # norm channels separately
+        anomaly_values = matched[channel][anomaly_mask]
+        context_values = context_slice[channel][context_mask]
+        anomaly_stats = _region_stats(anomaly_values, eps=eps)
+        context_stats = _region_stats(context_values, eps=eps)
+        if anomaly_stats is None or context_stats is None:
+            continue
+
+        relation = _relation_for_channel(anomaly_meta, channel, class_label=class_label)
+        target_median = _target_median_from_relation(context_stats["median"], relation, relation_mode, eps=eps)
+        target_iqr = context_stats["iqr"]
+        if relation is not None:
+            iqr_ratio = relation.get("iqr_ratio")
+            if iqr_ratio is not None and np.isfinite(iqr_ratio):
+                target_iqr = max(float(context_stats["iqr"] * float(iqr_ratio)), float(eps))
+
+        pre_target_median = target_median
+        pre_target_iqr = target_iqr
+        if alpha_eff is not None and alpha_eff < 1.0:
+            inside_bg_stats = _region_stats(blend_bg_slice[channel][anomaly_mask], eps=eps)
+            if inside_bg_stats is not None:
+                pre_target_median = (target_median - inside_bg_stats["median"] * (1.0 - alpha_eff)) / alpha_eff
+                pre_target_iqr = max(float(target_iqr / alpha_eff), float(eps))
+
+        channel_values = ((anomaly_values - anomaly_stats["median"]) / anomaly_stats["iqr"]) * pre_target_iqr
+        channel_values = channel_values + pre_target_median
+        matched[channel][anomaly_mask] = channel_values
+
+    return matched
 
 
 def _inverse_extraction_scale(scale_factor, ndim):

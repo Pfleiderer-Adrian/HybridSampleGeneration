@@ -13,9 +13,9 @@ segmentation mask.
 Core modules:
 - `synthesizer/HybridDataGenerator.py` — pipeline wrapper
 - `synthesizer/Configuration.py` — configuration + metadata persistence
-- `synthesizer/function_XD/Anomaly_Extraction.py` — anomaly + ROI cutouts
-- `synthesizer/function_XD/MatchingXD.py` — matching (syn. anomaly x control image)
-- `synthesizer/function_XD/FusionXD.py` — fusion (syn. anomaly x control image)
+- `synthesizer/functions_XD/Anomaly_ExtractionXD.py` — anomaly + ROI cutouts
+- `synthesizer/Matching.py` — matching (synthetic anomaly x control image)
+- `fusion_backend/` — fusion backends and backend-specific fusion parameters
 - `synthesizer/Trainer.py` — Optuna training loop
 ---
 
@@ -101,6 +101,13 @@ Each iteration must yield:
 
 ---
 
+### Extraction metadata
+  During anomaly extraction, each saved anomaly receives transformation metadata in `anomaly_transformations.json`.
+  This includes label, scale_factor, centroid, original shape and optional normalization metadata (`norm_type`, `norm_mean`/`norm_std` or `norm_median`/`norm_mad`) used to denormalize generated anomalies before fusion.
+  When `fusion_restore_anomaly_bg_relation` is enabled in `config.fusion_params`, extraction also stores per-channel anomaly/context intensity relation metadata (`median_delta`, `median_ratio` and `iqr_ratio`) for later fusion-time local normalization. Depending on `fusion_relation_norm_classes_separately`, this metadata is stored once for the combined anomaly mask or separately per class.
+
+---
+
 ### Matching logic
   Pair control samples and synthetic anomalies for fusion and save the results in matching_dict.csv: control, [(anomaly, fusion_position), ...]
 
@@ -177,27 +184,38 @@ Each iteration must yield:
 
 ### Fusion logic
   Fusion inserts the matched synthetic anomaly into the target control sample at the position stored in matching_dict.csv and creates the corresponding segmentation mask.
-  Before blending, the anomaly is cropped to its foreground area, rescaled with the saved scale_factor and locally intensity-normalized to the insertion region of the control sample.
+  Before blending, the anomaly is cropped to the foreground defined by its target_mask, rescaled with the saved scale_factor and locally intensity-normalized to the insertion region of the control sample.
+  Local intensity normalization uses median/IQR statistics to reduce the impact of outliers and bright edges.
+  If anomaly/context relation metadata is available, fusion restores that original relation in the new local context; the normalization is alpha-aware, so the target median/IQR is compensated before blending by the maximum alpha value in the active mask.
   The actual fusion uses an edge-aware alpha mask based on Sobel edges, morphology and a distance transform, so the anomaly interior can be blended more strongly than its boundary.
 
-  Fusion parameters in config:
-  - fusion_mask_params:
-      max_alpha controls the maximum blending weight of the anomaly. For example, max_alpha = 0.8 means that fully weighted pixels use 0.8 * anomaly intensity + 0.2 * background intensity.
-      sq and steepness_factor shape the alpha falloff from anomaly interior to boundary.
-      upsampling_factor increases mask resolution during distance-transform computation for smoother alpha masks.
-      sobel_threshold controls which gradients are treated as anomaly edges.
-      dilation_size closes edge gaps and refines the foreground body before alpha creation.
-      shave_pixels erodes boundary pixels to reduce visible blending artifacts.
+  Fusion parameters are stored in `config.fusion_params` for the selected fusion backend and can be changed with `config.fusion_params.set_fusion_params(...)`:
+  - max_alpha:
+      Controls the maximum blending weight of the anomaly. For example, max_alpha = 0.8 means that fully weighted pixels use 0.8 * anomaly intensity + 0.2 * background intensity.
+  - sq / steepness_factor:
+      Shape the alpha falloff from anomaly interior to boundary.
+  - upsampling_factor:
+      Increases mask resolution during distance-transform computation for smoother alpha masks.
+  - sobel_threshold:
+      Controls which gradients are treated as anomaly edges.
+  - dilation_size / shave_pixels:
+      Close edge gaps, refine the foreground body before alpha creation, and optionally erode boundary pixels to reduce visible blending artifacts.
   - fusion_variation:
       If enabled, max_alpha, sq and steepness_factor are sampled around their configured values for each fusion.
   - fusion_variation_params:
       alpha_variation, sq_variation and steepness_variation define the allowed one-sided deviation used for gaussian sampling.
   - selected_confidence / confidence_z_score:
       Converts the variation values into standard deviations; for example, selected_confidence = "90%" means samples stay within the configured one-sided deviation in about 90% of cases.
-  - background_threshold:
-      Defines which anomaly pixels are treated as foreground during cropping and alpha-mask creation. If None, the fusion code derives a threshold from the anomaly minimum.
   - fusion_normalization_border_width:
-      Width of the border around the insertion region used to estimate local control intensity for anomaly normalization.
+      Background region used to estimate control intensity for anomaly normalization. None disables fusion-time intensity normalization; -1 uses the entire image; >= 0 uses a local dilation ring around the anomaly mask.
+  - fusion_restore_anomaly_bg_relation:
+      If enabled, local border normalization preserves the extracted median/IQR intensity relation between anomaly and original surrounding context. Disable it to normalize only against the local fusion context without using the stored relation.
+  - fusion_relation_mode:
+      Selects how the stored anomaly/context median relation is transferred. `delta` preserves the intensity difference; `ratio` preserves the intensity ratio (use only if medians are not around 0 and intensities are strictly positive).
+  - fusion_relation_norm_classes_separately:
+      False normalizes the complete multiclass anomaly mask once against the outer ring around all classes. True normalizes every anomaly class against its own local ring (with other anomalies excluded from the context).
+  - fusion_relation_min_context_size:
+      Minimum number of pixels/voxels required for a context estimate. If the ring is smaller, extraction falls back to background outside all anomaly classes; if that is still too small, no relation is stored. During fusion, classes/scopes without enough local fusion context are skipped.
 
 ---
 

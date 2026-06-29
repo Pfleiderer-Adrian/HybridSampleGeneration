@@ -31,6 +31,10 @@ class Config:
     # fusion region: None skips normalization, 0 uses only the anomaly mask,
     # >0 uses a wider surrounding region, -1 uses the entire image.
     fusion_normalization_border_width: int | None = 2
+    fusion_restore_anomaly_bg_relation: bool = True
+    fusion_relation_mode: str = "delta"
+    fusion_relation_norm_classes_separately: bool = False
+    fusion_relation_min_context_size: int = 8
 
 
 def get_classical_fusion_configuration():
