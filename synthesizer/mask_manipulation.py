@@ -96,8 +96,8 @@ def sample_uniform(min_value=None, max_value=None, *, rng=None, size=None, integ
 
 def random_global_stretch_transform(
     mask_np: np.ndarray,
-    min_stretch=0.95,
-    max_stretch=1.05,
+    min_stretch=1.0,
+    max_stretch=1.2,
     rng=None,
 ):
     """Apply nearest-neighbour scaling around the mask center while preserving shape."""
@@ -108,12 +108,67 @@ def random_global_stretch_transform(
 
     transformed_mask = mask_np[0].copy()
     scales = sample_uniform(min_stretch, max_stretch, rng=rng, size=transformed_mask.ndim)
+    scales = _limit_scales_to_mask_bounds(transformed_mask != 0, scales)
     transformed_mask = _stretch_spatial_mask(
         transformed_mask,
         scales=scales,
     ).astype(original_dtype)
 
     return transformed_mask[None, ...]
+
+
+def random_global_zoom_transform(
+    mask_np: np.ndarray,
+    min_zoom=0.9,
+    max_zoom=0.9,
+    rng=None,
+):
+    """Apply isotropic nearest-neighbour zoom around the mask center while preserving shape."""
+    original_dtype = mask_np.dtype
+
+    if mask_np.ndim not in (3, 4) or mask_np.shape[0] != 1:
+        raise ValueError(f"Expected mask with shape (1, H, W) or (1, D, H, W), got {mask_np.shape}.")
+
+    min_zoom = float(min_zoom)
+    max_zoom = float(max_zoom)
+    if not 0 < min_zoom <= max_zoom <= 1:
+        raise ValueError(f"min_zoom and max_zoom must satisfy 0 < min_zoom <= max_zoom <= 1, got ({min_zoom}, {max_zoom}).")
+
+    zoom_factor = sample_uniform(min_zoom, max_zoom, rng=rng)
+    transformed_mask = mask_np[0].copy()
+    scales = np.full(transformed_mask.ndim, zoom_factor, dtype=float)
+    transformed_mask = _stretch_spatial_mask(
+        transformed_mask,
+        scales=scales,
+    ).astype(original_dtype)
+
+    return transformed_mask[None, ...]
+
+
+def _limit_scales_to_mask_bounds(foreground_mask, scales):
+    """Clamp stretch scales so foreground stays inside the current spatial bounds (anomaly_size)."""
+    scales = np.asarray(scales, dtype=float).copy()
+
+    if not np.any(foreground_mask):
+        return scales
+
+    center = np.array(foreground_mask.shape, dtype=float) / 2.0
+    upper_bound = np.array(foreground_mask.shape, dtype=float) - 1.0
+    foreground_coords = np.where(foreground_mask)   # list for every axis that combine to index positions of mask pixels
+
+    for axis, axis_coords in enumerate(foreground_coords):
+        min_coord = float(np.min(axis_coords))  # first index with anomaly in that axis
+        max_coord = float(np.max(axis_coords))
+        max_scale = np.inf
+
+        if min_coord < center[axis]:
+            max_scale = min(max_scale, (0.0 - center[axis]) / (min_coord - center[axis]))
+        if max_coord > center[axis]:
+            max_scale = min(max_scale, (upper_bound[axis] - center[axis]) / (max_coord - center[axis]))
+        if np.isfinite(max_scale):
+            scales[axis] = min(scales[axis], max_scale)
+
+    return scales
 
 
 def _stretch_spatial_mask(mask, scales):
@@ -192,6 +247,8 @@ def random_local_stretch_transform(mask_np: np.ndarray, classes=None, priorities
         rng=rng,
         size=spatial_ndim,
     )
+    selected_foreground = np.isin(transformed_mask, classes)
+    scales = _limit_scales_to_mask_bounds(selected_foreground, scales)
     class_masks = {}
 
     for cls in classes:
@@ -355,6 +412,7 @@ def random_elastic_transform(
 DEFAULT_PADDING_MODE = "constant"
 
 DEFAULT_TRANSFORM_PROBS = {
+    "zoom": 1,
     "stretch": 1,
     "rotate": 0,
     "elastic": 1,
@@ -364,9 +422,13 @@ DEFAULT_TRANSFORM_PROBS = {
 }
 
 DEFAULT_TRANSFORM_PARAMS = {
+    "zoom": {
+        "min_zoom": 0.9,
+        "max_zoom": 0.9,
+    },
     "stretch": {
-        "min_stretch": 0.95,
-        "max_stretch": 1.05,
+        "min_stretch": 1.0,
+        "max_stretch": 1.2,
     },
     "rotate": {
         "max_rotation": 5.0,
@@ -426,6 +488,7 @@ class TransformGenerator:
         )
 
     GLOBAL_TRANSFORMS = {
+        "zoom": random_global_zoom_transform,
         "elastic": random_elastic_transform,
         "stretch": random_global_stretch_transform,
         "rotate": random_global_rotation_transform,
@@ -522,16 +585,18 @@ class TransformGenerator:
     def augment_mask(self, mask_np: np.ndarray) -> np.ndarray:
         augmented = mask_np.copy()
 
-        for transform_name, probability in self.global_transform_probs.items():
-            if self._should_apply(probability):
+        for transform_name in self.GLOBAL_TRANSFORMS:
+            probability = self.global_transform_probs.get(transform_name)
+            if probability is not None and self._should_apply(probability):
                 augmented = self._apply_global_transform(augmented, transform_name)
 
         class_order = self._local_class_order(augmented)
         for class_id in class_order:
             class_transforms = dict(self.local_transform_probs)
             class_transforms.update(self.class_transform_probs.get(class_id, {}))
-            for transform_name, probability in class_transforms.items():
-                if self._should_apply(probability):
+            for transform_name in self.LOCAL_TRANSFORMS:
+                probability = class_transforms.get(transform_name)
+                if probability is not None and self._should_apply(probability):
                     augmented = self._apply_local_transform(augmented, class_id, transform_name, class_order)
 
         return augmented
