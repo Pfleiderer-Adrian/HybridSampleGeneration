@@ -244,7 +244,8 @@ class ClassicalFusionBackend:
         anom = self._match_local_intensity(anom, ctrl, bg_slice, valid_mask, self.params)
 
         # ------------------------------------------------------------
-        # 9) Create alpha mask from Sobel edges plus distance transform.
+        # 9) Create alpha mask from the target mask (or optionally
+        #    from Sobel edges) plus distance transform.
         # ------------------------------------------------------------
         alpha_mask = alpha_builder(anom_proj, self.params, target_mask)
         alpha = alpha_mask[None, ...]
@@ -438,8 +439,8 @@ def _sample_alpha_params(config):
 def _get_alpha_mask_2d(anomaly_arr, config, valid_mask):
     """
     Build an alpha blending mask for a 2D anomaly image using:
-      - Sobel edges to detect boundaries
-      - morphological operations to close gaps and remove noise
+      - target mask or alternatively sobel edges to detect boundaries
+      - if sobel was used: morphological operations to close gaps and remove noise
       - distance transform to produce a smooth mask interior
       - non-linear shaping to control blending strength and falloff
     """
@@ -452,7 +453,10 @@ def _get_alpha_mask_2d(anomaly_arr, config, valid_mask):
     if not np.any(valid_mask > 0):
         return alpha_mask
 
-    final_clean_mask = _clean_edge_mask(anomaly_arr, valid_mask, config)
+    if config.get("fusion_use_sobel_for_alpha_mask", False):
+        final_clean_mask = _clean_edge_mask(anomaly_arr, valid_mask, config)
+    else:
+        final_clean_mask = valid_mask > 0
     if not np.any(final_clean_mask):
         return alpha_mask
 
@@ -481,7 +485,10 @@ def _get_alpha_mask_3d(anomaly_arr, config, valid_mask):
         if not np.any(valid_slice > 0):
             continue
 
-        final_clean_mask = _clean_edge_mask(anomaly_arr[depth, :, :], valid_slice, config)
+        if config.get("fusion_use_sobel_for_alpha_mask", False):
+            final_clean_mask = _clean_edge_mask(anomaly_arr[depth, :, :], valid_slice, config)
+        else:
+            final_clean_mask = valid_slice > 0
         if not np.any(final_clean_mask):
             continue
 

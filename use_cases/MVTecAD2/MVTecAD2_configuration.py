@@ -162,6 +162,7 @@ def configure_mvtecad2_defaults(config: Configuration):
         sobel_threshold=0.01,
         dilation_size=1,
         shave_pixels=0,
+        fusion_use_sobel_for_alpha_mask=False,
         fusion_variation=True,
         alpha_variation=0.05,
         sq_variation=0.1,
