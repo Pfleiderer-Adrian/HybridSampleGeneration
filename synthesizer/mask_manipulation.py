@@ -96,8 +96,8 @@ def sample_uniform(min_value=None, max_value=None, *, rng=None, size=None, integ
 
 def random_global_stretch_transform(
     mask_np: np.ndarray,
-    min_stretch=0.95,
-    max_stretch=1.05,
+    min_stretch=1.0,
+    max_stretch=1.2,
     rng=None,
 ):
     """Apply nearest-neighbour scaling around the mask center while preserving shape."""
@@ -427,8 +427,8 @@ DEFAULT_TRANSFORM_PARAMS = {
         "max_zoom": 0.9,
     },
     "stretch": {
-        "min_stretch": 0.9,
-        "max_stretch": 1.1,
+        "min_stretch": 1.0,
+        "max_stretch": 1.2,
     },
     "rotate": {
         "max_rotation": 5.0,
