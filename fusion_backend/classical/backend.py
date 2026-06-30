@@ -57,17 +57,19 @@ class ClassicalFusionBackend:
 
     def fuse(
         self,
-        control,
-        anomaly,
-        anomaly_meta,
+        sample: dict,
+        control_img,
         position,
         *,
-        target_mask,
         config=None,
-        **kwargs,
     ) -> FusionOutput:
         if config is None:
             raise ValueError("ClassicalFusionBackend requires config for fusion parameters.")
+
+        control = control_img
+        anomaly = sample["synth_anomaly"]
+        anomaly_meta = sample["anomaly_meta"]
+        target_mask = sample["tgt_mask"]
 
         if control.ndim == 3:
             return self._fuse_spatial(

@@ -41,13 +41,10 @@ class FusionBackend(Protocol):
 
     def fuse(
         self,
-        control,
-        anomaly,
-        anomaly_meta,
-        position,
+        sample: dict[str, Any],
+        control_img: np.ndarray,
+        position: Any,
         *,
-        target_mask,
         config=None,
-        **kwargs,
     ) -> FusionOutput:
         ...

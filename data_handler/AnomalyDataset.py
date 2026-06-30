@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Callable, Optional, Sequence, Tuple, Union
@@ -65,12 +66,12 @@ def save_numpy_as_npy(
 
 class AnomalyDataset(Dataset):
     """
-    PyTorch Dataset that loads selected `.npy` artifacts for one study.
+    PyTorch Dataset that loads selected array and metadata artifacts for one study.
 
     Key behavior:
     - StudyPaths defines all artifact folders.
     - Only artifacts listed in return_artifacts are loaded.
-    - File format: `.npy` (not NIfTI).
+    - Arrays are loaded from `.npy`; anomaly_meta is loaded from JSON.
     - Optional: preload selected artifacts into RAM (load_to_ram=True).
 
     Return format:
@@ -82,6 +83,8 @@ class AnomalyDataset(Dataset):
     - ori_mask
     - tgt_mask
     - anomaly_roi
+    - anomaly_roi_mask
+    - anomaly_meta
     - synth_anomaly
     - synth_roi
     """
@@ -92,15 +95,22 @@ class AnomalyDataset(Dataset):
         "ori_mask",
         "tgt_mask",
         "anomaly_roi",
+        "anomaly_roi_mask",
+        "anomaly_meta",
         "synth_anomaly",
         "synth_roi",
     )
-    LOADABLE_ARTIFACTS = tuple(a for a in ALLOWED_ARTIFACTS if a != "fname")
+    LOADABLE_ARTIFACTS = tuple(
+        artifact
+        for artifact in ALLOWED_ARTIFACTS
+        if artifact not in ("fname", "anomaly_meta")
+    )
     STUDY_PATH_ATTRIBUTES = {
         "img": "anomaly_data",
         "ori_mask": "anomaly_mask_data",
         "tgt_mask": "anomaly_tgt_mask_data",
         "anomaly_roi": "anomaly_roi_data",
+        "anomaly_roi_mask": "anomaly_mask_roi_data",
         "synth_anomaly": "synth_anomaly_data",
         "synth_roi": "synth_roi_data",
     }
@@ -120,6 +130,11 @@ class AnomalyDataset(Dataset):
         "anomaly_tgt_mask": "tgt_mask",
         "anomaly_tgt_mask_data": "tgt_mask",
         "anomaly_roi_data": "anomaly_roi",
+        "anomaly_mask_roi": "anomaly_roi_mask",
+        "anomaly_mask_roi_data": "anomaly_roi_mask",
+        "meta": "anomaly_meta",
+        "metadata": "anomaly_meta",
+        "anomaly_metadata": "anomaly_meta",
         "synthetic_anomaly": "synth_anomaly",
         "synthetic_anomaly_data": "synth_anomaly",
         "synth_anomaly_data": "synth_anomaly",
@@ -132,6 +147,7 @@ class AnomalyDataset(Dataset):
         *,
         return_artifacts: Optional[Union[str, Sequence[str]]] = None,
         index_artifact: Optional[str] = None,
+        anomaly_meta_file: Optional[Union[str, os.PathLike]] = None,
         dtype: torch.dtype = torch.float32,
         transform: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
         recursive: bool = False,
@@ -154,6 +170,10 @@ class AnomalyDataset(Dataset):
         index_artifact:
             Artifact used to define dataset length/order and fname. If omitted,
             the first selected loadable artifact is used.
+        anomaly_meta_file:
+            Optional path to the anomaly transformation JSON. If omitted and
+            anomaly_meta is requested, study_paths.anomaly_transformations_file
+            is used.
         dtype:
             Torch dtype used when converting numpy arrays into torch tensors.
             (Ignored if numpy_mode=True.)
@@ -212,6 +232,17 @@ class AnomalyDataset(Dataset):
         self._fnames = [os.path.basename(p) for p in self._paths]
 
         self._artifact_lookup_cache: dict[str, dict[str, dict[str, list[str]]]] = {}
+
+        self.anomaly_metadata: dict[str, dict] = {}
+        self._anomaly_meta_by_index: list[dict] = []
+        if "anomaly_meta" in self.return_artifacts:
+            self.anomaly_metadata = self._load_anomaly_metadata(
+                study_paths,
+                anomaly_meta_file,
+            )
+            self._anomaly_meta_by_index = self._align_anomaly_metadata(
+                self.anomaly_metadata
+            )
 
         # Paths aligned by dataset index for selected loadable artifacts only.
         self._sample_paths_by_artifact = self._build_sample_paths_by_artifact()
@@ -288,11 +319,18 @@ class AnomalyDataset(Dataset):
     def _resolve_index_artifact(self, index_artifact: Optional[str]) -> str:
         candidates: list[str] = []
         selected_loadable = [
-            artifact for artifact in self.return_artifacts if artifact != "fname"
+            artifact
+            for artifact in self.return_artifacts
+            if artifact in self.LOADABLE_ARTIFACTS
         ]
 
         if index_artifact is not None:
-            candidates.append(self._normalize_artifact_name(index_artifact))
+            normalized_index = self._normalize_artifact_name(index_artifact)
+            if normalized_index not in self.LOADABLE_ARTIFACTS:
+                raise ValueError(
+                    f"index_artifact must be a NumPy artifact, got {normalized_index!r}."
+                )
+            candidates.append(normalized_index)
 
         candidates.extend(
             artifact
@@ -306,8 +344,6 @@ class AnomalyDataset(Dataset):
         )
 
         for artifact in candidates:
-            if artifact == "fname":
-                continue
             folder = self._artifact_paths.get(artifact)
             if folder is not None:
                 if folder.is_dir():
@@ -321,6 +357,68 @@ class AnomalyDataset(Dataset):
             "No loadable artifact folder configured. Pass a StudyPaths instance "
             "with the requested artifact folder."
         )
+
+    def _load_anomaly_metadata(
+        self,
+        study_paths: StudyPaths,
+        anomaly_meta_file: Optional[Union[str, os.PathLike]],
+    ) -> dict[str, dict]:
+        if anomaly_meta_file is None:
+            anomaly_meta_file = getattr(
+                study_paths,
+                "anomaly_transformations_file",
+                None,
+            )
+        if anomaly_meta_file is None:
+            raise ValueError(
+                "anomaly_meta was requested, but no anomaly metadata file was provided."
+            )
+
+        path = Path(anomaly_meta_file).expanduser().resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"Anomaly metadata file does not exist: {path}")
+
+        with path.open("r", encoding="utf-8") as file:
+            metadata = json.load(file)
+
+        if not isinstance(metadata, dict):
+            raise ValueError(
+                f"Anomaly metadata must be a JSON object keyed by basename: {path}"
+            )
+
+        invalid_keys = [
+            key for key, value in metadata.items()
+            if not isinstance(key, str) or not isinstance(value, dict)
+        ]
+        if invalid_keys:
+            raise ValueError(
+                "Every anomaly metadata entry must map a string basename to a dict. "
+                f"Invalid entries: {invalid_keys}"
+            )
+
+        return metadata
+
+    def _align_anomaly_metadata(self, metadata: dict[str, dict]) -> list[dict]:
+        by_basename: dict[str, list[dict]] = {}
+        by_stem: dict[str, list[dict]] = {}
+
+        for name, value in metadata.items():
+            basename = os.path.basename(name)
+            by_basename.setdefault(basename, []).append(value)
+            by_stem.setdefault(Path(basename).stem, []).append(value)
+
+        aligned = []
+        for fname in self._fnames:
+            candidates = by_basename.get(fname, [])
+            if not candidates:
+                candidates = by_stem.get(Path(fname).stem, [])
+            if not candidates:
+                raise KeyError(f"anomaly_meta not found for dataset sample: {fname}")
+            if len(candidates) > 1:
+                raise ValueError(f"anomaly_meta is ambiguous for dataset sample: {fname}")
+            aligned.append(candidates[0])
+
+        return aligned
 
     def _collect_paths(self, folder: Path, *, artifact: str) -> list[str]:
         """
@@ -370,7 +468,9 @@ class AnomalyDataset(Dataset):
     def _build_sample_paths_by_artifact(self) -> dict[str, list[str]]:
         sample_paths: dict[str, list[str]] = {}
         selected_loadable = [
-            artifact for artifact in self.return_artifacts if artifact != "fname"
+            artifact
+            for artifact in self.return_artifacts
+            if artifact in self.LOADABLE_ARTIFACTS
         ]
 
         for artifact in selected_loadable:
@@ -537,7 +637,8 @@ class AnomalyDataset(Dataset):
         dict
             Sample dictionary with the selected artifact keys.
             Loadable artifacts are torch.Tensor by default or np.ndarray if
-            numpy_mode=True. fname is a basename string.
+            numpy_mode=True. fname is a basename string and anomaly_meta is a
+            dictionary.
 
         Notes
         -----
@@ -553,6 +654,9 @@ class AnomalyDataset(Dataset):
         for artifact in self.return_artifacts:
             if artifact == "fname":
                 sample["fname"] = fname
+                continue
+            if artifact == "anomaly_meta":
+                sample["anomaly_meta"] = dict(self._anomaly_meta_by_index[idx])
                 continue
 
             value = self._load_artifact_value(artifact, idx)
@@ -607,8 +711,10 @@ class AnomalyDataset(Dataset):
         if artifact is None:
             artifact = self.index_artifact
         artifact = self._normalize_artifact_name(artifact)
-        if artifact == "fname":
-            raise ValueError("fname is metadata, not a loadable numpy artifact.")
+        if artifact not in self.LOADABLE_ARTIFACTS:
+            raise ValueError(
+                f"{artifact} is metadata, not a loadable NumPy artifact."
+            )
 
         # Normalize input to just the basename portion
         key = os.path.basename(str(basename))
@@ -653,6 +759,28 @@ class AnomalyDataset(Dataset):
         lookup = self._artifact_lookup(artifact)
         path = self._single_lookup_match(lookup, key=key, artifact=artifact)
         return np.load(path, allow_pickle=False, mmap_mode=self.mmap_mode)
+
+    def load_sample_by_basename(self, basename: str) -> dict:
+        """
+        Load all selected artifacts for one index sample by basename.
+
+        The returned dictionary has the same structure and value types as
+        ``__getitem__``.
+        """
+        key = os.path.basename(str(basename))
+        candidates = self._basename_to_indices.get(key, [])
+
+        if not candidates:
+            candidates = self._stem_to_indices.get(Path(key).stem, [])
+
+        if not candidates:
+            raise KeyError(f"basename not found: {basename}")
+
+        if len(candidates) > 1:
+            names = [os.path.basename(self._paths[i]) for i in candidates]
+            raise ValueError(f"basename is ambiguous ({basename}); matches: {names}")
+
+        return self[candidates[0]]
 
     def _selected_artifact_indices_by_basename(
         self,

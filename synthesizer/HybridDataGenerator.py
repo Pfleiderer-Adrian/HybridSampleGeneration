@@ -485,7 +485,7 @@ class HybridDataGenerator:
 
     def load_synth_anomalies(self, transformation_file=None):
         """
-        Load synthetic anomalies from disk and load the anomaly transformations file.
+        Load the aligned anomaly artifacts used for fusion and their transformations.
 
         Inputs
         ------
@@ -496,20 +496,33 @@ class HybridDataGenerator:
         Outputs
         -------
         None
-            Side effects: sets self._synth_anomaly_dataset and loads transformation meta-data into config.
+            Side effects: sets self._synth_anomaly_dataset and loads transformation
+            metadata into config. Each dataset sample contains synth_anomaly,
+            tgt_mask, anomaly_roi, anomaly_roi_mask, anomaly_meta, and fname.
         """
         self._log_step("Step 6/9: Loading synthetic anomalies and transformation metadata.")
         paths = self._config.get_paths()
         if transformation_file is None:
             transformation_file = paths.anomaly_transformations_file
 
-        self._config.load_anomaly_transformations(transformation_file)
         self._synth_anomaly_dataset = AnomalyDataset(
             paths,
-            return_artifacts=("synth_anomaly", "fname"),
+            return_artifacts=(
+                "synth_anomaly",
+                "tgt_mask",
+                "anomaly_roi",
+                "anomaly_roi_mask",
+                "anomaly_meta",
+                "fname",
+            ),
             index_artifact="synth_anomaly",
+            anomaly_meta_file=transformation_file,
             load_to_ram=True,
             dtype=torch.float32,
+            numpy_mode=True,
+        )
+        self._config.syn_anomaly_transformations = (
+            self._synth_anomaly_dataset.anomaly_metadata
         )
 
     def create_matching_dict(self, control_samples_dataloader:Iterator[Tuple[np.ndarray, np.ndarray, str]]):
@@ -591,9 +604,9 @@ class HybridDataGenerator:
 
         The method:
           - finds the matched anomaly basename + position factor for the control sample
-          - loads the corresponding synthetic anomaly volume
-          - looks up the scale factor from stored transformations
-          - calls fusion3d/2d(...) to obtain (fused_image, fused_segmentation)
+          - loads the complete aligned anomaly sample from AnomalyDataset
+          - reads the anomaly metadata from that dataset sample
+          - passes the sample, control image, and position to the fusion backend
 
         Inputs
         ------
@@ -633,35 +646,14 @@ class HybridDataGenerator:
             print(f"No matched anomaly found for control sample {basename_of_control_sample} in matching dict.")
 
         for anomaly_basename, fusion_position in anomalies:
-
-            synth_anomaly_image = self._synth_anomaly_dataset.load_numpy_by_basename(
-                anomaly_basename,
-                artifact="synth_anomaly",
-            )
-
-            anomaly_meta = self._config.syn_anomaly_transformations.get(anomaly_basename, {})
-
-            # Warn if user enabled normalization but transformations do not include normalization metadata.
-            if self._config.normalization is not None:
-                norm_type = anomaly_meta.get("norm_type", None)
-                if norm_type is None:
-                    self._log_step(
-                        f"WARNING: config.normalization={self._config.normalization!r} but "
-                        f"no normalization metadata found for {anomaly_basename!r}. "
-                        f"Re-extract anomalies to populate norm_* fields (and re-generate synth anomalies)."
-                    )
-
-            target_mask = self._synth_anomaly_dataset.load_numpy_by_basename(
-                anomaly_basename,
-                artifact="tgt_mask",
+            fusion_sample = self._synth_anomaly_dataset.load_sample_by_basename(
+                anomaly_basename
             )
 
             fusion_output = self._fusion_backend.fuse(
+                fusion_sample,
                 img,
-                synth_anomaly_image,
-                anomaly_meta,
                 fusion_position,
-                target_mask=target_mask,
                 config=self._config,
             )
             img = fusion_output.image

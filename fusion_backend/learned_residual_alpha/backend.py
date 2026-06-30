@@ -182,17 +182,18 @@ class LearnedResidualAlphaFusionBackend:
 
     def fuse(
         self,
-        control,
-        anomaly,
-        anomaly_meta,
+        sample: dict,
+        control_img,
         position,
         *,
-        target_mask,
         config=None,
-        **kwargs,
     ) -> FusionOutput:
         if config is None:
             raise ValueError("LearnedResidualAlphaFusionBackend requires config for ROI parameters.")
+        control = control_img
+        anomaly = sample["synth_anomaly"]
+        anomaly_meta = sample["anomaly_meta"]
+        target_mask = sample["tgt_mask"]
         proposal = self._prepare_fusion_proposal(control, anomaly, anomaly_meta, position, target_mask)
         spatial_dims = proposal["spatial_dims"]
 
