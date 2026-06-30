@@ -269,7 +269,10 @@ def configure_mvtecad2_defaults(config: Configuration):
 
 def configure_can(config: Configuration) -> Configuration:
     config.variation_strength = 1.5
-    config.fusion_params.set_fusion_params(max_alpha=0.5)
+    config.fusion_params.set_fusion_params(max_alpha=0.9, sobel_threshold=0.05)
+    config.min_roi_size = (256, 256)
+
+
 
     """
     # Prototype diffusion model settings for can category. These parameters are not tuned.
