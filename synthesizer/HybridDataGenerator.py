@@ -405,7 +405,7 @@ class HybridDataGenerator:
         paths = self._config.get_paths()
         synth_anomaly_folder = paths.synth_anomaly_data
         tgt_mask_folder = paths.anomaly_tgt_mask_data
-        paths.confirm_and_clear_artifact_dirs(synth_anomaly_folder)
+        paths.confirm_and_clear_artifact_dirs(synth_anomaly_folder, tgt_mask_folder)
         os.makedirs(tgt_mask_folder, exist_ok=True)
         self._anomaly_dataset.numpy_mode = True
         target_mask_generator = TransformGenerator.from_config(self._config)
