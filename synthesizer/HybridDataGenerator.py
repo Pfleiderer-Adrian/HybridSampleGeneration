@@ -98,14 +98,12 @@ class HybridDataGenerator:
         anomaly_folder = paths.anomaly_data
         anomaly_roi_folder = paths.anomaly_roi_data
         anomaly_mask_folder = paths.anomaly_mask_data
-        anomaly_tgt_mask_folder = paths.anomaly_tgt_mask_data
         anomaly_mask_roi_folder = paths.anomaly_mask_roi_data
 
         paths.confirm_and_clear_artifact_dirs(
             anomaly_folder,
             anomaly_roi_folder,
             anomaly_mask_folder,
-            anomaly_tgt_mask_folder,
             anomaly_mask_roi_folder
         )
         self._config.syn_anomaly_transformations = {}
