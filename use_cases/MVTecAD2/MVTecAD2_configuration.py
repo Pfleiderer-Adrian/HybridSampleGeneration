@@ -264,6 +264,8 @@ def configure_mvtecad2_defaults(config: Configuration):
             "skip_alpha": 0.20,
         },
     )
+    config.min_roi_size = (128, 128)
+
     return config
 
 
@@ -295,7 +297,6 @@ def configure_can(config: Configuration) -> Configuration:
 
 
 def configure_fabric(config: Configuration) -> Configuration:
-    config.min_roi_size = (128, 128)
     return config
 
 

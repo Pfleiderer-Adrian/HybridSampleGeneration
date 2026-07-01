@@ -894,19 +894,19 @@ if __name__ == "__main__":
     dataset_root = r"/mnt/results/mvtec2/mvtec_ad_2"
     save_path = r"/mnt/results/mvtec2/experiments"
     
-    """
+    
     run_hybrid_sample_generation_for_all_usecases(
         dataset_root,
-        categories=("wallplugs","walnuts"),
-        #categories=("can","fabric","fruit_jelly","rice"),
+        #categories=("wallplugs","walnuts"),
+        categories=("can","fabric","fruit_jelly","rice","sheet_metal","vial","wallplugs","walnuts"),
         #categories=("sheet_metal","vial","wallplugs","walnuts"),
         no_of_trials=10,
         #steps=("extract", "train", "generate_synth", "matching", "train_fusion", "fusion", "save"),
-        steps=("generate_synth", "train_fusion", "fusion", "save"),
+        steps=("extract", "generate_synth", "matching", "train_fusion", "fusion", "save"),
         generator_trial_id=-1,  # -1: best Model, -2: newest Model, else Trial-/Modely number
         save_path=save_path
     )
-    """
+    
     # Downstream call after generation:
     run_evaluation_and_visualization_for_all_usecases(
          dataset_root,
