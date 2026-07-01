@@ -365,7 +365,17 @@ class LearnedResidualAlphaFusionBackend:
 
         output_slices = tuple(slice(int(start), int(end)) for start, end in zip(offset, offset_end))
         bg_slice = ctrl[(slice(None), *output_slices)]
-        anom = ClassicalFusionBackend._match_local_intensity(anom, ctrl, bg_slice, target_mask > 0, self.params)
+        anom = ClassicalFusionBackend._match_local_intensity(
+            anom,
+            ctrl,
+            bg_slice,
+            target_mask > 0,
+            target_mask,
+            None,
+            None,
+            None,
+            self.params,
+        )
 
         crop_shape = bg_slice.shape[1:]
         crop_to_bg = tuple(slice(0, int(size)) for size in crop_shape)
