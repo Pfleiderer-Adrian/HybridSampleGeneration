@@ -287,7 +287,7 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
         self.use_transpose_conv = use_transpose_conv
         self._skips: Optional[List[torch.Tensor]] = None
         self.skip_dropout_p = float(skip_dropout_p)
-        self.skip_dropout_ps = self._normalize_skip_dropout_ps(skip_dropout_ps, n_levels, self.skip_dropout_p)
+        self.skip_dropout_ps = HybridVAEBase._normalize_skip_dropout_ps(skip_dropout_ps, n_levels, self.skip_dropout_p)
         self.skip_alpha = float(skip_alpha)
 
         self.bottom_ch = 2 ** (n_levels + 3)
@@ -341,24 +341,6 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
             prev_ch = ch
 
         self.out = nn.Conv2d(prev_ch, out_channels, kernel_size=3, stride=1, padding=1, bias=True)
-
-    @staticmethod
-    def _normalize_skip_dropout_ps(
-        skip_dropout_ps: Optional[Iterable[float]],
-        n_levels: int,
-        fallback: float,
-    ) -> List[float]:
-        if skip_dropout_ps is None:
-            values = [float(fallback)] * n_levels
-        else:
-            values = [float(p) for p in skip_dropout_ps]
-            if len(values) != n_levels:
-                raise ValueError(f"Expected {n_levels} skip dropout values, got {len(values)}")
-
-        for p in values:
-            if not 0.0 <= p <= 1.0:
-                raise ValueError(f"Skip dropout values must be in [0, 1], got {p}")
-        return values
 
     def set_skips(self, skips: Optional[List[torch.Tensor]]) -> None:
         self._skips = skips
