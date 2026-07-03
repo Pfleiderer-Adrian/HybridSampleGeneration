@@ -257,6 +257,7 @@ class ConvNeXtSPADEUNetDecoder3D(nn.Module):
         leak: float = 0.2,  # kept for API compatibility
         use_transpose_conv: bool = True,
         skip_dropout_p: float = 0.0,
+        skip_dropout_ps: Optional[Iterable[float]] = None,
         skip_alpha: float = 1.0,
         gn_groups: int = 8,
     ):
@@ -264,6 +265,7 @@ class ConvNeXtSPADEUNetDecoder3D(nn.Module):
         self.n_levels = n_levels
         self.use_transpose_conv = use_transpose_conv
         self.skip_dropout_p = float(skip_dropout_p)
+        self.skip_dropout_ps = self._normalize_skip_dropout_ps(skip_dropout_ps, n_levels, self.skip_dropout_p)
         self.skip_alpha = float(skip_alpha)
         self._skips: Optional[List[torch.Tensor]] = None
         self.n_spade_blocks = n_spade_blocks
@@ -316,6 +318,24 @@ class ConvNeXtSPADEUNetDecoder3D(nn.Module):
 
         self.out = nn.Conv3d(prev_ch, out_channels, kernel_size=3, stride=1, padding=1, bias=True)
 
+    @staticmethod
+    def _normalize_skip_dropout_ps(
+        skip_dropout_ps: Optional[Iterable[float]],
+        n_levels: int,
+        fallback: float,
+    ) -> List[float]:
+        if skip_dropout_ps is None:
+            values = [float(fallback)] * n_levels
+        else:
+            values = [float(p) for p in skip_dropout_ps]
+            if len(values) != n_levels:
+                raise ValueError(f"Expected {n_levels} skip dropout values, got {len(values)}")
+
+        for p in values:
+            if not 0.0 <= p <= 1.0:
+                raise ValueError(f"Skip dropout values must be in [0, 1], got {p}")
+        return values
+
     def set_skips(self, skips: Optional[List[torch.Tensor]]) -> None:
         self._skips = skips
 
@@ -342,8 +362,11 @@ class ConvNeXtSPADEUNetDecoder3D(nn.Module):
                 skip = skips[-1 - i]
 
             # Skip dropout (training only): forces decoder to use latent z instead of bypassing via skips
-            if self.training and self.skip_dropout_p > 0.0:
-                skip = F.dropout3d(skip, p=self.skip_dropout_p, training=True)
+            p = self.skip_dropout_ps[-1 - i]
+            if p > 0.0 and self.training:
+                keep_prob = 1.0 - p
+                drop_mask = (torch.rand((skip.shape[0], 1, 1, 1, 1), device=skip.device, dtype=skip.dtype) < keep_prob).to(skip.dtype)
+                skip = skip * drop_mask / max(keep_prob, 1e-6)
             if x.shape[-3:] != skip.shape[-3:]:
                 # Center-crop the larger one to the smaller
                 target = (
@@ -433,6 +456,9 @@ class Config:
     # Probability for dropping encoder skip features during training (prevents latent bypass in U-Net VAEs)
     # 0.0 disables skip dropout. Typical values: 0.1 - 0.4
     skip_dropout_p: float = 0.0
+    # Optional per-resolution skip dropout values in encoder order: [highest resolution, ..., deepest].
+    # If set, this overrides skip_dropout_p for individual skip levels.
+    skip_dropout_ps: Optional[List[float]] = None
 
     # Skip gating factor: scales skip features before concatenation in the decoder.
     # 1.0 disables gating (default). Typical values for encouraging latent usage: 0.2 - 0.6
@@ -471,6 +497,7 @@ class ConvNeXtcVAE3D(HybridVAEBase):
             use_multires_skips=cfg.use_multires_skips,
             use_transpose_conv=cfg.use_transpose_conv,
             skip_dropout_p=cfg.skip_dropout_p,
+            skip_dropout_ps=cfg.skip_dropout_ps,
             skip_alpha=cfg.skip_alpha,
         )
 
