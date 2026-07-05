@@ -591,13 +591,28 @@ class TransformGenerator:
                 augmented = self._apply_global_transform(augmented, transform_name)
 
         class_order = self._local_class_order(augmented)
+        class_masks = {
+            class_id: (augmented[0] == class_id)
+            for class_id in class_order
+        }
+        any_local_transform_applied = False
+
         for class_id in class_order:
+            class_canvas = np.zeros_like(augmented)
+            class_canvas[0][class_masks[class_id]] = class_id
+
             class_transforms = dict(self.local_transform_probs)
             class_transforms.update(self.class_transform_probs.get(class_id, {}))
             for transform_name in self.LOCAL_TRANSFORMS:
                 probability = class_transforms.get(transform_name)
                 if probability is not None and self._should_apply(probability):
-                    augmented = self._apply_local_transform(augmented, class_id, transform_name, class_order)
+                    class_canvas = self._apply_local_transform(class_canvas, class_id, transform_name, [class_id])
+                    any_local_transform_applied = True
+
+            class_masks[class_id] = class_canvas[0] == class_id
+
+        if any_local_transform_applied:
+            augmented = self._compose_class_masks(class_masks, class_order, mask_np.dtype)
 
         return augmented
 
@@ -707,3 +722,20 @@ class TransformGenerator:
             missing = [class_id for class_id in present_classes if class_id not in configured]
             return configured + sorted(missing)
         return sorted(present_classes)
+
+    def _compose_class_masks(
+        self,
+        class_masks: Dict[int, np.ndarray],
+        class_order: list[int],
+        dtype,
+    ) -> np.ndarray:
+        if not class_masks:
+            raise ValueError("class_masks must not be empty.")
+
+        spatial_shape = next(iter(class_masks.values())).shape
+        composed = np.zeros(spatial_shape, dtype=dtype)
+
+        for class_id in reversed(class_order):
+            composed[class_masks[class_id]] = class_id
+
+        return composed[None, ...]
