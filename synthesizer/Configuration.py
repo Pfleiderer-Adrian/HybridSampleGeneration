@@ -97,6 +97,7 @@ class Configuration:
         self.mask_transform_params = {}
 
         self.mask_transform_priorities = None   # dominant class first; default: present classes sorted by id
+        self.use_local_transform_as_global = False  # use min transform (combined) for classes in one anomaly
 
         # Random offsets are applied dynamically during training augmentation.
         # Persisted anomaly cutouts stay centered, which keeps later fusion stable.

@@ -485,6 +485,7 @@ class TransformGenerator:
             rng=config.rng,
             anomaly_size=config.anomaly_size,
             background_threshold=config.background_threshold,
+            use_local_transform_as_global=getattr(config, "use_local_transform_as_global", False),
         )
 
     GLOBAL_TRANSFORMS = {
@@ -509,6 +510,7 @@ class TransformGenerator:
         rng: np.random.Generator | None = None,
         anomaly_size: tuple[int, ...] | list[int] | None = None,
         background_threshold: float | None = 0.01,
+        use_local_transform_as_global: bool = False,
     ) -> None:
         self.global_transform_probs = {}
         self.local_transform_probs = {}
@@ -526,6 +528,7 @@ class TransformGenerator:
             self.set_transform_params(transform_params)
         self.rng = rng if rng is not None else np.random.default_rng()
         self.background_threshold = background_threshold
+        self.use_local_transform_as_global = bool(use_local_transform_as_global)
 
     def create_target_mask(
         self,
@@ -591,6 +594,13 @@ class TransformGenerator:
                 augmented = self._apply_global_transform(augmented, transform_name)
 
         class_order = self._local_class_order(augmented)
+        if self.use_local_transform_as_global and len(class_order) > 1:
+            for transform_name in self.LOCAL_TRANSFORMS:
+                probability = self._merged_local_probability(transform_name, class_order)
+                if probability is not None and self._should_apply(probability):
+                    augmented = self._apply_merged_local_transform(augmented, transform_name, class_order)
+            return augmented
+
         for class_id in class_order:
             class_transforms = dict(self.local_transform_probs)
             class_transforms.update(self.class_transform_probs.get(class_id, {}))
@@ -673,6 +683,22 @@ class TransformGenerator:
         params = dict(self.transform_params.get(transform_name, {}))
         return transform(mask_np, rng=self.rng, **params)
 
+    def _apply_merged_local_transform(
+        self,
+        mask_np: np.ndarray,
+        transform_name: str,
+        class_order: list[int],
+    ) -> np.ndarray:
+        transform = self.LOCAL_TRANSFORMS[transform_name]
+        params = self._merged_local_params(transform_name, class_order)
+        return transform(
+            mask_np,
+            classes=class_order,
+            priorities=class_order,
+            params=params,
+            rng=self.rng,
+        )
+
     def _apply_local_transform(
         self,
         mask_np: np.ndarray,
@@ -690,6 +716,53 @@ class TransformGenerator:
             params=params,
             rng=self.rng,
         )
+
+    def _merged_local_probability(self, transform_name: str, class_order: list[int]) -> float | None:
+        probabilities = []
+        for class_id in class_order:
+            probability = self.class_transform_probs.get(class_id, {}).get(
+                transform_name,
+                self.local_transform_probs.get(transform_name),
+            )
+            if probability is None:
+                return None
+            probabilities.append(probability)
+        return min(probabilities)
+
+    def _merged_local_params(self, transform_name: str, class_order: list[int]) -> dict:
+        class_params = []
+        for class_id in class_order:
+            params = dict(self.transform_params.get(transform_name, {}))
+            params.update(self.class_transform_params.get(class_id, {}).get(transform_name, {}))
+            class_params.append(params)
+
+        if not class_params:
+            return dict(self.transform_params.get(transform_name, {}))
+
+        keys = set().union(*(params.keys() for params in class_params))
+        merged = {}
+        for key in keys:
+            values = [params[key] for params in class_params if key in params]
+            merged[key] = self._merge_local_param_value(transform_name, key, values)
+
+        self._ensure_ordered_local_param_range(transform_name, merged)
+        return merged
+
+    def _merge_local_param_value(self, transform_name: str, key: str, values: list) -> Any:
+        if transform_name == "local_stretch" and key == "min_stretch":
+            return max(values)
+        return min(values)  # schlechter code weil jeder param der nicht 0 als Minimum hat hier eingefügt werden muss
+
+    def _ensure_ordered_local_param_range(self, transform_name: str, params: dict) -> None:
+        for min_key, min_value in list(params.items()):
+            if not min_key.startswith("min_"):
+                continue
+            max_key = f"max_{min_key[4:]}"
+            if max_key in params and min_value > params[max_key]:
+                raise ValueError(
+                    f"Merged local transform params for {transform_name!r} have no overlap: "
+                    f"{min_key}={min_value!r} > {max_key}={params[max_key]!r}."
+                )
 
     def _validate_probability(self, probability) -> float:
         probability = float(probability)
