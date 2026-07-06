@@ -606,7 +606,7 @@ class TransformGenerator:
             for transform_name in self.LOCAL_TRANSFORMS:
                 probability = class_transforms.get(transform_name)
                 if probability is not None and self._should_apply(probability):
-                    class_canvas = self._apply_local_transform(class_canvas, class_id, transform_name, [class_id])
+                    class_canvas = self._apply_local_transform(class_canvas, class_id, transform_name)
                     any_local_transform_applied = True
 
             class_masks[class_id] = class_canvas[0] == class_id
@@ -693,7 +693,6 @@ class TransformGenerator:
         mask_np: np.ndarray,
         class_id: int,
         transform_name: str,
-        priorities: list[int],
     ) -> np.ndarray:
         transform = self.LOCAL_TRANSFORMS[transform_name]
         params = dict(self.transform_params.get(transform_name, {}))
@@ -701,7 +700,6 @@ class TransformGenerator:
         return transform(
             mask_np,
             classes=[class_id],
-            priorities=priorities,
             params=params,
             rng=self.rng,
         )
