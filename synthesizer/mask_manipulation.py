@@ -409,6 +409,45 @@ def random_elastic_transform(
     return transformed_mask[None, ...]
 
 
+def random_local_elastic_transform(mask_np: np.ndarray, classes=None, priorities=None, params=None, rng=None):
+    """Apply elastic deformation to selected classes in a 2D or 3D channel-first label mask."""
+    original_dtype = mask_np.dtype
+
+    if mask_np.ndim not in (3, 4) or mask_np.shape[0] != 1:
+        raise ValueError(f"Expected mask with shape (1, H, W) or (1, D, H, W), got {mask_np.shape}.")
+
+    params = {} if params is None else params
+    transformed_mask = mask_np[0].copy()
+
+    if classes is None:
+        classes = [cls for cls in np.unique(transformed_mask) if cls != 0]
+    if priorities is None:
+        priorities = classes
+
+    class_masks = {}
+    for cls in classes:
+        binary_mask = transformed_mask == cls
+        if np.any(binary_mask):
+            binary_mask = random_elastic_transform(
+                binary_mask[None, ...],
+                sigma=params.get("sigma", 40),
+                magnitude=params.get("magnitude", 40),
+                rng=rng,
+            )[0].astype(bool)
+        class_masks[cls] = binary_mask
+
+    final_mask = transformed_mask.copy()
+    for cls in classes:
+        final_mask[final_mask == cls] = 0
+    for cls in reversed(priorities):
+        if cls in class_masks:
+            final_mask[class_masks[cls]] = cls
+
+    final_mask = final_mask.astype(original_dtype)
+
+    return final_mask[None, ...]
+
+
 DEFAULT_PADDING_MODE = "constant"
 
 DEFAULT_TRANSFORM_PROBS = {
@@ -419,6 +458,7 @@ DEFAULT_TRANSFORM_PROBS = {
     "local_dilate": 0.5,
     "local_stretch": 0,
     "local_rotate": 0,
+    "local_elastic": 0,
 }
 
 DEFAULT_TRANSFORM_PARAMS = {
@@ -447,6 +487,10 @@ DEFAULT_TRANSFORM_PARAMS = {
     },
     "local_rotate": {
         "max_rotation": 5.0,
+    },
+    "local_elastic": {
+        "sigma": 40,
+        "magnitude": 40,
     },
 }
 
@@ -498,6 +542,7 @@ class TransformGenerator:
         "local_dilate": random_local_dilate_transform,
         "local_stretch": random_local_stretch_transform,
         "local_rotate": random_local_rotation_transform,
+        "local_elastic": random_local_elastic_transform,
     }
 
     def __init__(
