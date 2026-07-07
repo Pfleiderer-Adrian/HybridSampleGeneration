@@ -544,6 +544,11 @@ class TransformGenerator:
         "local_rotate": random_local_rotation_transform,
         "local_elastic": random_local_elastic_transform,
     }
+    LOCAL_AS_GLOBAL_TRANSFORMS = {
+        "local_stretch": "stretch",
+        "local_rotate": "rotate",
+        "local_elastic": "elastic",
+    }
 
     def __init__(
         self,
@@ -749,8 +754,13 @@ class TransformGenerator:
         transform_name: str,
         class_order: list[int],
     ) -> np.ndarray:
-        transform = self.LOCAL_TRANSFORMS[transform_name]
         params = self._merged_local_params(transform_name, class_order)
+        global_transform_name = self.LOCAL_AS_GLOBAL_TRANSFORMS.get(transform_name)
+        if global_transform_name is not None:
+            transform = self.GLOBAL_TRANSFORMS[global_transform_name]
+            return transform(mask_np, rng=self.rng, **params)
+
+        transform = self.LOCAL_TRANSFORMS[transform_name]
         return transform(
             mask_np,
             classes=class_order,
@@ -778,6 +788,9 @@ class TransformGenerator:
         )
 
     def _merged_local_probability(self, transform_name: str, class_order: list[int]) -> float | None:
+        if not class_order:
+            return None
+
         probabilities = []
         for class_id in class_order:
             probability = self.class_transform_probs.get(class_id, {}).get(
