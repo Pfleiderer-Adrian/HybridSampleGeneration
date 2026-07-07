@@ -639,20 +639,35 @@ class TransformGenerator:
                 augmented = self._apply_global_transform(augmented, transform_name)
 
         class_order = self._local_class_order(augmented)
-        if self.use_local_transform_as_global and len(class_order) > 1:
+        if self.use_local_transform_as_global:
             for transform_name in self.LOCAL_TRANSFORMS:
                 probability = self._merged_local_probability(transform_name, class_order)
                 if probability is not None and self._should_apply(probability):
                     augmented = self._apply_merged_local_transform(augmented, transform_name, class_order)
             return augmented
 
+        class_masks = {
+            class_id: (augmented[0] == class_id)
+            for class_id in class_order
+        }
+        any_local_transform_applied = False
+
         for class_id in class_order:
+            class_canvas = np.zeros_like(augmented)
+            class_canvas[0][class_masks[class_id]] = class_id
+
             class_transforms = dict(self.local_transform_probs)
             class_transforms.update(self.class_transform_probs.get(class_id, {}))
             for transform_name in self.LOCAL_TRANSFORMS:
                 probability = class_transforms.get(transform_name)
                 if probability is not None and self._should_apply(probability):
-                    augmented = self._apply_local_transform(augmented, class_id, transform_name, class_order)
+                    class_canvas = self._apply_local_transform(class_canvas, class_id, transform_name, [class_id])
+                    any_local_transform_applied = True
+
+            class_masks[class_id] = class_canvas[0] == class_id
+
+        if any_local_transform_applied:
+            augmented = self._compose_class_masks(class_masks, class_order, mask_np.dtype)
 
         return augmented
 
