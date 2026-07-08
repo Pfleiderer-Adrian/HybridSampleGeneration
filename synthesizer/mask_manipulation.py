@@ -534,7 +534,7 @@ class TransformGenerator:
             rng=config.rng,
             anomaly_size=config.anomaly_size,
             background_threshold=config.background_threshold,
-            use_local_transform_as_global=getattr(config, "use_local_transform_as_global", False),
+            mask_transform_local_as_global=getattr(config, "mask_transform_local_as_global", False),
         )
 
     GLOBAL_TRANSFORMS = {
@@ -565,7 +565,7 @@ class TransformGenerator:
         rng: np.random.Generator | None = None,
         anomaly_size: tuple[int, ...] | list[int] | None = None,
         background_threshold: float | None = 0.01,
-        use_local_transform_as_global: bool = False,
+        mask_transform_local_as_global: bool = False,
     ) -> None:
         self.global_transform_probs = {}
         self.local_transform_probs = {}
@@ -583,7 +583,7 @@ class TransformGenerator:
             self.set_transform_params(transform_params)
         self.rng = rng if rng is not None else np.random.default_rng()
         self.background_threshold = background_threshold
-        self.use_local_transform_as_global = bool(use_local_transform_as_global)
+        self.mask_transform_local_as_global = bool(mask_transform_local_as_global)
 
     def create_target_mask(
         self,
@@ -649,7 +649,7 @@ class TransformGenerator:
                 augmented = self._apply_global_transform(augmented, transform_name)
 
         class_order = self._local_class_order(augmented)
-        if self.use_local_transform_as_global:
+        if self.mask_transform_local_as_global:
             for transform_name in self.LOCAL_TRANSFORMS:
                 probability = self._merged_local_probability(transform_name, class_order)
                 if probability is not None and self._should_apply(probability):
@@ -671,7 +671,7 @@ class TransformGenerator:
             for transform_name in self.LOCAL_TRANSFORMS:
                 probability = class_transforms.get(transform_name)
                 if probability is not None and self._should_apply(probability):
-                    class_canvas = self._apply_local_transform(class_canvas, class_id, transform_name, [class_id])
+                    class_canvas = self._apply_local_transform(class_canvas, class_id, transform_name)
                     any_local_transform_applied = True
 
             class_masks[class_id] = class_canvas[0] == class_id
@@ -779,7 +779,6 @@ class TransformGenerator:
         mask_np: np.ndarray,
         class_id: int,
         transform_name: str,
-        priorities: list[int],
     ) -> np.ndarray:
         transform = self.LOCAL_TRANSFORMS[transform_name]
         params = dict(self.transform_params.get(transform_name, {}))
@@ -787,7 +786,6 @@ class TransformGenerator:
         return transform(
             mask_np,
             classes=[class_id],
-            priorities=priorities,
             params=params,
             rng=self.rng,
         )
@@ -856,3 +854,20 @@ class TransformGenerator:
             missing = [class_id for class_id in present_classes if class_id not in configured]
             return configured + sorted(missing)
         return sorted(present_classes)
+
+    def _compose_class_masks(
+        self,
+        class_masks: Dict[int, np.ndarray],
+        class_order: list[int],
+        dtype,
+    ) -> np.ndarray:
+        if not class_masks:
+            raise ValueError("class_masks must not be empty.")
+
+        spatial_shape = next(iter(class_masks.values())).shape
+        composed = np.zeros(spatial_shape, dtype=dtype)
+
+        for class_id in reversed(class_order):
+            composed[class_masks[class_id]] = class_id
+
+        return composed[None, ...]
