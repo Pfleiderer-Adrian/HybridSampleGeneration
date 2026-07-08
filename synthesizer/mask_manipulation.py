@@ -494,6 +494,11 @@ DEFAULT_TRANSFORM_PARAMS = {
     },
 }
 
+LOCAL_PARAM_NEUTRAL_VALUES = {
+    "min_stretch": 1,
+    "max_stretch": 1,
+}
+
 
 def default_elastic_params_from_anomaly_size(anomaly_size):
     """Derive conservative elastic defaults from a channel-first anomaly size."""
@@ -816,26 +821,24 @@ class TransformGenerator:
         merged = {}
         for key in keys:
             values = [params[key] for params in class_params if key in params]
-            merged[key] = self._merge_local_param_value(transform_name, key, values)
+            neutral_value = LOCAL_PARAM_NEUTRAL_VALUES.get(key)
+            if neutral_value is not None:
+                merged[key] = min(values, key=lambda value: abs(value - neutral_value))
+            else:
+                merged[key] = min(values)
 
-        self._ensure_ordered_local_param_range(transform_name, merged)
-        return merged
-
-    def _merge_local_param_value(self, transform_name: str, key: str, values: list) -> Any:
-        if transform_name == "local_stretch" and key == "min_stretch":
-            return max(values)
-        return min(values)  # schlechter code weil jeder param der nicht 0 als Minimum hat hier eingefügt werden muss
-
-    def _ensure_ordered_local_param_range(self, transform_name: str, params: dict) -> None:
-        for min_key, min_value in list(params.items()):
+        # ensure ordered local param range (min<=max)
+        for min_key, min_value in list(merged.items()):
             if not min_key.startswith("min_"):
                 continue
             max_key = f"max_{min_key[4:]}"
-            if max_key in params and min_value > params[max_key]:
+            if max_key in merged and min_value > merged[max_key]:
                 raise ValueError(
                     f"Merged local transform params for {transform_name!r} have no overlap: "
-                    f"{min_key}={min_value!r} > {max_key}={params[max_key]!r}."
+                    f"{min_key}={min_value!r} > {max_key}={merged[max_key]!r}."
                 )
+
+        return merged
 
     def _validate_probability(self, probability) -> float:
         probability = float(probability)
