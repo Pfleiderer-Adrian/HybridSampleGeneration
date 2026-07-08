@@ -364,8 +364,8 @@ def _as_axis_tuple(value, ndim, name):
 
 def random_elastic_transform(
     mask_np: np.ndarray,
-    sigma=40,
-    magnitude=40,
+    sigma=30,
+    magnitude=20,
     rng=None,
 ):
     """Apply a smooth random displacement field to a 2D or 3D channel-first label mask."""
@@ -430,8 +430,8 @@ def random_local_elastic_transform(mask_np: np.ndarray, classes=None, priorities
         if np.any(binary_mask):
             binary_mask = random_elastic_transform(
                 binary_mask[None, ...],
-                sigma=params.get("sigma", 40),
-                magnitude=params.get("magnitude", 40),
+                sigma=params.get("sigma", 30),
+                magnitude=params.get("magnitude", 20),
                 rng=rng,
             )[0].astype(bool)
         class_masks[cls] = binary_mask
@@ -474,8 +474,8 @@ DEFAULT_TRANSFORM_PARAMS = {
         "max_rotation": 5.0,
     },
     "elastic": {
-        "sigma": 40,
-        "magnitude": 40,
+        "sigma": 30,
+        "magnitude": 20,
     },
     "local_dilate": {
         "min_iterations": 0,
@@ -489,11 +489,12 @@ DEFAULT_TRANSFORM_PARAMS = {
         "max_rotation": 5.0,
     },
     "local_elastic": {
-        "sigma": 40,
-        "magnitude": 40,
+        "sigma": 30,
+        "magnitude": 20,
     },
 }
 
+# if the minimum/neutral parameter value is not 0 it needs to be added here
 LOCAL_PARAM_NEUTRAL_VALUES = {
     "min_stretch": 1,
     "max_stretch": 1,
@@ -583,7 +584,7 @@ class TransformGenerator:
             self.set_transform_params(transform_params)
         self.rng = rng if rng is not None else np.random.default_rng()
         self.background_threshold = background_threshold
-        self.mask_transform_local_as_global = bool(mask_transform_local_as_global)
+        self.mask_transform_local_as_global = mask_transform_local_as_global
 
     def create_target_mask(
         self,
@@ -820,12 +821,11 @@ class TransformGenerator:
         for key in keys:
             values = [params[key] for params in class_params if key in params]
             neutral_value = LOCAL_PARAM_NEUTRAL_VALUES.get(key)
-            if neutral_value is not None:
-                merged[key] = min(values, key=lambda value: abs(value - neutral_value))
-            else:
-                merged[key] = min(values)
+            if neutral_value is None:
+                neutral_value = 0
+            merged[key] = min(values, key=lambda value: abs(value - neutral_value))
 
-        # ensure ordered local param range (min<=max)
+        # ensure ordered local param range (min<=max if suffix is equal)
         for min_key, min_value in list(merged.items()):
             if not min_key.startswith("min_"):
                 continue
