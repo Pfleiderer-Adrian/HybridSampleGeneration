@@ -22,6 +22,8 @@ class Config:
     residual_border_width: int = 2
     fusion_normalization_border_width: int | None = None
     clamp_output: bool = False
+    fusion_keep_bg: bool = False
+    fusion_bg_value: float | None = None
 
     train_epochs: int = 25
     train_lr: float = 1e-3

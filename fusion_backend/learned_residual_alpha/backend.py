@@ -13,7 +13,7 @@ from tqdm import tqdm
 from fusion_backend.classical.backend import _denormalize_anomaly, _inverse_extraction_scale, _validate_position
 from fusion_backend.classical.backend import ClassicalFusionBackend
 from fusion_backend.fusion_configuration import FusionConfiguration
-from fusion_backend.interfaces import FusionOutput
+from fusion_backend.interfaces import FusionOutput, control_background_mask, keep_control_background_after_fusion
 from fusion_backend.learned_residual_alpha.configuration import Config
 from fusion_backend.learned_residual_alpha.model import ResidualAlphaRefiner
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_square_clip, dynamic_roi_size as dynamic_roi_size_2d
@@ -194,7 +194,7 @@ class LearnedResidualAlphaFusionBackend:
         anomaly = sample["synth_anomaly"]
         anomaly_meta = sample["anomaly_meta"]
         target_mask = sample["tgt_mask"]
-        proposal = self._prepare_fusion_proposal(control, anomaly, anomaly_meta, position, target_mask)
+        proposal = self._prepare_fusion_proposal(control, anomaly, anomaly_meta, position, target_mask, config)
         spatial_dims = proposal["spatial_dims"]
 
         self.warmup(proposal["control"].shape, config=config)
@@ -227,6 +227,15 @@ class LearnedResidualAlphaFusionBackend:
         segmentation = segmentation[None, ...]
         if proposal["control"].shape[0] != 1:
             segmentation = np.repeat(segmentation, proposal["control"].shape[0], axis=0)
+
+        if self.params.get("fusion_keep_bg", False):
+            fused_image, segmentation = keep_control_background_after_fusion(
+                fused_image,
+                segmentation,
+                proposal["control"],
+                self.params.get("fusion_bg_value", None),
+                getattr(config, "background_threshold", None),
+            )
 
         if np.sum(segmentation) == 0:
             return FusionOutput(image=proposal["control"], segmentation=segmentation)
@@ -314,7 +323,7 @@ class LearnedResidualAlphaFusionBackend:
             torch.as_tensor(scale, dtype=torch.float32, device=self.device).view(1, 1, *([1] * spatial_dims)),
         )
 
-    def _prepare_fusion_proposal(self, control, anomaly, anomaly_meta, position, target_mask):
+    def _prepare_fusion_proposal(self, control, anomaly, anomaly_meta, position, target_mask, config):
         if anomaly_meta is None:
             raise ValueError("anomaly_meta must be provided (needs at least 'scale_factor').")
         scale_factor = anomaly_meta.get("scale_factor")
@@ -365,6 +374,26 @@ class LearnedResidualAlphaFusionBackend:
 
         output_slices = tuple(slice(int(start), int(end)) for start, end in zip(offset, offset_end))
         bg_slice = ctrl[(slice(None), *output_slices)]
+        crop_shape = bg_slice.shape[1:]
+        crop_to_bg = tuple(slice(0, int(size)) for size in crop_shape)
+
+        if self.params.get("fusion_keep_bg", False):
+            background_threshold = getattr(config, "background_threshold", None)
+            control_bg_mask = control_background_mask(
+                ctrl,
+                self.params.get("fusion_bg_value", None),
+                background_threshold,
+                spatial=True,
+                exterior_only=True,
+            )
+            bg_mask = control_bg_mask[output_slices]
+            target_mask = target_mask.copy()
+            target_mask[crop_to_bg] = np.where(bg_mask, 0, target_mask[crop_to_bg])
+
+        mask_crop = target_mask[crop_to_bg].astype(np.float32, copy=False)
+        base_alpha = _soft_alpha(mask_crop, self.params, spatial_dims)
+        alpha_for_normalization = np.zeros_like(target_mask, dtype=np.float32)
+        alpha_for_normalization[crop_to_bg] = base_alpha
         anom = ClassicalFusionBackend._match_local_intensity(
             anom,
             ctrl,
@@ -373,15 +402,12 @@ class LearnedResidualAlphaFusionBackend:
             target_mask,
             None,
             None,
-            None,
+            alpha_for_normalization,
             self.params,
+            normalization_eps=getattr(config, "normalization_eps", 1e-8),
         )
 
-        crop_shape = bg_slice.shape[1:]
-        crop_to_bg = tuple(slice(0, int(size)) for size in crop_shape)
         anomaly_crop = anom[(slice(None), *crop_to_bg)]
-        mask_crop = target_mask[crop_to_bg].astype(np.float32, copy=False)
-        base_alpha = _soft_alpha(mask_crop, self.params, spatial_dims)
         support_mask = _support_mask(mask_crop, self.params, spatial_dims)
 
         return {
