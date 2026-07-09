@@ -101,6 +101,46 @@ Each iteration must yield:
 
 ---
 
+### Extraction logic
+
+Extract regions of intereset around anomalies from the input data.
+
+The dimension of the tuples should correspond to that of the data:
+- 3-dimensional data -> 3-dimensional tuples
+- 2-dimensional data -> 2-dimensional tuples
+
+The values in the tuples should be provided in the  order:
+(depth,) height, width
+
+The parameters are:
+
+- `extraction_add_background_noise`
+    Type: `bool`
+    If `True`, add noise to the background before cropping out the region of interest.
+
+- `extraction_min_anomaly_coverage_ratio`
+    Type: `float`
+    Omit anomalies, whose coverage of `Configuration.anomaly_size` is less than this value.
+
+- `extraction_fixed_roi_size`
+    Type: `tuple[int, int, int] | tuple[int, int] | None`
+    Set a fixed size for the region of interest.
+
+- `extraction_min_roi_padding`
+    Type: `tuple[int, int, int] | tuple[int, int] | None`
+    Only applied if `extraction_fixed_roi_size` is `None`.
+    Set the minimum amount of padding for each axis.
+    The value is the amount of total padding on this axis, so each side will receive about half of the padding.
+
+- `extraction_roi_padding_ratio`
+    Type: `tuple[float, float, float] | tuple[float, float] | None`
+    Only applied if `extraction_fixed_roi_size` is `None`.
+    Set the ratio between the padding and the region of interest for each axis.
+    The target padding for each axis is calculated by multiplying the value by the size of the ROI.
+    After `extraction_min_roi_padding` is applied, each size of the ROI receives about half of the padding.
+
+---
+
 ### Matching logic
   Pair control samples and synthetic anomalies for fusion and save the results in matching_dict.csv: control, [(anomaly, fusion_position), ...]
 

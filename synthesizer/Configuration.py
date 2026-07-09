@@ -103,7 +103,7 @@ class Configuration:
         self.random_offset = True
         self.random_offset_max_fraction = 1.0
         self.random_offset_foreground_threshold_rel = 0.001
-        self.add_bg_noise = True
+        self.extraction_add_background_noise = True
 
 
         self.conditional = model_spec.uses_masks
@@ -113,9 +113,9 @@ class Configuration:
         self.prior_sampling = False
         # Controls how strongly the latent sample is perturbed during posterior or prior generation.
         self.variation_strength = 1.0
-        self.min_anomaly_percentage = 0.05
-        self.min_pad = (20, 20, 20)    # just use first two values for 2d
-        self.pad_ratio = (0.5, 0.5, 0.5)
+        self.extraction_min_anomaly_coverage_ratio = 0.05
+        self.extraction_min_roi_padding = (20, 20, 20)    # just use first two values for 2d
+        self.extraction_roi_padding_ratio = (0.5, 0.5, 0.5)
         self.clamp01_output = False
         self.normalization = "z-score"
         self.normalization_eps = 1e-6
@@ -166,7 +166,7 @@ class Configuration:
         self.model_params = model_spec.build_configuration(anomaly_size[0])
 
         # set to None for variable roi size
-        self.fixed_roi_size = None
+        self.extraction_fixed_roi_size = None
         # define min size for every dimension to improve template matching for small anomalies
         self.min_roi_size = 0
 

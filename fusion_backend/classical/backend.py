@@ -312,10 +312,10 @@ class ClassicalFusionBackend:
         #     and ROI-level evaluation.
         # ------------------------------------------------------------
         centroid = tuple(float(offset[axis]) + float(crop_shape[axis]) / 2.0 for axis in range(spatial_ndim))
-        if config.fixed_roi_size is None:
-            roi_size = dynamic_roi_size(crop_shape, config.min_pad, config.pad_ratio, config.min_roi_size)
+        if config.extraction_fixed_roi_size is None:
+            roi_size = dynamic_roi_size(crop_shape, config.extraction_min_roi_padding, config.extraction_roi_padding_ratio, config.min_roi_size)
         else:
-            roi_size = config.fixed_roi_size
+            roi_size = config.extraction_fixed_roi_size
 
         fused_roi = crop_roi(
             fused_image,
