@@ -247,7 +247,6 @@ class ClassicalFusionBackend:
                 ctrl,
                 self.params.get("fusion_bg_value", None),
                 background_threshold,
-                spatial=True,
                 exterior_only=True,
             )
             bg_mask = control_bg_mask[insert_slices]

@@ -200,7 +200,6 @@ class LearnedResidualAlphaFusionBackend:
                 control,
                 self.params.get("fusion_bg_value", None),
                 getattr(config, "background_threshold", None),
-                spatial=True,
                 exterior_only=True,
             )
         proposal = self._prepare_fusion_proposal(

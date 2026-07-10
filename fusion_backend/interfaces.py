@@ -51,17 +51,22 @@ def control_background_mask(
     bg_value,
     background_threshold: float | None = None,
     *,
-    spatial: bool = False,
-    exterior_only: bool = False,
+    exterior_only: bool = True,
 ) -> np.ndarray:
-    """Return pixels/voxels that belong to the control background.
+    """Return spatial pixels/voxels that belong to the control background.
 
     If bg_value is None, estimate a per-channel cutoff from the current
     control sample. The cutoff starts at the low exterior intensity and adds
     background_threshold as a relative fraction of the channel range. Explicit
     numeric bg_value keeps the old absolute-threshold behavior.
+
+    control_image is expected to be channel-first, e.g. (C, H, W) or
+    (C, D, H, W).
     """
     control_image = np.asarray(control_image)
+    if control_image.ndim < 2:
+        raise ValueError(f"Expected channel-first image, got shape {control_image.shape}")
+
     if bg_value is None:
         cutoffs = _relative_background_cutoffs(control_image, background_threshold)
         per_channel = control_image <= _channel_cutoff_shape(cutoffs, control_image.ndim)
@@ -74,14 +79,8 @@ def control_background_mask(
         else:
             per_channel = control_image <= bg_value + threshold
 
-    if spatial:
-        if per_channel.ndim < 2:
-            raise ValueError(f"Expected channel-first image, got shape {control_image.shape}")
-        mask = np.all(per_channel, axis=0)
-        return _exterior_connected_mask(mask) if exterior_only else mask
-    if exterior_only:
-        raise ValueError("exterior_only=True requires spatial=True.")
-    return per_channel
+    mask = np.all(per_channel, axis=0)
+    return _exterior_connected_mask(mask) if exterior_only else mask
 
 
 
