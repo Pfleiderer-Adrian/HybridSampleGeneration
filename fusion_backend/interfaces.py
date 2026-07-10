@@ -50,7 +50,6 @@ def control_background_mask(
     control_image: np.ndarray,
     bg_value,
     relative_bg_threshold: float | None = None,
-    *,
     exterior_only: bool = True,
 ) -> np.ndarray:
     """Return spatial pixels/voxels that belong to the control background.
@@ -118,7 +117,7 @@ def _robust_low_background_value(values: np.ndarray) -> float:
 
     min_value = float(np.min(finite))
     min_count = int(np.count_nonzero(np.isclose(finite, min_value, rtol=0.0, atol=1e-6)))
-    if min_count >= max(8, int(0.005 * finite.size)):
+    if min_count >= max(10, int(0.005 * finite.size)):  # at least 10 pixels or 0.5% of the image, whichever is larger
         return min_value
 
     return float(np.percentile(finite, 0.5))    # fallback to 0.5th percentile if the minimum is not robust

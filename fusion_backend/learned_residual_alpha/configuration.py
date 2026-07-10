@@ -25,6 +25,7 @@ class Config:
     fusion_keep_bg: bool = False
     fusion_bg_value: float | None = None
     fusion_relative_bg_threshold: float | None = 0.01
+    fusion_bg_exterior_only: bool = True
 
     train_epochs: int = 25
     train_lr: float = 1e-3

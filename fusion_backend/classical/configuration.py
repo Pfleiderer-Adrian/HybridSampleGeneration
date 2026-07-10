@@ -39,6 +39,7 @@ class Config:
     fusion_keep_bg: bool = False
     fusion_bg_value: float | None = None
     fusion_relative_bg_threshold: float | None = 0.01
+    fusion_bg_exterior_only: bool = True
 
 
 def get_classical_fusion_configuration():

@@ -203,8 +203,8 @@ Each iteration must yield:
       Used upstream when creating foreground masks for extracted/generated anomaly artifacts. During fusion, alpha-mask creation uses the saved target mask directly.
   - fusion_normalization_border_width:
       Background region used to estimate control intensity for anomaly normalization. None disables fusion-time intensity normalization; -1 uses the entire image; values >= 0 use a local dilation ring around the anomaly mask. If the ring is smaller than fusion_relation_min_context_size, fusion falls back to all target-mask-outside context pixels in the local insertion patch; with 0 this fallback is the effective context.
-  - fusion_keep_bg / fusion_bg_value / fusion_relative_bg_threshold:
-      If fusion_keep_bg is enabled, detected control-background regions are kept unchanged after fusion. fusion_bg_value sets a fixed low background reference; if it is None, the reference is estimated per channel from the control border. fusion_relative_bg_threshold expands that reference by a relative fraction of the channel intensity range.
+  - fusion_keep_bg / fusion_bg_value / fusion_relative_bg_threshold / fusion_bg_exterior_only:
+      If fusion_keep_bg is enabled, detected control-background regions are kept unchanged after fusion. fusion_bg_value sets a fixed low background reference; if it is None, the reference is estimated per channel from the control border. fusion_relative_bg_threshold expands that reference by a relative fraction of the channel intensity range. fusion_bg_exterior_only limits background detection to regions connected to the control-image border.
   - fusion_restore_anomaly_bg_relation:
       If enabled, local border normalization preserves the extracted median/IQR intensity relation between anomaly and original surrounding context. Disable it to normalize only against the local fusion context without using the original ROI relation.
   - fusion_relation_mode:
