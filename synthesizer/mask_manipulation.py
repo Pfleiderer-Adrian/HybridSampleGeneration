@@ -455,7 +455,7 @@ DEFAULT_TRANSFORM_PROBS = {
     "stretch": 1,
     "rotate": 0,
     "elastic": 1,
-    "local_dilate": 0.5,
+    "local_dilate": 0,
     "local_stretch": 0,
     "local_rotate": 0,
     "local_elastic": 0,
@@ -529,7 +529,7 @@ class TransformGenerator:
     def from_config(cls, config):
         return cls(
             config.mask_transform_probs,
-            use_default_mask_transforms=config.use_default_mask_transforms,
+            use_mask_transform=config.use_mask_transform,
             transform_params=config.mask_transform_params,
             priorities=config.mask_transform_priorities,
             rng=config.rng,
@@ -560,7 +560,7 @@ class TransformGenerator:
         self,
         transform_probs: Dict[int | str, Any] | None = None,
         *,
-        use_default_mask_transforms: bool = False,
+        use_mask_transform: bool = False,
         transform_params: Dict[int | str, Dict[str, Any]] | None = None,
         priorities: list[int] | tuple[int, ...] | None = None,
         rng: np.random.Generator | None = None,
@@ -571,12 +571,12 @@ class TransformGenerator:
         self.global_transform_probs = {}
         self.local_transform_probs = {}
         self.class_transform_probs = {}
-        if use_default_mask_transforms:
+        if use_mask_transform:
             self.set_transform_probs(DEFAULT_TRANSFORM_PROBS)
         if transform_probs:
             self.set_transform_probs(transform_probs)
         self.transform_params = deepcopy(DEFAULT_TRANSFORM_PARAMS)
-        if use_default_mask_transforms:
+        if use_mask_transform:
             self.transform_params["elastic"].update(default_elastic_params_from_anomaly_size(anomaly_size))
         self.class_transform_params = {}
         self.priorities = priorities
