@@ -38,6 +38,7 @@ class Config:
     fusion_relation_min_context_size: int = 8
     fusion_keep_bg: bool = False
     fusion_bg_value: float | None = None
+    fusion_relative_bg_threshold: float | None = 0.01
 
 
 def get_classical_fusion_configuration():

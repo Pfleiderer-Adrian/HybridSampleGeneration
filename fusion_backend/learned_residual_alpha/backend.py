@@ -199,7 +199,7 @@ class LearnedResidualAlphaFusionBackend:
             control_bg_mask = control_background_mask(
                 control,
                 self.params.get("fusion_bg_value", None),
-                getattr(config, "background_threshold", None),
+                self.params.get("fusion_relative_bg_threshold", None),
                 exterior_only=True,
             )
         proposal = self._prepare_fusion_proposal(

@@ -49,16 +49,16 @@ def keep_control_background_after_fusion(
 def control_background_mask(
     control_image: np.ndarray,
     bg_value,
-    background_threshold: float | None = None,
+    relative_bg_threshold: float | None = None,
     *,
     exterior_only: bool = True,
 ) -> np.ndarray:
     """Return spatial pixels/voxels that belong to the control background.
 
-    If bg_value is None, estimate a per-channel cutoff from the current
-    control sample. The cutoff starts at the low exterior intensity and adds
-    background_threshold as a relative fraction of the channel range. Explicit
-    numeric bg_value keeps the old absolute-threshold behavior.
+    The background cutoff is computed per channel. If bg_value is None, the
+    low reference value is estimated from the control sample border. Otherwise
+    bg_value is used as the low reference value. relative_bg_threshold expands
+    that value by a relative fraction of the channel range.
 
     control_image is expected to be channel-first, e.g. (C, H, W) or
     (C, D, H, W).
@@ -67,33 +67,32 @@ def control_background_mask(
     if control_image.ndim < 2:
         raise ValueError(f"Expected channel-first image, got shape {control_image.shape}")
 
-    threshold = 0.0 if background_threshold is None else float(background_threshold)
+    threshold = 0.0 if relative_bg_threshold is None else float(relative_bg_threshold)
     if threshold < 0.0:
-        raise ValueError(f"background_threshold must be >= 0, got {background_threshold}.")
+        raise ValueError(f"relative_bg_threshold must be >= 0, got {relative_bg_threshold}.")
 
-    if bg_value is None:    # relative thesholding per channel
-        border = _border_mask(control_image.shape[1:])
-
-        cutoffs = []
-        for channel in range(control_image.shape[0]):
-            channel_values = control_image[channel]
-            finite_channel = channel_values[np.isfinite(channel_values)]
+    border = _border_mask(control_image.shape[1:]) if bg_value is None else None
+    cutoffs = []
+    for channel in range(control_image.shape[0]):
+        channel_values = control_image[channel]
+        finite_channel = channel_values[np.isfinite(channel_values)]
+        if bg_value is None:
             border_values = channel_values[border]
             border_values = border_values[np.isfinite(border_values)]
             source_values = border_values if border_values.size else finite_channel
             if source_values.size == 0:
                 cutoffs.append(0.0)
                 continue
-
             low = _robust_low_background_value(source_values)
-            high_values = finite_channel if finite_channel.size else source_values
-            high = float(np.percentile(high_values, 99.5))
-            cutoffs.append(low + threshold * max(high - low, 0.0))
+        else:
+            low = float(bg_value)
 
-        cutoff_shape = (len(cutoffs),) + (1,) * (control_image.ndim - 1)
-        per_channel = control_image <= np.asarray(cutoffs, dtype=np.float32).reshape(cutoff_shape)
-    else:
-        per_channel = control_image <= bg_value + threshold
+        high_values = finite_channel if finite_channel.size else np.asarray([low], dtype=np.float32)
+        high = float(np.percentile(high_values, 99.5))
+        cutoffs.append(low + threshold * max(high - low, 0.0))
+
+    cutoff_shape = (len(cutoffs),) + (1,) * (control_image.ndim - 1)
+    per_channel = control_image <= np.asarray(cutoffs, dtype=np.float32).reshape(cutoff_shape)
 
     mask = np.all(per_channel, axis=0)
     return _exterior_connected_mask(mask) if exterior_only else mask
@@ -118,7 +117,7 @@ def _robust_low_background_value(values: np.ndarray) -> float:
         return 0.0
 
     min_value = float(np.min(finite))
-    min_count = int(np.count_nonzero(np.isclose(finite, min_value, rtol=0.0, atol=1e-6)))   # does min_value appear in at least 0.5% of the pixels (or 8 times)? If so, use it as the cutoff
+    min_count = int(np.count_nonzero(np.isclose(finite, min_value, rtol=0.0, atol=1e-6)))
     if min_count >= max(8, int(0.005 * finite.size)):
         return min_value
 
@@ -133,7 +132,7 @@ def _exterior_connected_mask(mask: np.ndarray) -> np.ndarray:
     if not np.any(mask):
         return mask
 
-    labels, count = ndi.label(mask) # numerates connected True-components in the mask
+    labels, count = ndi.label(mask)
     if count == 0:
         return np.zeros_like(mask, dtype=bool)
 

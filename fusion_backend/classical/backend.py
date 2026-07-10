@@ -242,11 +242,10 @@ class ClassicalFusionBackend:
         crop_to_bg = tuple(slice(0, int(size)) for size in crop_shape)
 
         if self.params.get("fusion_keep_bg", False):
-            background_threshold = getattr(config, "background_threshold", None)
             control_bg_mask = control_background_mask(
                 ctrl,
                 self.params.get("fusion_bg_value", None),
-                background_threshold,
+                self.params.get("fusion_relative_bg_threshold", None),
                 exterior_only=True,
             )
             bg_mask = control_bg_mask[insert_slices]
