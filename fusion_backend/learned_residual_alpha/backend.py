@@ -194,7 +194,24 @@ class LearnedResidualAlphaFusionBackend:
         anomaly = sample["synth_anomaly"]
         anomaly_meta = sample["anomaly_meta"]
         target_mask = sample["tgt_mask"]
-        proposal = self._prepare_fusion_proposal(control, anomaly, anomaly_meta, position, target_mask, config)
+        control_bg_mask = None
+        if self.params.get("fusion_keep_bg", False):
+            control_bg_mask = control_background_mask(
+                control,
+                self.params.get("fusion_bg_value", None),
+                getattr(config, "background_threshold", None),
+                spatial=True,
+                exterior_only=True,
+            )
+        proposal = self._prepare_fusion_proposal(
+            control,
+            anomaly,
+            anomaly_meta,
+            position,
+            target_mask,
+            control_bg_mask=control_bg_mask,
+            normalization_eps=getattr(config, "normalization_eps", 1e-8),
+        )
         spatial_dims = proposal["spatial_dims"]
 
         self.warmup(proposal["control"].shape, config=config)
@@ -233,8 +250,7 @@ class LearnedResidualAlphaFusionBackend:
                 fused_image,
                 segmentation,
                 proposal["control"],
-                self.params.get("fusion_bg_value", None),
-                getattr(config, "background_threshold", None),
+                proposal["control_bg_mask"],
             )
 
         if np.sum(segmentation) == 0:
@@ -323,7 +339,17 @@ class LearnedResidualAlphaFusionBackend:
             torch.as_tensor(scale, dtype=torch.float32, device=self.device).view(1, 1, *([1] * spatial_dims)),
         )
 
-    def _prepare_fusion_proposal(self, control, anomaly, anomaly_meta, position, target_mask, config):
+    def _prepare_fusion_proposal(
+        self,
+        control,
+        anomaly,
+        anomaly_meta,
+        position,
+        target_mask,
+        *,
+        control_bg_mask=None,
+        normalization_eps=1e-8,
+    ):
         if anomaly_meta is None:
             raise ValueError("anomaly_meta must be provided (needs at least 'scale_factor').")
         scale_factor = anomaly_meta.get("scale_factor")
@@ -378,14 +404,8 @@ class LearnedResidualAlphaFusionBackend:
         crop_to_bg = tuple(slice(0, int(size)) for size in crop_shape)
 
         if self.params.get("fusion_keep_bg", False):
-            background_threshold = getattr(config, "background_threshold", None)
-            control_bg_mask = control_background_mask(
-                ctrl,
-                self.params.get("fusion_bg_value", None),
-                background_threshold,
-                spatial=True,
-                exterior_only=True,
-            )
+            if control_bg_mask is None:
+                raise ValueError("control_bg_mask is required when fusion_keep_bg=True.")
             bg_mask = control_bg_mask[output_slices]
             target_mask = target_mask.copy()
             target_mask[crop_to_bg] = np.where(bg_mask, 0, target_mask[crop_to_bg])
@@ -404,7 +424,7 @@ class LearnedResidualAlphaFusionBackend:
             None,
             alpha_for_normalization,
             self.params,
-            normalization_eps=getattr(config, "normalization_eps", 1e-8),
+            normalization_eps=normalization_eps,
         )
 
         anomaly_crop = anom[(slice(None), *crop_to_bg)]
@@ -420,6 +440,7 @@ class LearnedResidualAlphaFusionBackend:
             "output_slices": output_slices,
             "offset": offset,
             "spatial_dims": spatial_dims,
+            "control_bg_mask": control_bg_mask,
         }
 
     def _build_features(self, control, anomaly, base_alpha, support):

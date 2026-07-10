@@ -320,8 +320,7 @@ class ClassicalFusionBackend:
                 fused_image,
                 segmentation,
                 ctrl,
-                self.params.get("fusion_bg_value", None),
-                getattr(config, "background_threshold", None),
+                control_bg_mask,
             )
 
         # Empty target masks intentionally return the unchanged control

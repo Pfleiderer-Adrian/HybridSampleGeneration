@@ -22,8 +22,7 @@ def keep_control_background_after_fusion(
     fused_image: np.ndarray,
     fused_segmentation: np.ndarray,
     control_image: np.ndarray,
-    bg_value,
-    background_threshold: float | None = None,
+    background_mask: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Restore original control intensities in background regions after fusion."""
     if fused_image.shape != control_image.shape:
@@ -35,13 +34,11 @@ def keep_control_background_after_fusion(
             f"fused_segmentation shape {fused_segmentation.shape} does not match control_image shape {control_image.shape}"
         )
 
-    background_mask = control_background_mask(
-        control_image,
-        bg_value,
-        background_threshold,
-        spatial=True,
-        exterior_only=True,
-    )
+    background_mask = np.asarray(background_mask, dtype=bool)
+    if background_mask.shape != control_image.shape[1:]:
+        raise ValueError(
+            f"background_mask shape {background_mask.shape} does not match control spatial shape {control_image.shape[1:]}"
+        )
     image = fused_image.copy()
     segmentation = fused_segmentation.copy()
     image[(slice(None), *np.where(background_mask))] = control_image[(slice(None), *np.where(background_mask))]
