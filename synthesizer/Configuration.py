@@ -11,6 +11,7 @@ from generation_models.model_registry import get_model_spec, registered_model_na
 from fusion_backend.fusion_configuration import FusionConfiguration
 from fusion_backend.fusion_registry import get_fusion_backend_spec, registered_fusion_backend_names
 from synthesizer.StudyPaths import StudyPaths
+from synthesizer.mask_manipulation import TransformGenerator
 
 ALLOWED_MODELS = registered_model_names()
 ALLOWED_FUSION_BACKENDS = registered_fusion_backend_names()
@@ -91,13 +92,7 @@ class Configuration:
         self.separated_anomaly = True
 
         # mask augmentation parameter
-        self.use_mask_transform = True
-        # override dicts for changing transform probabilities and parameters manually
-        self.mask_transform_probs = {}
-        self.mask_transform_params = {}
-
-        self.mask_transform_priorities = None   # dominant class first; default: present classes sorted by id
-        self.mask_transform_local_as_global = False  # if true: use minimal transforms (combined min local probs+params) for all classes in one anomaly
+        self.transform_config = TransformGenerator.Config()
 
         # Random offsets are applied dynamically during training augmentation.
         # Persisted anomaly cutouts stay centered, which keeps later fusion stable.
