@@ -557,6 +557,36 @@ class TransformGenerator:
         rng: np.random.Generator | None = None
         local_as_global: bool = False
 
+        def setGlobalParam(self, transform_name: str, probability=None, **params):
+            if transform_name not in TransformGenerator.GLOBAL_TRANSFORMS:
+                raise ValueError(f"{transform_name!r} is not a global transform.")
+            return self._set_transform_config(transform_name, probability, params)
+
+        def setClassParam(self, class_id: int, transform_name: str, probability=None, **params):
+            if transform_name not in TransformGenerator.LOCAL_TRANSFORMS:
+                raise ValueError(f"{transform_name!r} is not a local transform.")
+            return self._set_transform_config(transform_name, probability, params, class_id=class_id)
+
+        def setAllClassParams(self, transform_name: str, probability=None, **params):
+            if transform_name not in TransformGenerator.LOCAL_TRANSFORMS:
+                raise ValueError(f"{transform_name!r} is not a local transform.")
+            return self._set_transform_config(transform_name, probability, params)
+
+        def _set_transform_config(self, transform_name: str, probability, params: dict, class_id: int | None = None):
+            if probability is not None:
+                if class_id is None:
+                    self.mask_transform_probs[transform_name] = probability
+                else:
+                    self.mask_transform_probs.setdefault(class_id, {})[transform_name] = probability
+
+            if params:
+                if class_id is None:
+                    self.mask_transform_params.setdefault(transform_name, {}).update(params)
+                else:
+                    self.mask_transform_params.setdefault(class_id, {}).setdefault(transform_name, {}).update(params)
+
+            return self
+
     GLOBAL_TRANSFORMS = {
         "zoom": random_global_zoom_transform,
         "elastic": random_elastic_transform,
