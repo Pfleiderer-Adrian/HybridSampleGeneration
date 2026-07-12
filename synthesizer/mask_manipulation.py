@@ -189,15 +189,41 @@ def _stretch_spatial_mask(mask, scales):
     )
 
 
-def _rotate_spatial_mask(mask, angle):
+def _rotate_spatial_mask(mask, angle, center_mask=None):
     if mask.ndim < 2:
         raise ValueError(f"Expected at least 2 spatial dimensions, got {mask.ndim}.")
 
-    return ndi.rotate(
+    if not np.any(center_mask):
+        return mask.copy()
+
+    # Compute the rotation center from the selected mask bounding box
+    coords = np.where(center_mask)
+    center = np.array(
+        [(np.min(axis_coords) + np.max(axis_coords)) / 2.0 for axis_coords in coords],
+        dtype=float,
+    )
+
+    angle_rad = np.deg2rad(angle)
+    cos_angle = np.cos(angle_rad)
+    sin_angle = np.sin(angle_rad)
+    rotation_matrix = np.array(
+        [
+            [cos_angle, sin_angle],
+            [-sin_angle, cos_angle],
+        ],
+        dtype=float,
+    )
+
+    matrix = np.eye(mask.ndim, dtype=float)
+    matrix[-2:, -2:] = rotation_matrix
+    offset = np.zeros(mask.ndim, dtype=float)
+    offset[-2:] = center[-2:] - rotation_matrix @ center[-2:]
+
+    return ndi.affine_transform(
         mask,
-        angle=angle,
-        axes=(-2, -1),
-        reshape=False,
+        matrix=matrix,
+        offset=offset,
+        output_shape=mask.shape,
         order=0,
         mode=DEFAULT_PADDING_MODE,
         cval=0,
@@ -220,6 +246,7 @@ def random_global_rotation_transform(
     transformed_mask = _rotate_spatial_mask(
         mask_np[0].copy(),
         angle=angle,
+        center_mask=mask_np[0] != 0,
     ).astype(original_dtype)
 
     return transformed_mask[None, ...]
@@ -296,6 +323,7 @@ def random_local_rotation_transform(mask_np: np.ndarray, classes=None, prioritie
             binary_mask = _rotate_spatial_mask(
                 binary_mask,
                 angle=angle,
+                center_mask=binary_mask,
             ).astype(bool)
         class_masks[cls] = binary_mask
 
