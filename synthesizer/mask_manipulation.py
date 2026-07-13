@@ -364,8 +364,8 @@ def _as_axis_tuple(value, ndim, name):
 
 def random_elastic_transform(
     mask_np: np.ndarray,
-    sigma=40,
-    magnitude=40,
+    sigma=30,
+    magnitude=20,
     rng=None,
 ):
     """Apply a smooth random displacement field to a 2D or 3D channel-first label mask."""
@@ -409,6 +409,45 @@ def random_elastic_transform(
     return transformed_mask[None, ...]
 
 
+def random_local_elastic_transform(mask_np: np.ndarray, classes=None, priorities=None, params=None, rng=None):
+    """Apply elastic deformation to selected classes in a 2D or 3D channel-first label mask."""
+    original_dtype = mask_np.dtype
+
+    if mask_np.ndim not in (3, 4) or mask_np.shape[0] != 1:
+        raise ValueError(f"Expected mask with shape (1, H, W) or (1, D, H, W), got {mask_np.shape}.")
+
+    params = {} if params is None else params
+    transformed_mask = mask_np[0].copy()
+
+    if classes is None:
+        classes = [cls for cls in np.unique(transformed_mask) if cls != 0]
+    if priorities is None:
+        priorities = classes
+
+    class_masks = {}
+    for cls in classes:
+        binary_mask = transformed_mask == cls
+        if np.any(binary_mask):
+            binary_mask = random_elastic_transform(
+                binary_mask[None, ...],
+                sigma=params.get("sigma", 30),
+                magnitude=params.get("magnitude", 20),
+                rng=rng,
+            )[0].astype(bool)
+        class_masks[cls] = binary_mask
+
+    final_mask = transformed_mask.copy()
+    for cls in classes:
+        final_mask[final_mask == cls] = 0
+    for cls in reversed(priorities):
+        if cls in class_masks:
+            final_mask[class_masks[cls]] = cls
+
+    final_mask = final_mask.astype(original_dtype)
+
+    return final_mask[None, ...]
+
+
 DEFAULT_PADDING_MODE = "constant"
 
 DEFAULT_TRANSFORM_PROBS = {
@@ -416,9 +455,10 @@ DEFAULT_TRANSFORM_PROBS = {
     "stretch": 1,
     "rotate": 0,
     "elastic": 1,
-    "local_dilate": 0.5,
+    "local_dilate": 0,
     "local_stretch": 0,
     "local_rotate": 0,
+    "local_elastic": 0,
 }
 
 DEFAULT_TRANSFORM_PARAMS = {
@@ -434,8 +474,8 @@ DEFAULT_TRANSFORM_PARAMS = {
         "max_rotation": 5.0,
     },
     "elastic": {
-        "sigma": 40,
-        "magnitude": 40,
+        "sigma": 30,
+        "magnitude": 20,
     },
     "local_dilate": {
         "min_iterations": 0,
@@ -448,6 +488,16 @@ DEFAULT_TRANSFORM_PARAMS = {
     "local_rotate": {
         "max_rotation": 5.0,
     },
+    "local_elastic": {
+        "sigma": 30,
+        "magnitude": 20,
+    },
+}
+
+# if the minimum/neutral parameter value is not 0 it needs to be added here
+LOCAL_PARAM_NEUTRAL_VALUES = {
+    "min_stretch": 1,
+    "max_stretch": 1,
 }
 
 
@@ -479,12 +529,13 @@ class TransformGenerator:
     def from_config(cls, config):
         return cls(
             config.mask_transform_probs,
-            use_default_mask_transforms=config.use_default_mask_transforms,
+            use_mask_transform=config.use_mask_transform,
             transform_params=config.mask_transform_params,
             priorities=config.mask_transform_priorities,
             rng=config.rng,
             anomaly_size=config.anomaly_size,
             background_threshold=config.background_threshold,
+            mask_transform_local_as_global=getattr(config, "mask_transform_local_as_global", False),
         )
 
     GLOBAL_TRANSFORMS = {
@@ -497,28 +548,35 @@ class TransformGenerator:
         "local_dilate": random_local_dilate_transform,
         "local_stretch": random_local_stretch_transform,
         "local_rotate": random_local_rotation_transform,
+        "local_elastic": random_local_elastic_transform,
+    }
+    LOCAL_AS_GLOBAL_TRANSFORMS = {
+        "local_stretch": "stretch",
+        "local_rotate": "rotate",
+        "local_elastic": "elastic",
     }
 
     def __init__(
         self,
         transform_probs: Dict[int | str, Any] | None = None,
         *,
-        use_default_mask_transforms: bool = False,
+        use_mask_transform: bool = False,
         transform_params: Dict[int | str, Dict[str, Any]] | None = None,
         priorities: list[int] | tuple[int, ...] | None = None,
         rng: np.random.Generator | None = None,
         anomaly_size: tuple[int, ...] | list[int] | None = None,
         background_threshold: float | None = 0.01,
+        mask_transform_local_as_global: bool = False,
     ) -> None:
         self.global_transform_probs = {}
         self.local_transform_probs = {}
         self.class_transform_probs = {}
-        if use_default_mask_transforms:
+        if use_mask_transform:
             self.set_transform_probs(DEFAULT_TRANSFORM_PROBS)
         if transform_probs:
             self.set_transform_probs(transform_probs)
         self.transform_params = deepcopy(DEFAULT_TRANSFORM_PARAMS)
-        if use_default_mask_transforms:
+        if use_mask_transform:
             self.transform_params["elastic"].update(default_elastic_params_from_anomaly_size(anomaly_size))
         self.class_transform_params = {}
         self.priorities = priorities
@@ -526,6 +584,7 @@ class TransformGenerator:
             self.set_transform_params(transform_params)
         self.rng = rng if rng is not None else np.random.default_rng()
         self.background_threshold = background_threshold
+        self.mask_transform_local_as_global = mask_transform_local_as_global
 
     def create_target_mask(
         self,
@@ -591,6 +650,13 @@ class TransformGenerator:
                 augmented = self._apply_global_transform(augmented, transform_name)
 
         class_order = self._local_class_order(augmented)
+        if self.mask_transform_local_as_global:
+            for transform_name in self.LOCAL_TRANSFORMS:
+                probability = self._merged_local_probability(transform_name, class_order)
+                if probability is not None and self._should_apply(probability):
+                    augmented = self._apply_merged_local_transform(augmented, transform_name, class_order)
+            return augmented
+
         class_masks = {
             class_id: (augmented[0] == class_id)
             for class_id in class_order
@@ -688,6 +754,27 @@ class TransformGenerator:
         params = dict(self.transform_params.get(transform_name, {}))
         return transform(mask_np, rng=self.rng, **params)
 
+    def _apply_merged_local_transform(
+        self,
+        mask_np: np.ndarray,
+        transform_name: str,
+        class_order: list[int],
+    ) -> np.ndarray:
+        params = self._merged_local_params(transform_name, class_order)
+        global_transform_name = self.LOCAL_AS_GLOBAL_TRANSFORMS.get(transform_name)
+        if global_transform_name is not None:
+            transform = self.GLOBAL_TRANSFORMS[global_transform_name]
+            return transform(mask_np, rng=self.rng, **params)
+
+        transform = self.LOCAL_TRANSFORMS[transform_name]
+        return transform(
+            mask_np,
+            classes=class_order,
+            priorities=class_order,
+            params=params,
+            rng=self.rng,
+        )
+
     def _apply_local_transform(
         self,
         mask_np: np.ndarray,
@@ -703,6 +790,53 @@ class TransformGenerator:
             params=params,
             rng=self.rng,
         )
+
+    def _merged_local_probability(self, transform_name: str, class_order: list[int]) -> float | None:
+        if not class_order:
+            return None
+
+        probabilities = []
+        for class_id in class_order:
+            probability = self.class_transform_probs.get(class_id, {}).get(
+                transform_name,
+                self.local_transform_probs.get(transform_name),
+            )
+            if probability is None:
+                return None
+            probabilities.append(probability)
+        return min(probabilities)
+
+    def _merged_local_params(self, transform_name: str, class_order: list[int]) -> dict:
+        class_params = []
+        for class_id in class_order:
+            params = dict(self.transform_params.get(transform_name, {}))
+            params.update(self.class_transform_params.get(class_id, {}).get(transform_name, {}))
+            class_params.append(params)
+
+        if not class_params:
+            return dict(self.transform_params.get(transform_name, {}))
+
+        keys = set().union(*(params.keys() for params in class_params))
+        merged = {}
+        for key in keys:
+            values = [params[key] for params in class_params if key in params]
+            neutral_value = LOCAL_PARAM_NEUTRAL_VALUES.get(key)
+            if neutral_value is None:
+                neutral_value = 0
+            merged[key] = min(values, key=lambda value: abs(value - neutral_value))
+
+        # ensure ordered local param range (min<=max if suffix is equal)
+        for min_key, min_value in list(merged.items()):
+            if not min_key.startswith("min_"):
+                continue
+            max_key = f"max_{min_key[4:]}"
+            if max_key in merged and min_value > merged[max_key]:
+                raise ValueError(
+                    f"Merged local transform params for {transform_name!r} have no overlap: "
+                    f"{min_key}={min_value!r} > {max_key}={merged[max_key]!r}."
+                )
+
+        return merged
 
     def _validate_probability(self, probability) -> float:
         probability = float(probability)
