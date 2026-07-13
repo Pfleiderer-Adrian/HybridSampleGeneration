@@ -1,4 +1,5 @@
 from copy import deepcopy
+from dataclasses import dataclass, field
 from typing import Any, Dict
 
 import numpy as np
@@ -555,16 +556,64 @@ class TransformGenerator:
 
     @classmethod
     def from_config(cls, config):
+        transform_config = getattr(config, "transform_config", None)
         return cls(
-            config.mask_transform_probs,
-            use_mask_transform=config.use_mask_transform,
-            transform_params=config.mask_transform_params,
-            priorities=config.mask_transform_priorities,
-            rng=config.rng,
-            anomaly_size=config.anomaly_size,
-            background_threshold=config.background_threshold,
-            mask_transform_local_as_global=getattr(config, "mask_transform_local_as_global", False),
+            getattr(transform_config, "mask_transform_probs", None),
+            use_mask_transform=getattr(transform_config, "use_mask_transform", True),
+            transform_params=getattr(transform_config, "mask_transform_params", None),
+            priorities=getattr(
+                transform_config,
+                "priorities",
+                getattr(transform_config, "mask_transform_priorities", None),
+            ),
+            rng=getattr(transform_config, "rng", None) or getattr(config, "rng", None),
+            anomaly_size=getattr(config, "anomaly_size", None),
+            background_threshold=getattr(config, "background_threshold", 0.01),
+            mask_transform_local_as_global=getattr(
+                transform_config,
+                "local_as_global",
+                getattr(transform_config, "mask_transform_local_as_global", False),
+            ),
         )
+
+    @dataclass
+    class Config:
+        use_mask_transform: bool = True
+        mask_transform_probs: Dict[int | str, Any] = field(default_factory=dict)
+        mask_transform_params: Dict[int | str, Dict[str, Any]] = field(default_factory=dict)
+        priorities: list[int] | tuple[int, ...] | None = None
+        rng: np.random.Generator | None = None
+        local_as_global: bool = False
+
+        def setGlobalParam(self, transform_name: str, probability=None, **params):
+            if transform_name not in TransformGenerator.GLOBAL_TRANSFORMS:
+                raise ValueError(f"{transform_name!r} is not a global transform.")
+            return self._set_transform_config(transform_name, probability, params)
+
+        def setClassParam(self, class_id: int, transform_name: str, probability=None, **params):
+            if transform_name not in TransformGenerator.LOCAL_TRANSFORMS:
+                raise ValueError(f"{transform_name!r} is not a local transform.")
+            return self._set_transform_config(transform_name, probability, params, class_id=class_id)
+
+        def setAllClassParams(self, transform_name: str, probability=None, **params):
+            if transform_name not in TransformGenerator.LOCAL_TRANSFORMS:
+                raise ValueError(f"{transform_name!r} is not a local transform.")
+            return self._set_transform_config(transform_name, probability, params)
+
+        def _set_transform_config(self, transform_name: str, probability, params: dict, class_id: int | None = None):
+            if probability is not None:
+                if class_id is None:
+                    self.mask_transform_probs[transform_name] = probability
+                else:
+                    self.mask_transform_probs.setdefault(class_id, {})[transform_name] = probability
+
+            if params:
+                if class_id is None:
+                    self.mask_transform_params.setdefault(transform_name, {}).update(params)
+                else:
+                    self.mask_transform_params.setdefault(class_id, {}).setdefault(transform_name, {}).update(params)
+
+            return self
 
     GLOBAL_TRANSFORMS = {
         "zoom": random_global_zoom_transform,
