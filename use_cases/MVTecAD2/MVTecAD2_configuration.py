@@ -37,14 +37,14 @@ CATEGORY_ANOMALY_SHAPES: dict[str, tuple[int, int, int]] = {
 }
 
 CATEGORY_GENERATION_MODEL: dict[str, str] = {
-    "can": "cVAE_ConvNeXt_2D", # "VAE_ConvNeXt_2D",
-    "fabric": "cVAE_ConvNeXt_2D", # "VAE_ConvNeXt_2D",
-    "fruit_jelly": "cVAE_ConvNeXt_2D", # "VAE_ConvNeXt_2D",
-    "rice": "cVAE_ConvNeXt_2D", # "VAE_ConvNeXt_2D",
-    "sheet_metal": "cVAE_ConvNeXt_2D", # "VAE_ConvNeXt_2D",
-    "vial": "cVAE_ConvNeXt_2D", # "VAE_ConvNeXt_2D",
-    "wallplugs": "cVAE_ConvNeXt_2D", # "VAE_ConvNeXt_2D",
-    "walnuts": "cVAE_ConvNeXt_2D", # "VAE_ConvNeXt_2D",
+    "can": "cVAE_ConvNeXt_2D",
+    "fabric": "cVAE_ConvNeXt_2D",
+    "fruit_jelly": "cVAE_ConvNeXt_2D",
+    "rice": "cVAE_ConvNeXt_2D",
+    "sheet_metal": "cVAE_ConvNeXt_2D",
+    "vial": "cVAE_ConvNeXt_2D",
+    "wallplugs": "cVAE_ConvNeXt_2D",
+    "walnuts": "cVAE_ConvNeXt_2D",
 }
 
 
@@ -132,12 +132,10 @@ def configure_mvtecad2_defaults(config: Configuration):
     config.extraction_min_roi_padding = (20, 20, 20)
     config.extraction_roi_padding_ratio = (0.5, 0.5, 0.5)
 
-    # Applied in synthesizers Trainer
+    # generation settings
     config.random_offset = True
     config.random_offset_max_fraction = 0.8
     config.random_offset_foreground_threshold_rel = 0.01
-
-    # generation settings
     config.clamp01_output = False
     config.normalization = "z-score"
     config.normalization_eps = 1e-6

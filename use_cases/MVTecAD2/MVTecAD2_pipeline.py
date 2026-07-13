@@ -893,15 +893,7 @@ def _validate_dataset_root(root: Path) -> None:
 
 
 if __name__ == "__main__":
-    categories = (
-        # "fabric",
-        # "fruit_jelly",
-        "rice",
-        # "sheet_metal",
-        # "vial",
-        # "wallplugs",
-        # "walnuts",
-    )
+    categories = ("rice")
     run_hybrid_sample_generation_for_all_usecases(
         root=MVTECAD2_ROOT,
         categories=categories,
