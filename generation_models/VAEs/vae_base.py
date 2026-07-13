@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -83,6 +83,25 @@ class HybridVAEBase(nn.Module, ABC):
             for current, target in zip(x.shape[-spatial_dims:], ref_shape)
         ]
         return x[(..., *slices)]
+
+    @staticmethod
+    def _normalize_skip_dropout_ps(
+        skip_dropout_ps: Optional[Iterable[float]],
+        n_levels: int,
+        fallback: float,
+    ) -> List[float]:
+        """Return per-level skip-dropout probabilities in encoder order."""
+        if skip_dropout_ps is None:
+            values = [float(fallback)] * n_levels
+        else:
+            values = [float(p) for p in skip_dropout_ps]
+            if len(values) != n_levels:
+                raise ValueError(f"Expected {n_levels} skip dropout values, got {len(values)}")
+
+        for p in values:
+            if not 0.0 <= p <= 1.0:
+                raise ValueError(f"Skip dropout values must be in [0, 1], got {p}")
+        return values
 
     @staticmethod
     def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
