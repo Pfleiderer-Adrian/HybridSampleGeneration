@@ -355,12 +355,19 @@ def save_image(arr_chw: np.ndarray, filepath: Union[str, Path], *, clamp: bool =
 
     # Convert to uint8
     if np.issubdtype(img.dtype, np.floating):
-        m = float(np.nanmax(img)) if img.size else 0.0
-        if m <= 1.0:
-            img = img * 255.0
-        if clamp:
-            img = np.clip(img, 0.0, 255.0)
-        img_u8 = img.astype(np.uint8)
+        finite = img[np.isfinite(img)]
+
+        if finite.size == 0:
+            img_u8 = np.zeros_like(img, dtype=np.uint8)
+        else:
+            mx = float(np.nanmax(finite))
+
+            if mx <= 5.0:
+                img = np.clip(img, 0.0, 1.0) * 255.0
+
+            if clamp:
+                img = np.clip(img, 0.0, 255.0)
+            img_u8 = img.astype(np.uint8)
     else:
         if clamp:
             img = np.clip(img, 0, 255)
