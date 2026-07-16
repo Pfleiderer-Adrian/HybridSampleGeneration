@@ -139,6 +139,7 @@ class ClassicalFusionBackend:
 
         # Ensure float32 for arithmetic stability without copying when possible.
         ctrl = control.astype(np.float32, copy=False)
+        output_intensity_bounds = _infer_output_intensity_bounds(ctrl)
         anom = anomaly.astype(np.float32, copy=False)
         anom = _denormalize_anomaly(anom, anomaly_meta)
         target_mask = np.asarray(target_mask)
@@ -270,6 +271,7 @@ class ClassicalFusionBackend:
             alpha_mask,
             self.params,
             normalization_eps=getattr(config, "normalization_eps", 1e-8),
+            output_intensity_bounds=output_intensity_bounds,
         )
         alpha = alpha_mask[None, ...]
 
@@ -349,6 +351,7 @@ class ClassicalFusionBackend:
         alpha_mask,
         params,
         normalization_eps=1e-8,
+        output_intensity_bounds=None,
     ):
         """Match anomaly intensity to local context, optionally restoring the original ROI relation."""
         binary_mask = valid_mask > 0
@@ -407,6 +410,7 @@ class ClassicalFusionBackend:
                 class_label=None,
                 alpha_mask=alpha_mask,
                 eps=eps,
+                output_intensity_bounds=output_intensity_bounds,
             )
 
         matched = anom
@@ -436,9 +440,59 @@ class ClassicalFusionBackend:
                 class_label=label_value,
                 alpha_mask=alpha_mask,
                 eps=eps,
+                output_intensity_bounds=output_intensity_bounds,
             )
 
         return matched
+
+
+def _infer_output_intensity_bounds(values, eps=1e-6):
+    finite = np.asarray(values, dtype=np.float32)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return None
+
+    mn = float(np.min(finite))
+    mx = float(np.max(finite))
+    if mn >= -eps and mx <= 1.0 + eps:
+        return 0.0, 1.0
+    if mn >= -eps and mx <= 255.0 + eps:
+        return 0.0, 255.0
+    return None
+
+
+def _fit_values_into_bounds(values, bounds, eps=1e-8):
+    if bounds is None:
+        return values
+
+    values = np.asarray(values, dtype=np.float32)
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return values
+
+    lo, hi = bounds
+    current_min = float(np.min(finite))
+    current_max = float(np.max(finite))
+    if current_min >= lo and current_max <= hi:
+        return values
+
+    # simple shift if the value spread already fits into the bounds
+    value_span = current_max - current_min
+    bound_span = hi - lo
+    if value_span <= bound_span + eps:
+        offset = 0.0
+        if current_max > hi:
+            offset = hi - current_max
+        if current_min + offset < lo:
+            offset = lo - current_min
+        return np.clip(values + offset, lo, hi)
+
+    # spread too large => compress around the source and target centers
+    value_center = 0.5 * (current_min + current_max)
+    bound_center = 0.5 * (lo + hi)
+    scale = bound_span / max(value_span, eps)
+    fitted = bound_center + (values - value_center) * scale
+    return np.clip(fitted, lo, hi)
 
 
 def _region_stats(values, eps=1e-8):
@@ -591,6 +645,7 @@ def _normalize_anomaly_to_context(
     class_label=None,
     alpha_mask=None,
     eps=1e-8,
+    output_intensity_bounds=None,
 ):
     matched = anom.copy()
     alpha_eff = None
@@ -626,6 +681,7 @@ def _normalize_anomaly_to_context(
 
         channel_values = ((anomaly_values - anomaly_stats["median"]) / anomaly_stats["iqr"]) * pre_target_iqr
         channel_values = channel_values + pre_target_median
+        channel_values = _fit_values_into_bounds(channel_values, output_intensity_bounds, eps=eps)
         matched[channel][anomaly_mask] = channel_values
 
     return matched
