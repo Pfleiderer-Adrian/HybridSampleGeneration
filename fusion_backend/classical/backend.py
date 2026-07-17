@@ -139,7 +139,6 @@ class ClassicalFusionBackend:
 
         # Ensure float32 for arithmetic stability without copying when possible.
         ctrl = control.astype(np.float32, copy=False)
-        output_intensity_bounds = _infer_output_intensity_bounds(ctrl)
         anom = anomaly.astype(np.float32, copy=False)
         anom = _denormalize_anomaly(anom, anomaly_meta)
         target_mask = np.asarray(target_mask)
@@ -271,7 +270,6 @@ class ClassicalFusionBackend:
             alpha_mask,
             self.params,
             normalization_eps=getattr(config, "normalization_eps", 1e-8),
-            output_intensity_bounds=output_intensity_bounds,
         )
         alpha = alpha_mask[None, ...]
 
@@ -351,7 +349,6 @@ class ClassicalFusionBackend:
         alpha_mask,
         params,
         normalization_eps=1e-8,
-        output_intensity_bounds=None,
     ):
         """Match anomaly intensity to local context, optionally restoring the original ROI relation."""
         binary_mask = valid_mask > 0
@@ -362,6 +359,7 @@ class ClassicalFusionBackend:
         border_width = int(normalization_border_width)
         original_relations = None
         eps = float(normalization_eps)
+        output_intensity_bounds = _infer_output_intensity_bounds(ctrl)
         min_context_size = int(params.get("fusion_relation_min_context_size", 8))
         relation_mode = params.get("fusion_relation_mode", "delta")
         norm_classes_separately = bool(params.get("fusion_relation_norm_classes_separately", False))
