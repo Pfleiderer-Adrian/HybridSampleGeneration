@@ -290,15 +290,11 @@ def check_roi_overlap(opt_center, current_roi_shape, used_positions):
 def _sample_global_candidate_indices(candidate_indices, batch_size, rng):
     """Return at most ``batch_size`` candidate indices without replacement."""
     candidate_indices = list(candidate_indices)
+
     if batch_size is None or batch_size >= len(candidate_indices):
         return candidate_indices
-    if isinstance(batch_size, bool) or not isinstance(batch_size, (int, np.integer)):
-        raise ValueError("matching_global_batch_size must be a positive integer or None.")
-    if batch_size <= 0:
-        raise ValueError("matching_global_batch_size must be a positive integer or None.")
-    return np.asarray(
-        rng.choice(candidate_indices, size=batch_size, replace=False)
-    ).tolist()
+
+    return rng.choice(candidate_indices, size=batch_size, replace=False).tolist()
 
 def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config, matching_routine="local", anomaly_duplicates=False):
 
@@ -510,7 +506,8 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
         excluded_roi_indices = set()
         matching_global_batch_size = getattr(config, "matching_global_batch_size", None)
         if matching_global_batch_size is not None and (
-            not isinstance(matching_global_batch_size, (int, np.integer))
+            isinstance(matching_global_batch_size, (bool, np.bool_))
+            or not isinstance(matching_global_batch_size, (int, np.integer))
             or matching_global_batch_size <= 0
         ):
             raise ValueError("matching_global_batch_size must be a positive integer or None.")
@@ -553,7 +550,6 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 matching_rng,
             )
                         
-            # so soll all_matches aufgebaut werden: all_matches.append((sim, roi_filename, opt_center))
             for roi_index in candidate_indices:
                 roi_sample = roi_dataloader[roi_index]
                 roi, roi_filename = _roi_parts(roi_sample)
@@ -585,10 +581,14 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                     None if matching_global_batch_size is None
                     else max(matching_global_batch_size - len(candidate_indices), 0)
                 )
-                duplicate_candidate_indices = _sample_global_candidate_indices(
-                    excluded_roi_indices,
-                    duplicate_batch_size,
-                    matching_rng,
+                duplicate_candidate_indices = (
+                    []
+                    if duplicate_batch_size == 0
+                    else _sample_global_candidate_indices(
+                        excluded_roi_indices,
+                        duplicate_batch_size,
+                        matching_rng,
+                    )
                 )
                 for roi_index in duplicate_candidate_indices:
                     roi, roi_filename = _roi_parts(roi_dataloader[roi_index])
