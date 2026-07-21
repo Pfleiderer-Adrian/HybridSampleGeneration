@@ -109,7 +109,6 @@ def random_global_stretch_transform(
 
     transformed_mask = mask_np[0].copy()
     scales = sample_uniform(min_stretch, max_stretch, rng=rng, size=transformed_mask.ndim)
-    scales = _limit_scales_to_mask_bounds(transformed_mask != 0, scales)
     transformed_mask = _stretch_spatial_mask(
         transformed_mask,
         scales=scales,
@@ -144,32 +143,6 @@ def random_global_zoom_transform(
     ).astype(original_dtype)
 
     return transformed_mask[None, ...]
-
-
-def _limit_scales_to_mask_bounds(foreground_mask, scales):
-    """Clamp stretch scales so foreground stays inside the current spatial bounds (anomaly_size)."""
-    scales = np.asarray(scales, dtype=float).copy()
-
-    if not np.any(foreground_mask):
-        return scales
-
-    center = np.array(foreground_mask.shape, dtype=float) / 2.0
-    upper_bound = np.array(foreground_mask.shape, dtype=float) - 1.0
-    foreground_coords = np.where(foreground_mask)   # list for every axis that combine to index positions of mask pixels
-
-    for axis, axis_coords in enumerate(foreground_coords):
-        min_coord = float(np.min(axis_coords))  # first index with anomaly in that axis
-        max_coord = float(np.max(axis_coords))
-        max_scale = np.inf
-
-        if min_coord < center[axis]:
-            max_scale = min(max_scale, (0.0 - center[axis]) / (min_coord - center[axis]))
-        if max_coord > center[axis]:
-            max_scale = min(max_scale, (upper_bound[axis] - center[axis]) / (max_coord - center[axis]))
-        if np.isfinite(max_scale):
-            scales[axis] = min(scales[axis], max_scale)
-
-    return scales
 
 
 def _stretch_spatial_mask(mask, scales):
@@ -275,8 +248,6 @@ def random_local_stretch_transform(mask_np: np.ndarray, classes=None, priorities
         rng=rng,
         size=spatial_ndim,
     )
-    selected_foreground = np.isin(transformed_mask, classes)
-    scales = _limit_scales_to_mask_bounds(selected_foreground, scales)
     class_masks = {}
 
     for cls in classes:
@@ -551,6 +522,68 @@ def default_elastic_params_from_anomaly_size(anomaly_size):
     }
 
 
+
+def _pad_mask_for_transforms(mask_np, factor=2):
+    """Center a channel-first mask on a larger zero-filled transform canvas."""
+    if mask_np.ndim not in (3, 4) or mask_np.shape[0] != 1:
+        raise ValueError(f"Expected mask with shape (1, H, W) or (1, D, H, W), got {mask_np.shape}.")
+
+    spatial_shape = np.asarray(mask_np.shape[1:], dtype=int)
+    padded_shape = spatial_shape * int(factor)
+    total_padding = padded_shape - spatial_shape
+    pad_width = [(0, 0)] + [
+        (int(padding // 2), int(padding - padding // 2))
+        for padding in total_padding
+    ]
+    return np.pad(mask_np, pad_width, mode="constant", constant_values=0)
+
+
+def _fit_mask_to_spatial_shape(mask_np, target_shape):
+    """Minimally zoom out around the canvas center, then restore target_shape."""
+    target_shape = np.asarray(target_shape, dtype=int)
+    spatial_shape = np.asarray(mask_np.shape[1:], dtype=int)
+    if target_shape.shape != spatial_shape.shape or np.any(target_shape <= 0):
+        raise ValueError(f"Invalid target spatial shape {tuple(target_shape)} for mask {mask_np.shape}.")
+    if np.any(target_shape > spatial_shape):
+        raise ValueError(f"Target shape {tuple(target_shape)} exceeds transform canvas {tuple(spatial_shape)}.")
+
+    crop_start = (spatial_shape - target_shape) // 2
+    crop_end = crop_start + target_shape - 1
+    spatial_mask = mask_np[0]
+    foreground = spatial_mask != 0
+
+    if np.any(foreground):
+        center = spatial_shape.astype(float) / 2.0
+        fit_scale = 1.0
+        for axis, axis_coords in enumerate(np.where(foreground)):
+            min_coord = float(np.min(axis_coords))
+            max_coord = float(np.max(axis_coords))
+            if min_coord < crop_start[axis]:
+                fit_scale = min(
+                    fit_scale,
+                    (center[axis] - crop_start[axis]) / (center[axis] - min_coord),
+                )
+            if max_coord > crop_end[axis]:
+                fit_scale = min(
+                    fit_scale,
+                    (crop_end[axis] - center[axis]) / (max_coord - center[axis]),
+                )
+
+        if fit_scale < 1.0:
+            # Stay just inside the crop despite nearest-neighbour boundary rounding.
+            fit_scale = max(np.nextafter(fit_scale, 0.0), np.finfo(float).eps)
+            spatial_mask = _stretch_spatial_mask(
+                spatial_mask,
+                scales=np.full(spatial_mask.ndim, fit_scale, dtype=float),
+            ).astype(mask_np.dtype)
+
+    crop_slices = tuple(
+        slice(int(start), int(start + size))
+        for start, size in zip(crop_start, target_shape)
+    )
+    return spatial_mask[crop_slices][None, ...]
+
+
 class TransformGenerator:
     """Central orchestration object for mask augmentation."""
 
@@ -719,7 +752,8 @@ class TransformGenerator:
         return (synth_projection > threshold).astype(np.uint8)
 
     def augment_mask(self, mask_np: np.ndarray) -> np.ndarray:
-        augmented = mask_np.copy()
+        original_spatial_shape = mask_np.shape[1:]
+        augmented = _pad_mask_for_transforms(mask_np)
 
         for transform_name in self.GLOBAL_TRANSFORMS:
             probability = self.global_transform_probs.get(transform_name)
@@ -732,7 +766,7 @@ class TransformGenerator:
                 probability = self._merged_local_probability(transform_name, class_order)
                 if probability is not None and self._should_apply(probability):
                     augmented = self._apply_merged_local_transform(augmented, transform_name, class_order)
-            return augmented
+            return _fit_mask_to_spatial_shape(augmented, original_spatial_shape)
 
         class_masks = {
             class_id: (augmented[0] == class_id)
@@ -757,7 +791,7 @@ class TransformGenerator:
         if any_local_transform_applied:
             augmented = self._compose_class_masks(class_masks, class_order, mask_np.dtype)
 
-        return augmented
+        return _fit_mask_to_spatial_shape(augmented, original_spatial_shape)
 
     def set_transform_probs(self, probs: Dict[int | str, Any] | None = None) -> None:
         if probs is None:
