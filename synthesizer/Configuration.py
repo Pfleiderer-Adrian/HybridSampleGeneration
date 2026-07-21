@@ -131,6 +131,9 @@ class Configuration:
 
         self.fusions_per_control = 1  # for local and global matching
         self.max_fusions_per_control_deviation = 0
+        # Maximum number of ROI candidates evaluated per control during global
+        # matching. None keeps the exhaustive search used previously.
+        self.matching_global_batch_size = None
         self.matching_intensity_weight = 0.5
         self.matching_gradient_weight = 0.5
 
