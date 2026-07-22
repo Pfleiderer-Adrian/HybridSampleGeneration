@@ -506,33 +506,28 @@ def _region_stats(values, eps=1e-8):
     }
 
 
-def _relation_channels_for_mask(roi, anomaly_mask, context_mask, relation_mode, eps=1e-8):
-    channels = []
-    for channel in range(roi.shape[0]):
-        anomaly_stats = _region_stats(roi[channel][anomaly_mask], eps=eps)
-        context_stats = _region_stats(roi[channel][context_mask], eps=eps)
-        if anomaly_stats is None or context_stats is None:
-            channels.append(None)
-            continue
+def _relation_for_mask(roi, anomaly_mask, context_mask, relation_mode, eps=1e-8):
+    """Measure one anomaly/context relation jointly across all channels."""
+    anomaly_stats = _region_stats(roi[:, anomaly_mask], eps=eps)
+    context_stats = _region_stats(roi[:, context_mask], eps=eps)
+    if anomaly_stats is None or context_stats is None:
+        return None
 
-        relation = {
-            "iqr_ratio": float(anomaly_stats["iqr"] / max(context_stats["iqr"], eps)),
-        }
-        context_median = context_stats["median"]
-        if relation_mode == "delta":
-            relation["median_delta"] = float(anomaly_stats["median"] - context_median)
-        elif relation_mode == "ratio":
-            relation["median_ratio"] = (
-                float(anomaly_stats["median"] / context_median)
-                if abs(context_median) > eps
-                else None
-            )
-        else:
-            raise ValueError(f"fusion_relation_mode must be 'delta' or 'ratio'. Got {relation_mode!r}.")
-
-        channels.append(relation)
-
-    return channels
+    relation = {
+        "iqr_ratio": float(anomaly_stats["iqr"] / max(context_stats["iqr"], eps)),
+    }
+    context_median = context_stats["median"]
+    if relation_mode == "delta":
+        relation["median_delta"] = float(anomaly_stats["median"] - context_median)
+    elif relation_mode == "ratio":
+        relation["median_ratio"] = (
+            float(anomaly_stats["median"] / context_median)
+            if abs(context_median) > eps
+            else None
+        )
+    else:
+        raise ValueError(f"fusion_relation_mode must be 'delta' or 'ratio'. Got {relation_mode!r}.")
+    return relation
 
 
 def _anomaly_context_relations(
@@ -569,9 +564,7 @@ def _anomaly_context_relations(
         if np.count_nonzero(context_mask) < int(min_context_size):
             return None
 
-        return _relation_channels_for_mask(
-            roi, spatial_mask, context_mask, relation_mode, eps=eps
-        )
+        return _relation_for_mask(roi, spatial_mask, context_mask, relation_mode, eps=eps)
 
     relations_by_label = {}
     global_context_mask = None
@@ -589,7 +582,7 @@ def _anomaly_context_relations(
         if np.count_nonzero(context_mask) < int(min_context_size):
             continue
 
-        relations_by_label[int(label_value)] = _relation_channels_for_mask(
+        relations_by_label[int(label_value)] = _relation_for_mask(
             roi, class_mask, context_mask, relation_mode, eps=eps
         )
 
@@ -615,23 +608,6 @@ def _target_median_from_relation(bg_median, relation, relation_mode, eps=1e-8):
     raise ValueError(f"fusion_relation_mode must be 'delta' or 'ratio'. Got {relation_mode!r}.")
 
 
-def _relation_for_channel(original_relations, channel, class_label=None):
-    if not original_relations:
-        return None
-
-    relations = original_relations
-    if class_label is not None:
-        if not isinstance(original_relations, dict):
-            return None
-        relations = original_relations.get(int(class_label))
-
-    if isinstance(relations, (list, tuple)) and channel < len(relations):
-        candidate = relations[channel]
-        if isinstance(candidate, dict):
-            return candidate
-    return None
-
-
 def _normalize_anomaly_to_context(
     anom,
     context_slice,
@@ -653,35 +629,44 @@ def _normalize_anomaly_to_context(
         if alpha_values.size > 0:
             alpha_eff = float(np.clip(np.max(alpha_values), eps, 1.0))
 
-    for channel in range(matched.shape[0]):
-        anomaly_values = matched[channel][anomaly_mask]
-        context_values = context_slice[channel][context_mask]
-        anomaly_stats = _region_stats(anomaly_values, eps=eps)
-        context_stats = _region_stats(context_values, eps=eps)
-        if anomaly_stats is None or context_stats is None:
-            continue
+    anomaly_values = matched[:, anomaly_mask]
+    context_values = context_slice[:, context_mask]
+    anomaly_stats = _region_stats(anomaly_values, eps=eps)
+    context_stats = _region_stats(context_values, eps=eps)
+    if anomaly_stats is None or context_stats is None:
+        return matched
 
-        relation = _relation_for_channel(original_relations, channel, class_label=class_label)
-        target_median = _target_median_from_relation(context_stats["median"], relation, relation_mode, eps=eps)
-        target_iqr = context_stats["iqr"]
-        if relation is not None:
-            iqr_ratio = relation.get("iqr_ratio")
-            if iqr_ratio is not None and np.isfinite(iqr_ratio):
-                target_iqr = max(float(context_stats["iqr"] * float(iqr_ratio)), float(eps))
+    relations = original_relations
+    if class_label is not None and isinstance(relations, dict):
+        relations = relations.get(int(class_label))
+    relation = relations if isinstance(relations, dict) else None
 
-        pre_target_median = target_median
-        pre_target_iqr = target_iqr
-        if alpha_eff is not None and alpha_eff < 1.0:
-            inside_bg_stats = _region_stats(blend_bg_slice[channel][anomaly_mask], eps=eps)
-            if inside_bg_stats is not None:
-                pre_target_median = (target_median - inside_bg_stats["median"] * (1.0 - alpha_eff)) / alpha_eff
-                pre_target_iqr = max(float(target_iqr / alpha_eff), float(eps))
+    target_median = _target_median_from_relation(
+        context_stats["median"], relation, relation_mode, eps=eps
+    )
+    target_iqr = context_stats["iqr"]
+    if relation is not None:
+        iqr_ratio = relation.get("iqr_ratio")
+        if iqr_ratio is not None and np.isfinite(iqr_ratio):
+            target_iqr = max(float(context_stats["iqr"] * float(iqr_ratio)), float(eps))
 
-        channel_values = ((anomaly_values - anomaly_stats["median"]) / anomaly_stats["iqr"]) * pre_target_iqr
-        channel_values = channel_values + pre_target_median
-        channel_values = _fit_values_into_bounds(channel_values, output_intensity_bounds, eps=eps)
-        matched[channel][anomaly_mask] = channel_values
+    pre_target_median = target_median
+    pre_target_iqr = target_iqr
+    if alpha_eff is not None and alpha_eff < 1.0:
+        inside_bg_stats = _region_stats(blend_bg_slice[:, anomaly_mask], eps=eps)
+        if inside_bg_stats is not None:
+            pre_target_median = (
+                target_median - inside_bg_stats["median"] * (1.0 - alpha_eff)
+            ) / alpha_eff
+            pre_target_iqr = max(float(target_iqr / alpha_eff), float(eps))
 
+    joint_values = (
+        (anomaly_values - anomaly_stats["median"]) / anomaly_stats["iqr"]
+    ) * pre_target_iqr + pre_target_median
+    joint_values = _fit_values_into_bounds(
+        joint_values, output_intensity_bounds, eps=eps
+    )
+    matched[:, anomaly_mask] = joint_values
     return matched
 
 
