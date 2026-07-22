@@ -523,13 +523,13 @@ def default_elastic_params_from_anomaly_size(anomaly_size):
 
 
 
-def _pad_mask_for_transforms(mask_np, factor=2):
+def _pad_mask_for_transforms(mask_np, padding_factor=2):
     """Center a channel-first mask on a larger zero-filled transform canvas."""
     if mask_np.ndim not in (3, 4) or mask_np.shape[0] != 1:
         raise ValueError(f"Expected mask with shape (1, H, W) or (1, D, H, W), got {mask_np.shape}.")
 
     spatial_shape = np.asarray(mask_np.shape[1:], dtype=int)
-    padded_shape = spatial_shape * int(factor)
+    padded_shape = spatial_shape * int(padding_factor)
     total_padding = padded_shape - spatial_shape
     pad_width = [(0, 0)] + [
         (int(padding // 2), int(padding - padding // 2))
@@ -593,6 +593,7 @@ class TransformGenerator:
         return cls(
             getattr(transform_config, "mask_transform_probs", None),
             use_mask_transform=getattr(transform_config, "use_mask_transform", True),
+            padding_factor=getattr(transform_config, "padding_factor", 2),
             transform_params=getattr(transform_config, "mask_transform_params", None),
             priorities=getattr(
                 transform_config,
@@ -617,6 +618,7 @@ class TransformGenerator:
         priorities: list[int] | tuple[int, ...] | None = None
         rng: np.random.Generator | None = None
         local_as_global: bool = False
+        padding_factor: int = 2
 
         def setGlobalParam(self, transform_name: str, probability=None, **params):
             if transform_name not in TransformGenerator.GLOBAL_TRANSFORMS:
@@ -671,6 +673,7 @@ class TransformGenerator:
         transform_probs: Dict[int | str, Any] | None = None,
         *,
         use_mask_transform: bool = False,
+        padding_factor: int = 2,
         transform_params: Dict[int | str, Dict[str, Any]] | None = None,
         priorities: list[int] | tuple[int, ...] | None = None,
         rng: np.random.Generator | None = None,
@@ -681,6 +684,7 @@ class TransformGenerator:
         self.global_transform_probs = {}
         self.local_transform_probs = {}
         self.class_transform_probs = {}
+        self.padding_factor = padding_factor
         if use_mask_transform:
             self.set_transform_probs(DEFAULT_TRANSFORM_PROBS)
         if transform_probs:
@@ -753,7 +757,7 @@ class TransformGenerator:
 
     def augment_mask(self, mask_np: np.ndarray) -> np.ndarray:
         original_spatial_shape = mask_np.shape[1:]
-        augmented = _pad_mask_for_transforms(mask_np)
+        augmented = _pad_mask_for_transforms(mask_np, factor=self.padding_factor)
 
         for transform_name in self.GLOBAL_TRANSFORMS:
             probability = self.global_transform_probs.get(transform_name)
