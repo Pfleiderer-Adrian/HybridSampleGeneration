@@ -287,7 +287,7 @@ def check_roi_overlap(opt_center, current_roi_shape, used_positions):
     return False
 
 
-def _sample_global_candidate_indices(candidate_indices, batch_size, rng):
+def _sample_batchwise_candidate_indices(candidate_indices, batch_size, rng):
     """Return at most ``batch_size`` candidate indices without replacement."""
     candidate_indices = list(candidate_indices)
 
@@ -299,7 +299,7 @@ def _sample_global_candidate_indices(candidate_indices, batch_size, rng):
 def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config, matching_routine="local", anomaly_duplicates=False):
 
     # template_output_dir übergeben, wenn templates_path in config noch nicht überschrieben wurde (also die templates noch nicht generiert wurden)
-    allowed_matchings_routines = ["local", "global", "fixed_from_extraction_anomaly_fusion", "fixed_from_extraction_control_fusion"]
+    allowed_matchings_routines = ["local", "global", "batchwise", "fixed_from_extraction_anomaly_fusion", "fixed_from_extraction_control_fusion"]
     if matching_routine not in allowed_matchings_routines:
         raise ValueError("Not a allowed matching routine.")
     
@@ -500,17 +500,24 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
 
 
     # ------------------------------------------------------------
-    # Routine: global (search best ROIs for each control; avoid reusing ROIs)
+    # Routines: global and batchwise (search best ROIs for each control; avoid reusing ROIs)
+    # Global evaluates all available ROIs, while batchwise samples a configured subset.
+    # The matching logic is otherwise shared.
     # ------------------------------------------------------------
-    if matching_routine == "global":
+    if matching_routine in ("global", "batchwise"):
         excluded_roi_indices = set()
-        matching_global_batch_size = getattr(config, "matching_global_batch_size", None)
-        if matching_global_batch_size is not None and (
-            isinstance(matching_global_batch_size, (bool, np.bool_))
-            or not isinstance(matching_global_batch_size, (int, np.integer))
-            or matching_global_batch_size <= 0
+        matching_batchwise_batch_size = (
+            getattr(config, "matching_batchwise_batch_size", None)
+            if matching_routine == "batchwise"
+            else None
+        )
+        if matching_routine == "batchwise" and (
+            matching_batchwise_batch_size is None
+            or isinstance(matching_batchwise_batch_size, (bool, np.bool_))
+            or not isinstance(matching_batchwise_batch_size, (int, np.integer))
+            or matching_batchwise_batch_size <= 0
         ):
-            raise ValueError("matching_global_batch_size must be a positive integer or None.")
+            raise ValueError("matching_batchwise_batch_size must be a positive integer.")
         matching_rng = getattr(config, "rng", np.random.default_rng(42))
         for control, _, control_filename, *ignored in tqdm(control_sample_dataloader):
             if control_filename in checked_control_names:
@@ -544,9 +551,9 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 index for index in range(roi_dataloader.__len__())
                 if index not in excluded_roi_indices
             )
-            candidate_indices = _sample_global_candidate_indices(
+            candidate_indices = _sample_batchwise_candidate_indices(
                 available_roi_indices,
-                matching_global_batch_size,
+                matching_batchwise_batch_size,
                 matching_rng,
             )
                         
@@ -578,13 +585,13 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
             if anomaly_duplicates and (len(used_positions) < fusions_per_control):
                 duplicate_matches = []
                 duplicate_batch_size = (
-                    None if matching_global_batch_size is None
-                    else max(matching_global_batch_size - len(candidate_indices), 0)
+                    None if matching_batchwise_batch_size is None
+                    else max(matching_batchwise_batch_size - len(candidate_indices), 0)
                 )
                 duplicate_candidate_indices = (
                     []
                     if duplicate_batch_size == 0
-                    else _sample_global_candidate_indices(
+                    else _sample_batchwise_candidate_indices(
                         excluded_roi_indices,
                         duplicate_batch_size,
                         matching_rng,

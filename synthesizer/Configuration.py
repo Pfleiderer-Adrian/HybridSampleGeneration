@@ -129,13 +129,11 @@ class Configuration:
         self.matching_routine = "fixed_from_extraction_anomaly_fusion"
         self.anomaly_duplicates = False
 
-        self.fusions_per_control = 1  # for local and global matching
+        self.fusions_per_control = 1  # for local, global and batchwise matching
         self.max_fusions_per_control_deviation = 0
-        # Maximum number of ROI candidates evaluated per control during global
-        # matching. None keeps the exhaustive search used previously.
-        self.matching_global_batch_size = None
-        self.matching_intensity_weight = 0.5
-        self.matching_gradient_weight = 0.5
+        self.matching_batchwise_batch_size = 64   # number of ROI candidates evaluated per control during batchwise matching. Must be a positive integer.
+        self.matching_intensity_weight = 1
+        self.matching_gradient_weight = 2
 
         self.fusion_backend = "classical"
         self.fusion_backend_checkpoint = None
