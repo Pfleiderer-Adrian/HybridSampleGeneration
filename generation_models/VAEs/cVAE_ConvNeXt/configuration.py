@@ -31,6 +31,7 @@ def get_convnext_cvae_3d_configuration(in_channels):
         "fg_threshold": 0.0,
         "recon_loss": "mse",
         "skip_dropout_p": 0.6,
+        "skip_dropout_ps": None,
         "skip_alpha": 0.2,
         "use_transpose_conv": False,
     }
@@ -67,6 +68,7 @@ def get_convnext_cvae_2d_configuration(in_channels):
         "drop_path_rate": 0.001,
         "dropout": 0.001,
         "skip_dropout_p": 1.0,
+        "skip_dropout_ps": None,
         "skip_alpha": 0.0,
         "use_transpose_conv": False,
         "beta_kl": 0.05,

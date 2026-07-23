@@ -278,6 +278,7 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
         drop_path_rate: float = 0.0,
         dropout: float = 0.0,
         skip_dropout_p: float = 0.0,
+        skip_dropout_ps: Optional[Iterable[float]] = None,
         skip_alpha: float = 1.0,
     ):
         super().__init__()
@@ -286,6 +287,7 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
         self.use_transpose_conv = use_transpose_conv
         self._skips: Optional[List[torch.Tensor]] = None
         self.skip_dropout_p = float(skip_dropout_p)
+        self.skip_dropout_ps = HybridVAEBase._normalize_skip_dropout_ps(skip_dropout_ps, n_levels, self.skip_dropout_p)
         self.skip_alpha = float(skip_alpha)
 
         self.bottom_ch = 2 ** (n_levels + 3)
@@ -376,7 +378,7 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
                 skip = skip * self.skip_alpha
 
             # Skip-Dropout manually implemented
-            p = self.skip_dropout_p
+            p = self.skip_dropout_ps[-1 - i]
             if p > 0.0 and self.training:
                 keep_prob = 1.0 - p
                 drop_mask = (torch.rand((skip.shape[0], 1, 1, 1), device=skip.device, dtype=skip.dtype) < keep_prob).to(skip.dtype)
@@ -431,6 +433,9 @@ class Config:
 
     # Skip regularization (helps force latent usage)
     skip_dropout_p: float = 0.0  # Drop entire skip-tensors per sample during training (0.0 disables)
+    # Optional per-resolution skip dropout values in encoder order: [highest resolution, ..., deepest].
+    # If set, this overrides skip_dropout_p for individual skip levels.
+    skip_dropout_ps: Optional[List[float]] = None
     skip_alpha: float = 1.0      # Scale skips (0.0 disables skips, 0.2 keeps small guidance)
 
 
@@ -471,6 +476,7 @@ class ConvNeXtcVAE2D(HybridVAEBase):
             drop_path_rate=cfg.drop_path_rate,
             dropout=cfg.dropout,
             skip_dropout_p=cfg.skip_dropout_p,
+            skip_dropout_ps=cfg.skip_dropout_ps,
             skip_alpha=cfg.skip_alpha,
         )
 

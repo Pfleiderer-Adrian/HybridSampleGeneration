@@ -16,7 +16,6 @@ import numpy as np
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from generation_models.VAEs.vae_base import HybridVAEBase
 from synthesizer.mask_manipulation import TransformGenerator
@@ -191,6 +190,7 @@ class ConvNeXtUNetDecoder3D(nn.Module):
         leak: float = 0.2,  # kept for API compatibility
         use_transpose_conv: bool = True,
         skip_dropout_p: float = 0.0,
+        skip_dropout_ps: Optional[Iterable[float]] = None,
         skip_alpha: float = 1.0,
         gn_groups: int = 8,
     ):
@@ -198,6 +198,7 @@ class ConvNeXtUNetDecoder3D(nn.Module):
         self.n_levels = n_levels
         self.use_transpose_conv = use_transpose_conv
         self.skip_dropout_p = float(skip_dropout_p)
+        self.skip_dropout_ps = HybridVAEBase._normalize_skip_dropout_ps(skip_dropout_ps, n_levels, self.skip_dropout_p)
         self.skip_alpha = float(skip_alpha)
         self._skips: Optional[List[torch.Tensor]] = None
 
@@ -268,8 +269,11 @@ class ConvNeXtUNetDecoder3D(nn.Module):
                 skip = skips[-1 - i]
 
             # Skip dropout (training only): forces decoder to use latent z instead of bypassing via skips
-            if self.training and self.skip_dropout_p > 0.0:
-                skip = F.dropout3d(skip, p=self.skip_dropout_p, training=True)
+            p = self.skip_dropout_ps[-1 - i]
+            if p > 0.0 and self.training:
+                keep_prob = 1.0 - p
+                mask = (torch.rand((skip.shape[0], 1, 1, 1, 1), device=skip.device, dtype=skip.dtype) < keep_prob).to(skip.dtype)
+                skip = skip * mask / max(keep_prob, 1e-6)
             if x.shape[-3:] != skip.shape[-3:]:
                 # Center-crop the larger one to the smaller
                 target = (
@@ -350,6 +354,9 @@ class Config:
     # Probability for dropping encoder skip features during training (prevents latent bypass in U-Net VAEs)
     # 0.0 disables skip dropout. Typical values: 0.1 - 0.4
     skip_dropout_p: float = 0.0
+    # Optional per-resolution skip dropout values in encoder order: [highest resolution, ..., deepest].
+    # If set, this overrides skip_dropout_p for individual skip levels.
+    skip_dropout_ps: Optional[List[float]] = None
 
     # Skip gating factor: scales skip features before concatenation in the decoder.
     # 1.0 disables gating (default). Typical values for encouraging latent usage: 0.2 - 0.6
@@ -392,6 +399,7 @@ class ConvNeXtVAE3D(HybridVAEBase):
             use_multires_skips=cfg.use_multires_skips,
             use_transpose_conv=cfg.use_transpose_conv,
             skip_dropout_p=cfg.skip_dropout_p,
+            skip_dropout_ps=cfg.skip_dropout_ps,
             skip_alpha=cfg.skip_alpha,
         )
 
