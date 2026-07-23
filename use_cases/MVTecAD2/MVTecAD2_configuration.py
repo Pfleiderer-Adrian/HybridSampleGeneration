@@ -147,7 +147,7 @@ def configure_mvtecad2_defaults(config: Configuration):
     config.variation_strength = 1.25
 
     # matching settings
-    config.matching_routine = "local"
+    config.matching_routine = "global"
     config.anomaly_duplicates = True
     config.fusions_per_control = 2
     config.max_fusions_per_control_deviation = 1
@@ -156,9 +156,9 @@ def configure_mvtecad2_defaults(config: Configuration):
     config.set_fusion_backend("classical")
     config.fusion_params.set_fusion_params(
         max_alpha=1.0,
-        sq=0.1,
-        steepness_factor=5.0,
-        upsampling_factor=2,
+        sq=1.5,
+        steepness_factor=1.5,
+        upsampling_factor=4,
         sobel_threshold=0.01,
         dilation_size=1,
         shave_pixels=0,
@@ -166,8 +166,14 @@ def configure_mvtecad2_defaults(config: Configuration):
         fusion_variation=True,
         alpha_variation=0.05,
         sq_variation=0.1,
-        steepness_variation=1.0,
+        steepness_variation=0.2,
         selected_confidence="90%",
+        fusion_normalization_border_width=0,
+        fusion_restore_anomaly_bg_relation = True,
+        fusion_relation_mode = "ratio",  # alternatively "ratio" if intensities are not too close to 0 and have matching signs
+        fusion_relation_norm_classes_separately = False,
+        fusion_relation_min_context_size = 8
+
     )
     """
     config.set_fusion_backend("learned_residual_alpha")

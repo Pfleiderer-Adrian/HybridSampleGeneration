@@ -722,7 +722,7 @@ class OutlierGUI:
             anomaly_mask_path = self._get_fallback_path(self.anomaly_mask_dir, anomaly)
             anomaly_roi_mask_path = self._get_fallback_path(self.anomaly_roi_mask_dir, anomaly)
             paths = [
-                (os.path.join(self.synth_anomaly_dir, anomaly), "synth_anomaly_data", anomaly_meta, None, generated_mask_path),
+                (os.path.join(self.synth_anomaly_dir, anomaly), "synth_anomaly_data", anomaly_meta, real_roi_path, generated_mask_path),
                 (synth_roi_path, "synth_roi_data", None, None, synth_roi_mask_path),
                 (os.path.join(self.anomaly_dir, anomaly), "anomaly_data", anomaly_meta, real_roi_path, anomaly_mask_path),
                 (real_roi_path, "anomaly_roi_data", None, None, anomaly_roi_mask_path)
