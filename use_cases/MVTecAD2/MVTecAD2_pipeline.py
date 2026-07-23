@@ -24,7 +24,10 @@ from use_cases.MVTecAD2.MVTecAD2_configuration import (
 
 
 MVTECAD2_ROOT = Path(
-    os.environ.get("MVTECAD2_ROOT", r"path/to/mvtec_ad_2_dataset")
+    os.environ.get("MVTECAD2_ROOT", r"/mnt/results/mvtec2/mvtec_ad_2")
+)
+MVTECAD2_SAVE = Path(
+    os.environ.get("MVTECAD2_SAVE", r"/mnt/results/mvtec2/experiments")
 )
 
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp")
@@ -890,23 +893,27 @@ def _validate_dataset_root(root: Path) -> None:
 
 
 if __name__ == "__main__":
-
-    dataset_root = r"/mnt/results/mvtec2/mvtec_ad_2"
-    save_path = r"/mnt/results/mvtec2/experiments"
-    
-
+    categories = ("rice")
     run_hybrid_sample_generation_for_all_usecases(
-        dataset_root,
-        categories="can",
+        root=MVTECAD2_ROOT,
+        categories=categories,
         no_of_trials=1,
-        steps=("extract", "train", "generate_synth", "matching", "train_fusion", "fusion", "save"),
+        steps=(
+            "extract",
+            "train",
+            "generate_synth",
+            "matching",
+            "train_fusion",
+            "fusion",
+            "save"
+        ),
         generator_trial_id=-2,  # -1: best Model, -2: newest Model, else Trial-/Modely number
-        save_path=save_path
+        save_path=MVTECAD2_SAVE,
     )
 
     # Downstream call after generation:
     run_evaluation_and_visualization_for_all_usecases(
-         dataset_root,
-         categories="can",
-         save_path=save_path,
+        root=MVTECAD2_ROOT,
+        categories=categories,
+        save_path=MVTECAD2_SAVE,
     )

@@ -236,15 +236,15 @@ class LearnedResidualAlphaFusionBackend:
             float(proposal["offset"][axis]) + float(crop_shape[axis]) / 2.0
             for axis in range(spatial_dims)
         )
-        if config.fixed_roi_size is None:
+        if config.extraction_fixed_roi_size is None:
             if spatial_dims == 2:
-                roi_size = dynamic_roi_size_2d(crop_shape, config.min_pad, config.pad_ratio, config.min_roi_size)
+                roi_size = dynamic_roi_size_2d(crop_shape, config.extraction_min_roi_padding, config.extraction_roi_padding_ratio, config.min_roi_size)
                 crop_roi = crop_square_clip
             else:
-                roi_size = dynamic_roi_size_3d(crop_shape, config.min_pad, config.pad_ratio, config.min_roi_size)
+                roi_size = dynamic_roi_size_3d(crop_shape, config.extraction_min_roi_padding, config.extraction_roi_padding_ratio, config.min_roi_size)
                 crop_roi = crop_cube_clip
         else:
-            roi_size = config.fixed_roi_size
+            roi_size = config.extraction_fixed_roi_size
             crop_roi = crop_square_clip if spatial_dims == 2 else crop_cube_clip
 
         return FusionOutput(

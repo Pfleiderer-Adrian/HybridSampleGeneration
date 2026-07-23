@@ -126,16 +126,16 @@ def configure_mvtecad2_defaults(config: Configuration):
     image_channels = int(config.anomaly_size[0])
 
     # extraction settings
-    config.fixed_roi_size = None
+    config.extraction_add_background_noise = False
+    config.extraction_min_anomaly_coverage_ratio = 0.01
+    config.extraction_fixed_roi_size = None
+    config.extraction_min_roi_padding = (20, 20, 20)
+    config.extraction_roi_padding_ratio = (0.5, 0.5, 0.5)
+
+    # generation settings
     config.random_offset = True
     config.random_offset_max_fraction = 0.8
     config.random_offset_foreground_threshold_rel = 0.01
-    config.add_bg_noise = False
-    config.min_anomaly_percentage = 0.01
-    config.min_pad = (20, 20, 20)
-    config.pad_ratio = (0.5, 0.5, 0.5)
-
-    # generation settings
     config.clamp01_output = False
     config.normalization = "z-score"
     config.normalization_eps = 1e-6

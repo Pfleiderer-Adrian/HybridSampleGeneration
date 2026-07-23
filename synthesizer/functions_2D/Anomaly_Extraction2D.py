@@ -12,16 +12,16 @@ def _as_axis_tuple(value, ndim, name):
     return values[:ndim]
 
 
-def dynamic_roi_size(spatial_shape, min_pad, pad_ratio, min_roi_size):
+def dynamic_roi_size(spatial_shape, min_roi_padding, roi_padding_ratio, min_roi_size):
     spatial_shape = tuple(int(size) for size in spatial_shape)
-    min_pad = _as_axis_tuple(min_pad, len(spatial_shape), "min_pad")
-    pad_ratio = _as_axis_tuple(pad_ratio, len(spatial_shape), "pad_ratio")
+    min_roi_padding = _as_axis_tuple(min_roi_padding, len(spatial_shape), "min_roi_padding")
+    roi_padding_ratio = _as_axis_tuple(roi_padding_ratio, len(spatial_shape), "roi_padding_ratio")
     min_roi_size = _as_axis_tuple(min_roi_size, len(spatial_shape), "min_roi_size")
 
     return [
-        max(int(size + max(axis_min_pad, size * axis_pad_ratio)), int(axis_min_roi))
-        for size, axis_min_pad, axis_pad_ratio, axis_min_roi
-        in zip(spatial_shape, min_pad, pad_ratio, min_roi_size)
+        max(int(size + max(axis_min_roi_padding, size * axis_roi_padding_ratio)), int(axis_min_roi))
+        for size, axis_min_roi_padding, axis_roi_padding_ratio, axis_min_roi
+        in zip(spatial_shape, min_roi_padding, roi_padding_ratio, min_roi_size)
     ]
 
 
@@ -225,7 +225,7 @@ def _spatial_target_size(target_size):
         return tuple(target_size[-2:])
     raise ValueError(f"target_size must be (H,W) or (C,H,W). Got {target_size}")
 
-def add_bg_noise_floor(img, sigma_rel=0.003, eps=1e-8):
+def add_background_noise_floor(img, sigma_rel=0.003, eps=1e-8):
     """
     sigma_rel: relative Stärke zum Dynamikbereich (0.1% - 1% ist typisch)
     """
@@ -344,7 +344,7 @@ def crop_and_center_anomaly_2d(
     org_masks = []
     roi_masks = []
 
-    min_region_pixels = int(config.min_anomaly_percentage * (target_size[0] * target_size[1]))
+    min_region_pixels = int(config.extraction_min_anomaly_coverage_ratio * (target_size[0] * target_size[1]))
 
     for ridx, region in enumerate(regions, start=1):
 
@@ -359,8 +359,8 @@ def crop_and_center_anomaly_2d(
         result = img[:, hsl, wsl]  # (C,h,w)
         result = np.where(region_mask, result, np.min(img))
 
-        if config.add_bg_noise:
-            result = add_bg_noise_floor(result)
+        if config.extraction_add_background_noise:
+            result = add_background_noise_floor(result)
 
         #ch, cw = center_of_mass(binary2d, labeled, ridx)
         ch = (hsl.start + hsl.stop - 1) / 2
@@ -392,10 +392,10 @@ def crop_and_center_anomaly_2d(
         }
         meta_data.update(norm_meta)
 
-        if config.fixed_roi_size is None:
-            size_spatial = dynamic_roi_size(result.shape[-2:], config.min_pad, config.pad_ratio, config.min_roi_size)
+        if config.extraction_fixed_roi_size is None:
+            size_spatial = dynamic_roi_size(result.shape[-2:], config.extraction_min_roi_padding, config.extraction_roi_padding_ratio, config.min_roi_size)
         else:
-            size_spatial = config.fixed_roi_size
+            size_spatial = config.extraction_fixed_roi_size
         
         anomalies_roi.append(crop_square_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False))
         roi_masks.append(crop_square_clip(seg, centroid_voxel, size_spatial, centroid_is_normalized=False))
