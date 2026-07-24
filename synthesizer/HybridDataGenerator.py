@@ -12,7 +12,7 @@ from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
 
 from generation_models.model_registry import get_model_spec
 from fusion_backend.fusion_registry import get_fusion_backend_spec
-from synthesizer.mask_manipulation import TransformGenerator
+from synthesizer.mask_manipulation import TransformGenerator, generate_variants
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
 from synthesizer.Configuration import Configuration
@@ -465,18 +465,24 @@ class HybridDataGenerator:
 
         # standard generation without feedback
         else:
+            self._config.syn_anomaly_transformations = {
+                name: meta for name, meta in self._config.syn_anomaly_transformations.items()
+                if not (isinstance(meta, dict) and meta.get("source_anomaly"))
+            }
+            mask_loader = lambda basename: self._anomaly_dataset.load_numpy_by_basename(basename, artifact="ori_mask")
             for sample in tqdm(self._anomaly_dataset):
-                basename = sample["fname"]
-                syn_anomaly_sample, syn_anomaly_mask = self._model.generate(
-                    sample,
-                    mode=generation_mode,
-                    variation_strength=self._config.variation_strength,
-                    clamp_01=self._config.clamp01_output,
-                    target_mask_generator=target_mask_generator,
+                source_basename = sample["fname"]
+                variants = generate_variants(
+                    self._model, sample, mode=generation_mode, config=self._config,
+                    target_mask_generator=target_mask_generator, mask_loader=mask_loader,
+                    source_metadata=self._config.syn_anomaly_transformations.get(source_basename, {}),
                 )
-                save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
-                save_numpy_as_npy(syn_anomaly_mask, str(os.path.join(tgt_mask_folder, basename)), overwrite=True)
-
+                for variant in variants:
+                    save_numpy_as_npy(variant.image, os.path.join(synth_anomaly_folder, variant.basename), overwrite=True)
+                    save_numpy_as_npy(variant.target_mask, os.path.join(tgt_mask_folder, variant.basename), overwrite=True)
+                    if variant.metadata is not None:
+                        self._config.add_anomaly_transformation(variant.basename, variant.metadata)
+            self._config.save_anomaly_transformations()
         self.load_synth_anomalies()
 
 
@@ -556,11 +562,12 @@ class HybridDataGenerator:
         csv_file_path = paths.matching_dict_file
         _roi_dataset = AnomalyDataset(
             paths,
-            return_artifacts=("anomaly_roi", "fname"),
-            index_artifact="anomaly_roi",
+            return_artifacts=("anomaly_roi", "anomaly_meta", "fname"),
+            index_artifact="synth_anomaly",
+            anomaly_meta_file=paths.anomaly_transformations_file,
             load_to_ram=True,
             dtype=torch.float32,
-            numpy_mode=True
+            numpy_mode=True,
         )
         img = _roi_dataset[0]["anomaly_roi"]
         if img.ndim in [3, 4]:

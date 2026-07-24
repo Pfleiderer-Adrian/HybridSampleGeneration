@@ -318,25 +318,16 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 if control.shape[0] >= np.min(control.shape[1:]):
                     print(f"Warning: First dimension of first control sample {control_filename} is larger than another one. Shape: {control.shape}. Channel dimension must be first.")
                 shape_checked = True
-            j = 0
             anomaly_list = []
-            while True:
-                try:
-                    roi = roi_dataloader.load_numpy_by_basename(
-                        control_filename+"_"+str(j)+".npy",
-                        artifact="anomaly_roi",
-                    )
-                    centroid = config.syn_anomaly_transformations[control_filename+"_"+str(j)+".npy"]["centroid_norm"]
-
-                    anomaly_list.append(
-                        (control_filename+"_"+str(j)+".npy", centroid)
-                    )
-                    j += 1
-                except Exception as e:
-                    print(e.with_traceback(None))
-                    print(f"Finished loading {j-1} synthetic anomalies for control sample {control_filename}.")
-                    break
-            matching_data.append([control_filename,anomaly_list])
+            source_prefix = control_filename + "_"
+            for roi_sample in roi_dataloader:
+                _, variant_basename = _roi_parts(roi_sample)
+                meta = roi_sample.get("anomaly_meta", {})
+                source_basename = meta.get("source_anomaly", variant_basename)
+                if not source_basename.startswith(source_prefix):
+                    continue
+                anomaly_list.append((variant_basename, meta["centroid_norm"]))
+            matching_data.append([control_filename, anomaly_list])
 
 
     # ------------------------------------------------------------

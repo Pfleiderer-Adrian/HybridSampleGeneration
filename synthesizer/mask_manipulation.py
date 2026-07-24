@@ -1,6 +1,7 @@
 from copy import deepcopy
+import os
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Iterator
 
 import numpy as np
 import scipy.ndimage as ndi
@@ -608,6 +609,8 @@ class TransformGenerator:
                 "local_as_global",
                 getattr(transform_config, "mask_transform_local_as_global", False),
             ),
+            output_count=getattr(transform_config, "output_count", 1),
+            class_output_counts=getattr(transform_config, "class_output_counts", None),
         )
 
     @dataclass
@@ -619,6 +622,37 @@ class TransformGenerator:
         rng: np.random.Generator | None = None
         local_as_global: bool = False
         padding_factor: int = 2
+        output_count: int = 1
+        class_output_counts: Dict[int, int] = field(default_factory=dict)
+
+        def setOutputCount(self, count: int):
+            self.output_count = self._validate_output_count(count)
+            return self
+
+        def setClassOutputCount(self, class_id: int, count: int):
+            self.class_output_counts[self._validate_class_id(class_id)] = self._validate_output_count(count)
+            return self
+
+        def getOutputCount(self, class_ids=None) -> int:
+            if class_ids is None:
+                return self.output_count
+            if np.isscalar(class_ids):
+                class_ids = [class_ids]
+            counts = [self.class_output_counts.get(self._validate_class_id(c), self.output_count) for c in class_ids if int(c) != 0]
+            return max(counts, default=self.output_count)
+
+        @staticmethod
+        def _validate_class_id(class_id: int) -> int:
+            class_id = int(class_id)
+            if class_id <= 0:
+                raise ValueError(f"class_id must be greater than 0, got {class_id}.")
+            return class_id
+
+        @staticmethod
+        def _validate_output_count(count: int) -> int:
+            if isinstance(count, bool) or int(count) != count or int(count) < 1:
+                raise ValueError(f"output count must be a positive integer, got {count!r}.")
+            return int(count)
 
         def setGlobalParam(self, transform_name: str, probability=None, **params):
             if transform_name not in TransformGenerator.GLOBAL_TRANSFORMS:
@@ -680,6 +714,8 @@ class TransformGenerator:
         anomaly_size: tuple[int, ...] | list[int] | None = None,
         background_threshold: float | None = 0.01,
         mask_transform_local_as_global: bool = False,
+        output_count: int = 1,
+        class_output_counts: Dict[int, int] | None = None,
     ) -> None:
         self.global_transform_probs = {}
         self.local_transform_probs = {}
@@ -699,6 +735,16 @@ class TransformGenerator:
         self.rng = rng if rng is not None else np.random.default_rng()
         self.background_threshold = background_threshold
         self.mask_transform_local_as_global = mask_transform_local_as_global
+        self.output_count = self.Config._validate_output_count(output_count)
+        self.class_output_counts = {self.Config._validate_class_id(c): self.Config._validate_output_count(n) for c, n in (class_output_counts or {}).items()}
+
+    def get_output_count(self, class_ids=None) -> int:
+        if class_ids is None:
+            return self.output_count
+        if np.isscalar(class_ids):
+            class_ids = [class_ids]
+        counts = [self.class_output_counts.get(self.Config._validate_class_id(c), self.output_count) for c in class_ids if int(c) != 0]
+        return max(counts, default=self.output_count)
 
     def create_target_mask(
         self,
@@ -986,3 +1032,76 @@ class TransformGenerator:
             composed[class_masks[class_id]] = class_id
 
         return composed[None, ...]
+
+
+@dataclass(frozen=True)
+class SyntheticVariant:
+    basename: str
+    image: np.ndarray
+    target_mask: np.ndarray
+    metadata: dict | None
+
+
+def _present_classes(sample: dict, source_basename: str, mask_loader: Callable[[str], np.ndarray]) -> list[int]:
+    mask = sample.get("ori_mask")
+    if mask is None:
+        mask = mask_loader(source_basename)
+    if torch.is_tensor(mask):
+        mask = mask.detach().cpu().numpy()
+    return [int(class_id) for class_id in np.unique(mask) if int(class_id) != 0]
+
+
+def _variant_basename(source_basename: str, variant_index: int, output_count: int) -> str:
+    if output_count == 1:
+        return source_basename
+    stem, extension = os.path.splitext(source_basename)
+    return f"{stem}__variant_{variant_index + 1:03d}{extension or '.npy'}"
+
+
+def _generate_once(model, sample, *, mode, config, target_mask_generator):
+    return model.generate(
+        sample,
+        mode=mode,
+        variation_strength=config.variation_strength,
+        clamp_01=config.clamp01_output,
+        target_mask_generator=target_mask_generator,
+    )
+
+
+def generate_variants(
+    model,
+    sample: dict,
+    *,
+    mode: str,
+    config,
+    target_mask_generator,
+    mask_loader: Callable[[str], np.ndarray],
+    source_metadata: dict | None = None,
+) -> Iterator[SyntheticVariant]:
+    """Generate one independent model output for every configured mask variant."""
+    source_basename = sample["fname"]
+    class_ids = _present_classes(sample, source_basename, mask_loader)
+    output_count = target_mask_generator.get_output_count(class_ids)
+
+    for variant_index in range(output_count):
+        image, target_mask = _generate_once(
+            model, sample, mode=mode, config=config,
+            target_mask_generator=target_mask_generator,
+        )
+
+        metadata = None
+        if output_count > 1:
+            metadata = dict(source_metadata or {})
+            metadata.update({
+                "source_anomaly": source_basename,
+                "variant_index": variant_index + 1,
+                "variant_count": output_count,
+                "source_classes": class_ids,
+            })
+
+        yield SyntheticVariant(
+            basename=_variant_basename(source_basename, variant_index, output_count),
+            image=image,
+            target_mask=target_mask,
+            metadata=metadata,
+        )

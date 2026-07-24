@@ -714,17 +714,18 @@ class OutlierGUI:
             _, control, anomaly = item
             self.fig.suptitle(f"{anomaly} in {control}", fontsize=12, fontweight='bold')
 
-            anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, anomaly)
+            anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, anomaly) or {}
+            source_anomaly = os.path.basename(str(anomaly_meta.get("source_anomaly", anomaly)))
             synth_roi_path = os.path.join(self.synth_roi_dir, control, anomaly)
             synth_roi_mask_path = self._get_fallback_path(os.path.join(self.synth_roi_mask_dir, control), anomaly)
-            real_roi_path = os.path.join(self.anomaly_roi_dir, anomaly)
+            real_roi_path = os.path.join(self.anomaly_roi_dir, source_anomaly)
             generated_mask_path = self._get_fallback_path(self.generated_mask_dir, anomaly)
-            anomaly_mask_path = self._get_fallback_path(self.anomaly_mask_dir, anomaly)
-            anomaly_roi_mask_path = self._get_fallback_path(self.anomaly_roi_mask_dir, anomaly)
+            anomaly_mask_path = self._get_fallback_path(self.anomaly_mask_dir, source_anomaly)
+            anomaly_roi_mask_path = self._get_fallback_path(self.anomaly_roi_mask_dir, source_anomaly)
             paths = [
                 (os.path.join(self.synth_anomaly_dir, anomaly), "synth_anomaly_data", anomaly_meta, None, generated_mask_path),
                 (synth_roi_path, "synth_roi_data", None, None, synth_roi_mask_path),
-                (os.path.join(self.anomaly_dir, anomaly), "anomaly_data", anomaly_meta, real_roi_path, anomaly_mask_path),
+                (os.path.join(self.anomaly_dir, source_anomaly), "anomaly_data", anomaly_meta, real_roi_path, anomaly_mask_path),
                 (real_roi_path, "anomaly_roi_data", None, None, anomaly_roi_mask_path)
             ]
 
@@ -1933,15 +1934,16 @@ class AnomalyGenerationTab(_ArrayTabBase):
             ]
             self.fig.suptitle("anomaly generation", fontsize=13, fontweight="bold")
         else:
-            anomaly_path, anomaly_expected = _resolve_file_by_name(self.anomaly_dir, selected)
-            roi_path, roi_expected = _resolve_file_by_name(self.anomaly_roi_dir, selected)
-            extracted_mask_path, extracted_mask_expected = _resolve_file_by_name(self.extracted_mask_dir, selected)
+            anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, selected) or {}
+            source_anomaly = os.path.basename(str(anomaly_meta.get("source_anomaly", selected)))
+            anomaly_path, anomaly_expected = _resolve_file_by_name(self.anomaly_dir, source_anomaly)
+            roi_path, roi_expected = _resolve_file_by_name(self.anomaly_roi_dir, source_anomaly)
+            extracted_mask_path, extracted_mask_expected = _resolve_file_by_name(self.extracted_mask_dir, source_anomaly)
             extracted_roi_mask_path, extracted_roi_mask_expected = _resolve_file_by_name(
-                self.extracted_roi_mask_dir, selected
+                self.extracted_roi_mask_dir, source_anomaly
             )
             synth_path, synth_expected = _resolve_file_by_name(self.synth_anomaly_dir, selected)
             mask_path, mask_expected = _resolve_file_by_name(self.generated_mask_dir, selected)
-            anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, selected)
             show_mask_overlays = bool(self.show_mask_overlays_var.get())
             extracted_overlay_path = (extracted_mask_path or extracted_mask_expected) if show_mask_overlays else None
             extracted_roi_overlay_path = (
