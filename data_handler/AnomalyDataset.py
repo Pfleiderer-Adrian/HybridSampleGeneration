@@ -511,22 +511,16 @@ class AnomalyDataset(Dataset):
         lookup = self._artifact_lookup(artifact)
         index_basename = os.path.basename(index_path)
         try:
-            return self._single_lookup_match(lookup, key=index_basename, artifact=artifact)
+            return self._single_lookup_match(lookup, key=index_basename, artifact=artifact) # find synthetic
         except KeyError:
-            source_basename = self._source_anomaly_basename(index_basename)
-            if source_basename == index_basename:
-                raise
-            return self._single_lookup_match(lookup, key=source_basename, artifact=artifact)
-
-    def _source_anomaly_basename(self, basename: str) -> str:
-        if not self.anomaly_metadata:
-            return basename
-        base = os.path.basename(basename)
-        for key in (base, Path(base).stem, Path(base).stem + ".npy"):
-            meta = self.anomaly_metadata.get(key)
-            if isinstance(meta, dict) and meta.get("source_anomaly"):
-                return os.path.basename(str(meta["source_anomaly"]))
-        return basename
+            source_basename = os.path.basename(
+                str(self.anomaly_metadata[index_basename]["source_anomaly"])    # find real
+            )
+            return self._single_lookup_match(
+                lookup,
+                key=source_basename,
+                artifact=artifact,
+            )
 
     def _artifact_lookup(self, artifact: str) -> dict[str, dict[str, list[str]]]:
         if artifact in self._artifact_lookup_cache:

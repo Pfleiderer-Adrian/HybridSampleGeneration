@@ -714,8 +714,8 @@ class OutlierGUI:
             _, control, anomaly = item
             self.fig.suptitle(f"{anomaly} in {control}", fontsize=12, fontweight='bold')
 
-            anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, anomaly) or {}
-            source_anomaly = os.path.basename(str(anomaly_meta.get("source_anomaly", anomaly)))
+            anomaly_meta = self.anomaly_transformations[os.path.basename(str(anomaly))]
+            source_anomaly = os.path.basename(str(anomaly_meta["source_anomaly"]))
             synth_roi_path = os.path.join(self.synth_roi_dir, control, anomaly)
             synth_roi_mask_path = self._get_fallback_path(os.path.join(self.synth_roi_mask_dir, control), anomaly)
             real_roi_path = os.path.join(self.anomaly_roi_dir, source_anomaly)
@@ -954,16 +954,6 @@ def _load_anomaly_transformations(transformations_file: str) -> Dict[str, dict]:
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
-
-
-def _get_anomaly_meta(transformations: Dict[str, dict], filename: str) -> Optional[dict]:
-    base = os.path.basename(str(filename or ""))
-    stem, _ = os.path.splitext(base)
-    for key in (base, stem, stem + ".npy"):
-        meta = transformations.get(key)
-        if isinstance(meta, dict):
-            return meta
-    return None
 
 
 def _denormalize_array_for_display(arr: np.ndarray, meta: Optional[dict]) -> Tuple[np.ndarray, bool]:
@@ -1940,8 +1930,8 @@ class AnomalyGenerationTab(_ArrayTabBase):
             ]
             self.fig.suptitle("anomaly generation", fontsize=13, fontweight="bold")
         else:
-            anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, selected) or {}
-            source_anomaly = os.path.basename(str(anomaly_meta.get("source_anomaly", selected)))
+            anomaly_meta = self.anomaly_transformations[os.path.basename(str(selected))]
+            source_anomaly = os.path.basename(str(anomaly_meta["source_anomaly"]))
             anomaly_path, anomaly_expected = _resolve_file_by_name(self.anomaly_dir, source_anomaly)
             roi_path, roi_expected = _resolve_file_by_name(self.anomaly_roi_dir, source_anomaly)
             extracted_mask_path, extracted_mask_expected = _resolve_file_by_name(self.extracted_mask_dir, source_anomaly)
