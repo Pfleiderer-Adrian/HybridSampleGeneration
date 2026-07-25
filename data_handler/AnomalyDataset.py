@@ -416,7 +416,15 @@ class AnomalyDataset(Dataset):
                 raise KeyError(f"anomaly_meta not found for dataset sample: {fname}")
             if len(candidates) > 1:
                 raise ValueError(f"anomaly_meta is ambiguous for dataset sample: {fname}")
-            aligned.append(candidates[0])
+
+            sample_metadata = candidates[0]
+            source_basename = sample_metadata.get("source_anomaly")
+            if source_basename is None: # => real sample
+                aligned.append(sample_metadata)
+                continue
+
+            source_metadata = metadata[source_basename]
+            aligned.append({**source_metadata, **sample_metadata})
 
         return aligned
 
@@ -511,14 +519,11 @@ class AnomalyDataset(Dataset):
         lookup = self._artifact_lookup(artifact)
         index_basename = os.path.basename(index_path)
         try:
-            return self._single_lookup_match(lookup, key=index_basename, artifact=artifact) # find synthetic
+            return self._single_lookup_match(lookup, key=index_basename, artifact=artifact)
         except KeyError:
-            source_basename = os.path.basename(
-                str(self.anomaly_metadata[index_basename]["source_anomaly"])    # find real
-            )
             return self._single_lookup_match(
                 lookup,
-                key=source_basename,
+                key=self.anomaly_metadata[index_basename]["source_anomaly"],
                 artifact=artifact,
             )
 

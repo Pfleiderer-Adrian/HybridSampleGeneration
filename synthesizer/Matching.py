@@ -350,19 +350,21 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
             if i >= roi_dataloader.__len__():
                 if anomaly_duplicates:
                     i = 0
-                    roi, roi_filename = _roi_parts(roi_dataloader[i])
+                    roi_sample = roi_dataloader[i]
+                    roi, roi_filename = _roi_parts(roi_sample)
                     i += 1
                 else:
                     break
             else:
-                roi, roi_filename = _roi_parts(roi_dataloader[i])
+                roi_sample = roi_dataloader[i]
+                roi, roi_filename = _roi_parts(roi_sample)
                 checked_roi_names.add(roi_filename)
                 i += 1
 
             if roi_filename is None:
                 centroid = None
             else:
-                centroid = config.syn_anomaly_transformations[roi_filename]["centroid_norm"]
+                centroid = roi_sample["anomaly_meta"]["centroid_norm"]
 
             matching_data.append(
                 [control_filename, [(roi_filename, centroid)]]

@@ -462,7 +462,6 @@ class HybridDataGenerator:
                 variants = generate_variants(
                     self._model, sample, mode=generation_mode, config=self._config,
                     target_mask_generator=target_mask_generator, mask_loader=mask_loader,
-                    source_metadata=self._config.syn_anomaly_transformations[source_basename],
                     generate=generate_with_feedback,
                 )
                 for variant in variants:
@@ -484,7 +483,6 @@ class HybridDataGenerator:
                 variants = generate_variants(
                     self._model, sample, mode=generation_mode, config=self._config,
                     target_mask_generator=target_mask_generator, mask_loader=mask_loader,
-                    source_metadata=self._config.syn_anomaly_transformations[source_basename],
                 )
                 for variant in variants:
                     save_numpy_as_npy(variant.image, os.path.join(synth_anomaly_folder, variant.basename), overwrite=True)
@@ -532,7 +530,7 @@ class HybridDataGenerator:
             anomaly_meta_file=transformation_file,
             load_to_ram=True,
             dtype=torch.float32,
-            numpy_mode=True
+            numpy_mode=True,
         )
         self._config.syn_anomaly_transformations = (
             self._synth_anomaly_dataset.anomaly_metadata

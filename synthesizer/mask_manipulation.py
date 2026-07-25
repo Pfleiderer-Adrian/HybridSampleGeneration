@@ -1046,7 +1046,7 @@ def _variant_basename(source_basename: str, variant_index: int) -> str:
     stem, extension = os.path.splitext(source_basename)
     if extension != ".npy":
         raise ValueError(f"Expected an .npy source basename, got {source_basename!r}.")
-    return f"{stem}__variant_{variant_index + 1:03d}{extension}"
+    return f"{stem}_variant{variant_index + 1:03d}{extension}"
 
 
 def generate_variants(
@@ -1057,7 +1057,6 @@ def generate_variants(
     config,
     target_mask_generator,
     mask_loader: Callable[[str], np.ndarray],
-    source_metadata: dict,
     generate: Callable[[], tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> Iterator[SyntheticVariant]:
     """Generate one independent model output for every configured mask variant."""
@@ -1075,17 +1074,9 @@ def generate_variants(
         else:
             image, target_mask = generate()
 
-        metadata = dict(source_metadata)
-        metadata.update({
-            "source_anomaly": source_basename,
-            "variant_index": variant_index + 1,
-            "variant_count": output_count,
-            "source_classes": class_ids,
-        })
-
         yield SyntheticVariant(
             basename=_variant_basename(source_basename, variant_index),
             image=image,
             target_mask=target_mask,
-            metadata=metadata,
+            metadata={"source_anomaly": source_basename},
         )
