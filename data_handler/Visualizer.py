@@ -1887,8 +1887,8 @@ class AnomalyGenerationTab(_ArrayTabBase):
 
         side = ttk.Frame(self, padding=8)
         side.grid(row=0, column=0, sticky="ns")
-        ttk.Label(side, text="anomaly_data", font=("Arial", 10, "bold")).pack(anchor="w")
-        ttk.Label(side, text=self.anomaly_dir, wraplength=260).pack(anchor="w", fill=tk.X)
+        ttk.Label(side, text="synth_anomaly_data", font=("Arial", 10, "bold")).pack(anchor="w")
+        ttk.Label(side, text=self.synth_anomaly_dir, wraplength=260).pack(anchor="w", fill=tk.X)
 
         self.file_list = _build_file_list(side, on_select=self._on_file_selected)
 
@@ -1913,7 +1913,13 @@ class AnomalyGenerationTab(_ArrayTabBase):
         self.canvas.mpl_connect("scroll_event", self._on_scroll)
 
     def refresh_files(self):
-        self._refresh_file_list(self.anomaly_dir)
+        # Synthetic outputs are the primary entities in this tab. A real
+        # anomaly may have no same-named synthetic file when outputs-per-class
+        # creates only ``__variant_NNN`` files.
+        self.anomaly_transformations = _load_anomaly_transformations(
+            self.paths.anomaly_transformations_file
+        )
+        self._refresh_file_list(self.synth_anomaly_dir)
         self.render()
 
     def _on_file_selected(self, _event=None):
