@@ -757,7 +757,7 @@ class TransformGenerator:
 
     def augment_mask(self, mask_np: np.ndarray) -> np.ndarray:
         original_spatial_shape = mask_np.shape[1:]
-        augmented = _pad_mask_for_transforms(mask_np, factor=self.padding_factor)
+        augmented = _pad_mask_for_transforms(mask_np, padding_factor=self.padding_factor)
 
         for transform_name in self.GLOBAL_TRANSFORMS:
             probability = self.global_transform_probs.get(transform_name)
