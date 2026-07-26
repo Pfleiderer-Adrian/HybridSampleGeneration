@@ -22,14 +22,6 @@ def _validate_output_count(count: int) -> int:
     return int(count)
 
 
-def _resolve_output_count(output_count: int, class_output_counts: Dict[int, int], class_ids=None) -> int:
-    if class_ids is None:
-        return output_count
-    if np.isscalar(class_ids):
-        class_ids = [class_ids]
-    counts = [class_output_counts.get(_validate_class_id(class_id), output_count) for class_id in class_ids if int(class_id) != 0]
-    return max(counts, default=output_count)
-
 def to_one_hot_3D(mask: torch.Tensor, num_anomaly_classes: int) -> torch.Tensor:
     """Converts 3D/4D/5D integer masks to 5D one-hot float tensors of shape (B, C, D, H, W)."""
     
@@ -735,7 +727,16 @@ class TransformGenerator:
         }
 
     def get_output_count(self, class_ids=None) -> int:
-        return _resolve_output_count(self.output_count, self.class_output_counts, class_ids)
+        if class_ids is None:
+            return self.output_count
+        if np.isscalar(class_ids):
+            class_ids = [class_ids]
+        counts = [
+            self.class_output_counts.get(_validate_class_id(class_id), self.output_count)
+            for class_id in class_ids
+            if int(class_id) != 0
+        ]
+        return max(counts, default=self.output_count)
 
     def create_target_mask(
         self,
