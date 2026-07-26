@@ -390,7 +390,7 @@ class HybridDataGenerator:
 
         For each anomaly sample:
           - run model.generate(sample, mode="prior"|"posterior")
-          - save output as .npy under sample["fname"]
+          - save each output as a uniquely named ``_variantNNN.npy`` file
 
         Outputs
         -------
@@ -415,7 +415,7 @@ class HybridDataGenerator:
         # remove metadata for previously generated synthetic samples, if present
         self._config.syn_anomaly_transformations = {
             name: meta for name, meta in self._config.syn_anomaly_transformations.items()
-            if "source_anomaly" not in meta # => keep for real samples
+            if "source_anomaly" not in meta # => keep entries for real samples
         }
         mask_loader = lambda basename: self._anomaly_dataset.load_numpy_by_basename(
             basename, artifact="ori_mask"
