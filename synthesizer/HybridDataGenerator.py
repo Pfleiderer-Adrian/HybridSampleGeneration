@@ -465,11 +465,11 @@ class HybridDataGenerator:
                     generate=generate_with_feedback,
                 )
                 for variant in variants:
-                    save_numpy_as_npy(variant.image, os.path.join(synth_anomaly_folder, variant.basename), overwrite=True)
-                    save_numpy_as_npy(variant.target_mask, os.path.join(tgt_mask_folder, variant.basename), overwrite=True)
-                    self._config.add_anomaly_transformation(variant.basename, variant.metadata)
-                    if ssim_01(img, variant.image) < 0.25:
-                        bad_anomalies.append(variant.basename)
+                    save_numpy_as_npy(variant["image"], os.path.join(synth_anomaly_folder, variant["basename"]), overwrite=True)
+                    save_numpy_as_npy(variant["target_mask"], os.path.join(tgt_mask_folder, variant["basename"]), overwrite=True)
+                    self._config.add_anomaly_transformation(variant["basename"], variant["metadata"])
+                    if ssim_01(img, variant["image"]) < 0.25:
+                        bad_anomalies.append(variant["basename"])
 
             print("Summary")
             print(f"No-of bad Anomalies: {len(bad_anomalies)}")
@@ -485,9 +485,9 @@ class HybridDataGenerator:
                     target_mask_generator=target_mask_generator, mask_loader=mask_loader,
                 )
                 for variant in variants:
-                    save_numpy_as_npy(variant.image, os.path.join(synth_anomaly_folder, variant.basename), overwrite=True)
-                    save_numpy_as_npy(variant.target_mask, os.path.join(tgt_mask_folder, variant.basename), overwrite=True)
-                    self._config.add_anomaly_transformation(variant.basename, variant.metadata)
+                    save_numpy_as_npy(variant["image"], os.path.join(synth_anomaly_folder, variant["basename"]), overwrite=True)
+                    save_numpy_as_npy(variant["target_mask"], os.path.join(tgt_mask_folder, variant["basename"]), overwrite=True)
+                    self._config.add_anomaly_transformation(variant["basename"], variant["metadata"])
 
         self._config.save_anomaly_transformations()
         self.load_synth_anomalies()

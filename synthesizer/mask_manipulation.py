@@ -9,19 +9,6 @@ import torch
 import torch.nn.functional as F
 
 
-def _validate_class_id(class_id: int) -> int:
-    class_id = int(class_id)
-    if class_id <= 0:
-        raise ValueError(f"class_id must be greater than 0, got {class_id}.")
-    return class_id
-
-
-def _validate_output_count(count: int) -> int:
-    if isinstance(count, bool) or int(count) != count or int(count) < 1:
-        raise ValueError(f"output count must be a positive integer, got {count!r}.")
-    return int(count)
-
-
 def to_one_hot_3D(mask: torch.Tensor, num_anomaly_classes: int) -> torch.Tensor:
     """Converts 3D/4D/5D integer masks to 5D one-hot float tensors of shape (B, C, D, H, W)."""
     
@@ -598,6 +585,18 @@ def _fit_mask_to_spatial_shape(mask_np, target_shape):
     )
     return spatial_mask[crop_slices][None, ...]
 
+def _validate_class_id(class_id: int) -> int:
+    class_id = int(class_id)
+    if class_id <= 0:
+        raise ValueError(f"class_id must be greater than 0, got {class_id}.")
+    return class_id
+
+
+def _validate_output_count(count: int) -> int:
+    if isinstance(count, bool) or int(count) != count or int(count) < 1:
+        raise ValueError(f"output count must be a positive integer, got {count!r}.")
+    return int(count)
+
 
 class TransformGenerator:
     """Central orchestration object for mask augmentation."""
@@ -1026,14 +1025,6 @@ class TransformGenerator:
         return composed[None, ...]
 
 
-@dataclass(frozen=True)
-class SyntheticVariant:
-    basename: str
-    image: np.ndarray
-    target_mask: np.ndarray
-    metadata: dict
-
-
 def _present_classes(sample: dict, source_basename: str, mask_loader: Callable[[str], np.ndarray]) -> list[int]:
     mask = sample.get("ori_mask")
     if mask is None:
@@ -1059,7 +1050,7 @@ def generate_variants(
     target_mask_generator,
     mask_loader: Callable[[str], np.ndarray],
     generate: Callable[[], tuple[np.ndarray, np.ndarray]] | None = None,
-) -> Iterator[SyntheticVariant]:
+) -> Iterator[dict]:
     """Generate one independent model output for every configured mask variant."""
     source_basename = sample["fname"]
     class_ids = _present_classes(sample, source_basename, mask_loader)
@@ -1075,9 +1066,9 @@ def generate_variants(
         else:
             image, target_mask = generate()
 
-        yield SyntheticVariant(
-            basename=_variant_basename(source_basename, variant_index),
-            image=image,
-            target_mask=target_mask,
-            metadata={"source_anomaly": source_basename},
-        )
+        yield {
+            "basename": _variant_basename(source_basename, variant_index),
+            "image": image,
+            "target_mask": target_mask,
+            "metadata": {"source_anomaly": source_basename},
+        }
