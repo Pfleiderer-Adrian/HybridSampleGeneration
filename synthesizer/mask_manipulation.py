@@ -593,8 +593,8 @@ def _validate_class_id(class_id: int) -> int:
 
 
 def _validate_output_count(count: int) -> int:
-    if isinstance(count, bool) or int(count) != count or int(count) < 1:
-        raise ValueError(f"output count must be a positive integer, got {count!r}.")
+    if isinstance(count, bool) or int(count) != count or int(count) < 0:
+        raise ValueError(f"output count must be a non-negative integer, got {count!r}.")
     return int(count)
 
 
