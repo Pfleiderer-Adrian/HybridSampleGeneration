@@ -653,7 +653,13 @@ class ConvNeXtcVAE3D(HybridVAEBase):
         # --- WICHTIG: KEIN .float() mehr für die Masken! ---
         ori_mask = torch.as_tensor(original_mask)
         if target_mask is None and target_mask_generator is not None:
-            target_mask = target_mask_generator.create_target_mask(original_mask=original_mask, conditional=True)
+            if target_mask_generator.transform_image_for_posterior_generation:
+                target_mask, x = target_mask_generator.create_target_mask_and_transformed_image(
+                    original_mask, x)
+                ori_mask = torch.as_tensor(target_mask)
+            else:
+                target_mask = target_mask_generator.create_target_mask(
+                    original_mask=original_mask, conditional=True)
 
         if target_mask is None:
             tgt_mask = ori_mask
