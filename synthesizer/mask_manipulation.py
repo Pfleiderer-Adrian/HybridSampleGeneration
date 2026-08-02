@@ -163,19 +163,26 @@ def _stretch_spatial_mask(mask, scales):
     )
 
 
-def _rotate_spatial_mask(mask, angle, center_mask=None):
+def _rotate_spatial_mask(mask, angle, center_mask=None, center=None):
     if mask.ndim < 2:
         raise ValueError(f"Expected at least 2 spatial dimensions, got {mask.ndim}.")
 
-    if not np.any(center_mask):
-        return mask.copy()
+    if center is None:
+        if center_mask is None or not np.any(center_mask):
+            return mask.copy()
 
-    # Compute the rotation center from the selected mask bounding box
-    coords = np.where(center_mask)
-    center = np.array(
-        [(np.min(axis_coords) + np.max(axis_coords)) / 2.0 for axis_coords in coords],
-        dtype=float,
-    )
+        # Compute the rotation center from the selected mask bounding box.
+        coords = np.where(center_mask)
+        center = np.array(
+            [(np.min(axis_coords) + np.max(axis_coords)) / 2.0 for axis_coords in coords],
+            dtype=float,
+        )
+    else:
+        center = np.asarray(center, dtype=float)
+        if center.shape != (mask.ndim,):
+            raise ValueError(
+                f"Expected rotation center with shape ({mask.ndim},), got {center.shape}."
+            )
 
     angle_rad = np.deg2rad(angle)
     cos_angle = np.cos(angle_rad)
@@ -209,6 +216,7 @@ def random_global_rotation_transform(
     mask_np: np.ndarray,
     max_rotation=5.0,
     rng=None,
+    center=None,
 ):
     """Apply a small nearest-neighbour rotation to the whole label mask."""
     original_dtype = mask_np.dtype
@@ -221,6 +229,7 @@ def random_global_rotation_transform(
         mask_np[0].copy(),
         angle=angle,
         center_mask=mask_np[0] != 0,
+        center=center,
     ).astype(original_dtype)
 
     return transformed_mask[None, ...]
@@ -813,10 +822,25 @@ class TransformGenerator:
             if probability is None or not self._should_apply(probability):
                 continue
             parameter_state = deepcopy(self.rng.bit_generator.state)
+            mask_before_transform = mask
             mask = self._apply_global_transform(mask, transform_name)
             after_state = deepcopy(self.rng.bit_generator.state)
             self.rng.bit_generator.state = parameter_state
-            transform_channels(lambda channel, name=transform_name: self._apply_global_transform(channel, name))
+            if transform_name == "rotate":
+                rotation_center = self._rotation_center(mask_before_transform)
+                params = dict(self.transform_params.get(transform_name, {}))
+                if rotation_center is not None:
+                    transform_channels(
+                        lambda channel, params=params, center=rotation_center:
+                        random_global_rotation_transform(
+                            channel, rng=self.rng, center=center, **params
+                        )
+                    )
+            else:
+                transform_channels(
+                    lambda channel, name=transform_name:
+                    self._apply_global_transform(channel, name)
+                )
             self.rng.bit_generator.state = after_state
 
         class_order = self._local_class_order(mask)
@@ -842,10 +866,20 @@ class TransformGenerator:
             else:
                 global_name = self.LOCAL_AS_GLOBAL_TRANSFORMS[transform_name]
                 self.rng.bit_generator.state = parameter_state
-                transform_channels(
-                    lambda channel, name=global_name, params=local_params:
-                    self.GLOBAL_TRANSFORMS[name](channel, rng=self.rng, **params)
-                )
+                if global_name == "rotate":
+                    rotation_center = self._rotation_center(previous_mask)
+                    if rotation_center is not None:
+                        transform_channels(
+                            lambda channel, params=local_params, center=rotation_center:
+                            random_global_rotation_transform(
+                                channel, rng=self.rng, center=center, **params
+                            )
+                        )
+                else:
+                    transform_channels(
+                        lambda channel, name=global_name, params=local_params:
+                        self.GLOBAL_TRANSFORMS[name](channel, rng=self.rng, **params)
+                    )
             self.rng.bit_generator.state = after_state
 
         transformed_image = _fit_image_like_mask(image, mask, target_shape)
@@ -1102,6 +1136,19 @@ class TransformGenerator:
             missing = [class_id for class_id in present_classes if class_id not in configured]
             return configured + sorted(missing)
         return sorted(present_classes)
+
+    @staticmethod
+    def _rotation_center(mask_np: np.ndarray) -> np.ndarray | None:
+        foreground = mask_np[0] != 0
+        if not np.any(foreground):
+            return None
+        return np.array(
+            [
+                (float(axis_coords.min()) + float(axis_coords.max())) / 2.0
+                for axis_coords in np.where(foreground)
+            ],
+            dtype=float,
+        )
 
     def _compose_class_masks(
         self,
