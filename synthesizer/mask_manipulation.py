@@ -645,7 +645,7 @@ class TransformGenerator:
                 "local_as_global",
                 getattr(transform_config, "mask_transform_local_as_global", False),
             ),
-            transform_image_for_posterior_generation=getattr(transform_config, "transform_image_for_posterior_generation", False),
+            transform_image_for_posterior_generation=getattr(transform_config, "transform_image_for_posterior_generation", True),
         )
 
     @dataclass
@@ -656,9 +656,7 @@ class TransformGenerator:
         priorities: list[int] | tuple[int, ...] | None = None
         rng: np.random.Generator | None = None
         local_as_global: bool = False
-        # Generation only: jointly transform the real encoder image and target mask.
-        # Has no effect on training or prior sampling.
-        transform_image_for_posterior_generation: bool = False
+        transform_image_for_posterior_generation: bool = True
         padding_factor: int = 2
 
         def setGlobalParam(self, transform_name: str, probability=None, **params):
@@ -721,7 +719,7 @@ class TransformGenerator:
         anomaly_size: tuple[int, ...] | list[int] | None = None,
         background_threshold: float | None = 0.01,
         mask_transform_local_as_global: bool = False,
-        transform_image_for_posterior_generation: bool = False,
+        transform_image_for_posterior_generation: bool = True,
     ) -> None:
         self.global_transform_probs = {}
         self.local_transform_probs = {}
@@ -741,7 +739,7 @@ class TransformGenerator:
         self.rng = rng if rng is not None else np.random.default_rng()
         self.background_threshold = background_threshold
         self.mask_transform_local_as_global = mask_transform_local_as_global
-        self.transform_image_for_posterior_generation = bool(transform_image_for_posterior_generation)
+        self.transform_image_for_posterior_generation = transform_image_for_posterior_generation
 
     def create_target_mask(
         self,
