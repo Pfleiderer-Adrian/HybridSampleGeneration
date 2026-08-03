@@ -171,7 +171,7 @@ def _rotate_spatial_mask(mask, angle, center_mask=None, center=None):
         if center_mask is None or not np.any(center_mask):
             return mask.copy()
 
-        # Compute the rotation center from the selected mask bounding box.
+        # Compute the rotation center from the selected mask bounding box
         coords = np.where(center_mask)
         center = np.array(
             [(np.min(axis_coords) + np.max(axis_coords)) / 2.0 for axis_coords in coords],
@@ -771,14 +771,6 @@ class TransformGenerator:
 
     def create_target_mask_and_transformed_image(self, original_mask, image):
         """Apply exactly the same sampled generation-time transforms to mask and image."""
-        if not self.mask_transform_local_as_global and (
-            any(probability > 0 for probability in self.local_transform_probs.values()) or
-            any(probability > 0 for values in self.class_transform_probs.values() for probability in values.values())
-        ):
-            raise ValueError(
-                "Joint image/mask transformation of local transforms requires local_as_global=True."
-            )
-
         mask_tensor = torch.is_tensor(original_mask)
         image_tensor = torch.is_tensor(image)
         mask_np = original_mask.detach().cpu().numpy() if mask_tensor else np.asarray(original_mask)
@@ -805,17 +797,18 @@ class TransformGenerator:
             constant_values=0,
         )
 
-        def transform_channels(transform):
-            nonlocal image
+        def transform_image_channels(image_to_transform, transform):
             before = deepcopy(self.rng.bit_generator.state)
             transformed = []
             after = None
-            for channel in image:
+            for channel in image_to_transform:
                 self.rng.bit_generator.state = deepcopy(before)
                 transformed.append(transform(channel[None, ...])[0])
                 after = deepcopy(self.rng.bit_generator.state)
             self.rng.bit_generator.state = after
-            image = np.stack(transformed, axis=0).astype(image.dtype, copy=False)
+            return np.stack(transformed, axis=0).astype(
+                image_to_transform.dtype, copy=False
+            )
 
         for transform_name in self.GLOBAL_TRANSFORMS:
             probability = self.global_transform_probs.get(transform_name)
@@ -830,57 +823,149 @@ class TransformGenerator:
                 rotation_center = self._rotation_center(mask_before_transform)
                 params = dict(self.transform_params.get(transform_name, {}))
                 if rotation_center is not None:
-                    transform_channels(
+                    image = transform_image_channels(
+                        image,
                         lambda channel, params=params, center=rotation_center:
                         random_global_rotation_transform(
                             channel, rng=self.rng, center=center, **params
                         )
                     )
             else:
-                transform_channels(
+                image = transform_image_channels(
+                    image,
                     lambda channel, name=transform_name:
                     self._apply_global_transform(channel, name)
                 )
             self.rng.bit_generator.state = after_state
 
         class_order = self._local_class_order(mask)
-        for transform_name in self.LOCAL_TRANSFORMS:
-            probability = self._merged_local_probability(transform_name, class_order)
-            if probability is None or not self._should_apply(probability):
-                continue
-            local_params = self._merged_local_params(transform_name, class_order)
-            parameter_state = deepcopy(self.rng.bit_generator.state)
-            previous_mask = mask.copy()
-            mask = self._apply_merged_local_transform(mask, transform_name, class_order)
-            after_state = deepcopy(self.rng.bit_generator.state)
-            if transform_name == "local_dilate":
-                for class_id in class_order:
-                    source = previous_mask[0] == class_id
-                    added = (mask[0] == class_id) & ~source
-                    if np.any(source) and np.any(added):
-                        nearest = ndi.distance_transform_edt(
-                            ~source, return_distances=False, return_indices=True
+        if self.mask_transform_local_as_global:
+            for transform_name in self.LOCAL_TRANSFORMS:
+                probability = self._merged_local_probability(transform_name, class_order)
+                if probability is None or not self._should_apply(probability):
+                    continue
+                local_params = self._merged_local_params(transform_name, class_order)
+                parameter_state = deepcopy(self.rng.bit_generator.state)
+                previous_mask = mask.copy()
+                mask = self._apply_merged_local_transform(mask, transform_name, class_order)
+                after_state = deepcopy(self.rng.bit_generator.state)
+                if transform_name == "local_dilate":
+                    for class_id in class_order:
+                        source_mask = previous_mask[0] == class_id
+                        added = (mask[0] == class_id) & ~source_mask
+                        if np.any(source_mask) and np.any(added):
+                            nearest = ndi.distance_transform_edt(
+                                ~source_mask, return_distances=False, return_indices=True
+                            )
+                            source_coords = tuple(axis[added] for axis in nearest)
+                            image[:, added] = image[(slice(None), *source_coords)]
+                else:
+                    global_name = self.LOCAL_AS_GLOBAL_TRANSFORMS[transform_name]
+                    self.rng.bit_generator.state = parameter_state
+                    if global_name == "rotate":
+                        rotation_center = self._rotation_center(previous_mask)
+                        if rotation_center is not None:
+                            image = transform_image_channels(
+                                image,
+                                lambda channel, params=local_params, center=rotation_center:
+                                random_global_rotation_transform(
+                                    channel, rng=self.rng, center=center, **params
+                                ),
+                            )
+                    else:
+                        image = transform_image_channels(
+                            image,
+                            lambda channel, name=global_name, params=local_params:
+                            self.GLOBAL_TRANSFORMS[name](channel, rng=self.rng, **params),
                         )
-                        source_coords = tuple(axis[added] for axis in nearest)
-                        image[:, added] = image[(slice(None), *source_coords)]
-            else:
-                global_name = self.LOCAL_AS_GLOBAL_TRANSFORMS[transform_name]
-                self.rng.bit_generator.state = parameter_state
-                if global_name == "rotate":
-                    rotation_center = self._rotation_center(previous_mask)
-                    if rotation_center is not None:
-                        transform_channels(
-                            lambda channel, params=local_params, center=rotation_center:
-                            random_global_rotation_transform(
-                                channel, rng=self.rng, center=center, **params
+                self.rng.bit_generator.state = after_state
+        else:
+            class_masks = {
+                class_id: mask[0] == class_id
+                for class_id in class_order
+            }
+            class_images = {
+                class_id: image * class_masks[class_id][None, ...]
+                for class_id in class_order
+            }
+            any_local_transform_applied = False
+
+            for class_id in class_order:
+                class_transforms = dict(self.local_transform_probs)
+                class_transforms.update(self.class_transform_probs.get(class_id, {}))
+                for transform_name in self.LOCAL_TRANSFORMS:
+                    probability = class_transforms.get(transform_name)
+                    if probability is None or not self._should_apply(probability):
+                        continue
+
+                    previous_class_mask = class_masks[class_id]
+                    class_canvas = np.zeros_like(mask)
+                    class_canvas[0][previous_class_mask] = class_id
+                    parameter_state = deepcopy(self.rng.bit_generator.state)
+                    transformed_canvas = self._apply_local_transform(
+                        class_canvas, class_id, transform_name
+                    )
+                    after_state = deepcopy(self.rng.bit_generator.state)
+                    transformed_class_mask = transformed_canvas[0] == class_id
+                    class_image = class_images[class_id]
+
+                    if transform_name == "local_dilate":
+                        added = transformed_class_mask & ~previous_class_mask
+                        if np.any(previous_class_mask) and np.any(added):
+                            nearest = ndi.distance_transform_edt(
+                                ~previous_class_mask,
+                                return_distances=False,
+                                return_indices=True,
+                            )
+                            source_coords = tuple(axis[added] for axis in nearest)
+                            class_image[:, added] = class_image[
+                                (slice(None), *source_coords)
+                            ]
+                    else:
+                        local_params = dict(
+                            self.transform_params.get(transform_name, {})
+                        )
+                        local_params.update(
+                            self.class_transform_params.get(class_id, {}).get(
+                                transform_name, {}
                             )
                         )
-                else:
-                    transform_channels(
-                        lambda channel, name=global_name, params=local_params:
-                        self.GLOBAL_TRANSFORMS[name](channel, rng=self.rng, **params)
+                        global_name = self.LOCAL_AS_GLOBAL_TRANSFORMS[transform_name]
+                        self.rng.bit_generator.state = parameter_state
+                        if global_name == "rotate":
+                            rotation_center = self._rotation_center(class_canvas)
+                            if rotation_center is not None:
+                                class_image = transform_image_channels(
+                                    class_image,
+                                    lambda channel, params=local_params, center=rotation_center:
+                                    random_global_rotation_transform(
+                                        channel, rng=self.rng, center=center, **params
+                                    ),
+                                )
+                        else:
+                            class_image = transform_image_channels(
+                                class_image,
+                                lambda channel, name=global_name, params=local_params:
+                                self.GLOBAL_TRANSFORMS[name](
+                                    channel, rng=self.rng, **params
+                                ),
+                            )
+
+                    self.rng.bit_generator.state = after_state
+                    class_masks[class_id] = transformed_class_mask
+                    class_images[class_id] = (
+                        class_image * transformed_class_mask[None, ...]
                     )
-            self.rng.bit_generator.state = after_state
+                    any_local_transform_applied = True
+
+            if any_local_transform_applied:
+                mask = self._compose_class_masks(
+                    class_masks, class_order, mask.dtype
+                )
+                image = np.zeros_like(image)
+                for class_id in reversed(class_order):
+                    visible = class_masks[class_id]
+                    image[:, visible] = class_images[class_id][:, visible]
 
         transformed_image = _fit_image_like_mask(image, mask, target_shape)
         transformed_mask = _fit_mask_to_spatial_shape(mask, target_shape)
