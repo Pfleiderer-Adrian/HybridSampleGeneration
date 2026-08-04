@@ -9,6 +9,7 @@ from fusion_backend.fusion_configuration import FusionConfiguration
 from fusion_backend.interfaces import FusionOutput
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_square_clip, dynamic_roi_size as dynamic_roi_size_2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_cube_clip, dynamic_roi_size as dynamic_roi_size_3d
+from synthesizer.mask_manipulation import interpolate_masked_regions
 
 
 class ClassicalFusionBackend:
@@ -163,20 +164,23 @@ class ClassicalFusionBackend:
         ctrl_spatial = np.array(ctrl.shape[1:], dtype=int)
 
         # ------------------------------------------------------------
-        # 1) Remove anomaly background by pushing pixels outside the
-        #    target mask to the anomaly minimum. This increases contrast
-        #    between foreground and background and stabilizes mask creation.
+        # 1) Remove anomaly background using the explicit target mask.
+        #    Fill value is the background minimum.
         # ------------------------------------------------------------
-        anom_min = float(np.nanmin(anom))
-        anom = np.where(target_mask > 0, anom, anom_min)
+        foreground = _spatial_label_mask(target_mask, spatial_ndim) > 0
+        background_values = anom[:, ~foreground]
+        finite_background = background_values[np.isfinite(background_values)]
+        bg_min = (
+            float(np.min(finite_background))
+            if finite_background.size
+            else float(np.nanmin(anom))
+        )
+        anom = np.where(foreground[None, ...], anom, bg_min)
 
         # ------------------------------------------------------------
         # 2) Trim spatial padding by cropping to the foreground bounding
         #    box. The same crop is used for all channels.
         # ------------------------------------------------------------
-        # Foreground mask over spatial dims: target mask defines the
-        # intended label footprint.
-        foreground = _spatial_label_mask(target_mask, spatial_ndim) > 0
         if np.any(foreground):
             coords = np.where(foreground)
             crop_slices = tuple(slice(axis.min(), axis.max() + 1) for axis in coords)
@@ -188,16 +192,24 @@ class ClassicalFusionBackend:
         # If there is no foreground, anomaly and target mask remain unchanged.
 
         # ------------------------------------------------------------
-        # 3) Restore anomaly footprint from extraction scale while keeping
-        #    the channel axis unchanged.
+        # 3) Restore the extraction scale. Interpolate anomaly foreground
+        #    and its support separately, then normalize by the support
+        #    weights. This prevents linear interpolation with background.
         # ------------------------------------------------------------
         scale = _inverse_extraction_scale(scale_factor, ndim=spatial_ndim)
-        anom = zoom(anom, (1.0, *scale), order=1)
-        if target_mask.ndim == expected_ndim:
-            target_mask = zoom(target_mask, (1.0, *scale), order=0)
-        else:
-            target_mask = zoom(target_mask, scale, order=0)
-        target_mask = _spatial_label_mask(target_mask, spatial_ndim).astype(np.uint8, copy=False)
+        spatial_target_mask = _spatial_label_mask(target_mask, spatial_ndim)
+        source_foreground = spatial_target_mask > 0
+        anom = interpolate_masked_regions(
+            anom,
+            source_foreground,
+            warp=lambda spatial: zoom(spatial, scale, order=1),
+            nearest_warp=lambda spatial: zoom(spatial, scale, order=0),
+            interpolate_background=False,
+            background_fill=bg_min,
+        )
+        target_mask = zoom(spatial_target_mask, scale, order=0).astype(
+            np.uint8, copy=False
+        )
 
         # ------------------------------------------------------------
         # 4) Compute insertion offset from normalized position.
