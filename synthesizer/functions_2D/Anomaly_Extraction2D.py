@@ -1,6 +1,8 @@
 import numpy as np
 from scipy.ndimage import zoom, label, find_objects
 
+from synthesizer.mask_manipulation import interpolate_masked_regions
+
 
 def _as_axis_tuple(value, ndim, name):
     if np.isscalar(value):
@@ -25,7 +27,7 @@ def dynamic_roi_size(spatial_shape, min_roi_padding, roi_padding_ratio, min_roi_
     ]
 
 
-def resize_and_pad_2d(arr, target_size, order=1):
+def resize_and_pad_2d(arr, target_size, order=1, foreground_mask=None):
     """
     Resize (downscale only) and center-pad a 3D tensor (C, H, W) to a target spatial size.
 
@@ -44,6 +46,8 @@ def resize_and_pad_2d(arr, target_size, order=1):
         Target spatial size (tH, tW).
     order:
         Interpolation order for scipy.ndimage.zoom (1=linear).
+    foreground_mask:
+        Optional spatial boolean mask used to avoid foreground/background mixing.
     Outputs
     -------
     arr_padded:
@@ -59,7 +63,14 @@ def resize_and_pad_2d(arr, target_size, order=1):
         If arr.ndim != 3.
     """
     if arr.ndim != 3:
-        raise ValueError(f"resize_and_pad_3d expects 3D (C,h,w). Got {arr.shape}")
+        raise ValueError(f"resize_and_pad_2d expects 3D (C,h,w). Got {arr.shape}")
+    if foreground_mask is not None:
+        foreground_mask = np.asarray(foreground_mask, dtype=bool)
+        if foreground_mask.shape != arr.shape[1:]:
+            raise ValueError(
+                f"foreground_mask shape {foreground_mask.shape} does not match "
+                f"array spatial shape {arr.shape[1:]}."
+            )
 
     C, h, w = arr.shape
     tH, tW = target_size
@@ -67,7 +78,14 @@ def resize_and_pad_2d(arr, target_size, order=1):
     scale_spatial = [min(t / s, 1.0) for s, t in zip((h, w), (tH, tW))]
 
     if any(sf < 1.0 for sf in scale_spatial):
-        arr = zoom(arr, (1.0, scale_spatial[0], scale_spatial[1]), order=order)
+        if order == 0 or foreground_mask is None:
+            arr = zoom(arr, (1.0, *scale_spatial), order=order)
+        else:
+            arr = interpolate_masked_regions(
+                arr, foreground_mask,
+                warp=lambda spatial: zoom(spatial, scale_spatial, order=order),
+                nearest_warp=lambda spatial: zoom(spatial, scale_spatial, order=0),
+            )
 
     _, h2, w2 = arr.shape
     pad_total_h = max(tH - h2, 0)
@@ -375,6 +393,7 @@ def crop_and_center_anomaly_2d(
             result,
             target_size=target_size,
             order=1,
+            foreground_mask=region_mask,
         )
         padded_arr, norm_meta = _normalize_anomaly(
             padded_arr, normalization=normalization, eps=float(normalization_eps)
