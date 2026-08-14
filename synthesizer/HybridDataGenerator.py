@@ -540,9 +540,11 @@ class HybridDataGenerator:
             Iterator yielding (img, seg, basename) for control samples.
             (seg can be present even for controls; matching function decides how to use it.)
         matching_routine:
-            One of: "local", "global", "fixed_from_extraction"
+            One of: "local", "global", "batchwise", "fixed_from_extraction"
               - "local": match ith control with ith ROI (sequential) and compute best template position (resource middle - O(n)!)
-              - "global": for each control, search over all ROI and pick best similarity (resource heavy - O(n2)!!)
+              - "global": for each control, search all m ROI candidates and pick the best similarity (resource heavy - O(n*m)!)
+              - "batchwise": use the same matching logic as "global", but sample at most matching_batchwise_batch_size candidates per search.
+                (resource middle-heavy - O(n*b)!)
               - "fixed_from_extraction": sequential mapping, take centroid from extraction metadata (resource lite)
         Outputs
         -------

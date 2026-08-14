@@ -286,10 +286,20 @@ def check_roi_overlap(opt_center, current_roi_shape, used_positions):
             
     return False
 
+
+def _sample_batchwise_candidate_indices(candidate_indices, batch_size, rng):
+    """Return at most ``batch_size`` candidate indices without replacement."""
+    candidate_indices = list(candidate_indices)
+
+    if batch_size is None or batch_size >= len(candidate_indices):
+        return candidate_indices
+
+    return rng.choice(candidate_indices, size=batch_size, replace=False).tolist()
+
 def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config, matching_routine="local", anomaly_duplicates=False):
 
     # template_output_dir übergeben, wenn templates_path in config noch nicht überschrieben wurde (also die templates noch nicht generiert wurden)
-    allowed_matchings_routines = ["local", "global", "fixed_from_extraction_anomaly_fusion", "fixed_from_extraction_control_fusion"]
+    allowed_matchings_routines = ["local", "global", "batchwise", "fixed_from_extraction_anomaly_fusion", "fixed_from_extraction_control_fusion"]
     if matching_routine not in allowed_matchings_routines:
         raise ValueError("Not a allowed matching routine.")
     
@@ -490,10 +500,25 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
 
 
     # ------------------------------------------------------------
-    # Routine: global (search best ROIs for each control; avoid reusing ROIs)
+    # Routines: global and batchwise (search best ROIs for each control; avoid reusing ROIs)
+    # Global evaluates all available ROIs, while batchwise samples a configured subset.
+    # The matching logic is otherwise shared.
     # ------------------------------------------------------------
-    if matching_routine == "global":
-        excluded_roi_samples = []
+    if matching_routine in ("global", "batchwise"):
+        excluded_roi_indices = set()
+        matching_batchwise_batch_size = (
+            getattr(config, "matching_batchwise_batch_size", None)
+            if matching_routine == "batchwise"
+            else None
+        )
+        if matching_routine == "batchwise" and (
+            matching_batchwise_batch_size is None
+            or isinstance(matching_batchwise_batch_size, (bool, np.bool_))
+            or not isinstance(matching_batchwise_batch_size, (int, np.integer))
+            or matching_batchwise_batch_size <= 0
+        ):
+            raise ValueError("matching_batchwise_batch_size must be a positive integer.")
+        matching_rng = getattr(config, "rng", np.random.default_rng(42))
         for control, _, control_filename, *ignored in tqdm(control_sample_dataloader):
             if control_filename in checked_control_names:
                 continue    # against dataloader padding
@@ -519,49 +544,72 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 fusions_per_control = max(1, fusions_per_control)   # at least 1 match per control
 
             # empty excluded rois if everything is excluded (and duplicates=True)
-            if anomaly_duplicates and len(excluded_roi_samples) == roi_dataloader.__len__():
-                excluded_roi_samples = []
+            if anomaly_duplicates and len(excluded_roi_indices) == roi_dataloader.__len__():
+                excluded_roi_indices.clear()
+
+            available_roi_indices = (
+                index for index in range(roi_dataloader.__len__())
+                if index not in excluded_roi_indices
+            )
+            candidate_indices = _sample_batchwise_candidate_indices(
+                available_roi_indices,
+                matching_batchwise_batch_size,
+                matching_rng,
+            )
                         
-            # so soll all_matches aufgebaut werden: all_matches.append((sim, roi_filename, opt_center))
-            for roi_sample in roi_dataloader:
+            for roi_index in candidate_indices:
+                roi_sample = roi_dataloader[roi_index]
                 roi, roi_filename = _roi_parts(roi_sample)
                 current_roi_shape = roi.shape[1:]
-
-                if any(roi_filename == excluded_name for _, excluded_name in excluded_roi_samples):
-                    continue
 
                 sim, opt_center = template_matching(roi, control, config)
 
                 if sim >= -1:
-                    all_matches.append((sim, roi, roi_filename, opt_center, current_roi_shape))
+                    all_matches.append((sim, roi_index, roi_filename, opt_center, current_roi_shape))
             
             if all_matches: # found match(es)
                 all_matches.sort(key=lambda x: x[0], reverse=True)  # highest sim first
                 for match in all_matches:
                     if len(used_positions) >= fusions_per_control:
                         break
-                    _, current_roi, current_roi_filename, current_roi_center, current_roi_shape = match # (sim, roi, filename, center, shape)
+                    _, current_roi_index, current_roi_filename, current_roi_center, current_roi_shape = match
                     if check_roi_overlap(current_roi_center, current_roi_shape, used_positions):
                         continue
                     else:
                         used_positions.append((current_roi_center, current_roi_shape))
-                        excluded_roi_samples.append((current_roi, current_roi_filename))
+                        excluded_roi_indices.add(current_roi_index)
                         current_position_factor = ((np.array(current_roi_center, dtype=float) / spatial_shape).tolist())
                         anomaly_list.append((current_roi_filename, current_position_factor))
 
             # did not find enough matches in not excluded data (and anomaly_duplicates=True)
             if anomaly_duplicates and (len(used_positions) < fusions_per_control):
                 duplicate_matches = []
-                for roi, roi_filename in excluded_roi_samples:
+                duplicate_batch_size = (
+                    None if matching_batchwise_batch_size is None
+                    else max(matching_batchwise_batch_size - len(candidate_indices), 0)
+                )
+                duplicate_candidate_indices = (
+                    []
+                    if duplicate_batch_size == 0
+                    else _sample_batchwise_candidate_indices(
+                        excluded_roi_indices,
+                        duplicate_batch_size,
+                        matching_rng,
+                    )
+                )
+                for roi_index in duplicate_candidate_indices:
+                    roi, roi_filename = _roi_parts(roi_dataloader[roi_index])
                     current_roi_shape = roi.shape[1:]
                     sim, opt_center = template_matching(roi, control, config)
                     if sim >= -1:
-                        duplicate_matches.append((sim, roi, roi_filename, opt_center, current_roi_shape))
+                        duplicate_matches.append((sim, roi_index, roi_filename, opt_center, current_roi_shape))
 
                 if duplicate_matches:
                     duplicate_matches.sort(key=lambda x: x[0], reverse=True)
                     for match in duplicate_matches:
-                        _, current_roi, current_roi_filename, current_roi_center, current_roi_shape = match
+                        if len(used_positions) >= fusions_per_control:
+                            break
+                        _, _, current_roi_filename, current_roi_center, current_roi_shape = match
                         if check_roi_overlap(current_roi_center, current_roi_shape, used_positions):
                             continue
                         else:
