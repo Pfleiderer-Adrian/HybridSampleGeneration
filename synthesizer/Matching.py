@@ -317,7 +317,16 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
     # Routine: fusion real anomaly and synthetic anomaly into one sample
     # ------------------------------------------------------------
     if matching_routine == "fixed_from_extraction_anomaly_fusion":
-        i = 0
+        variants_by_control = {}
+        for roi_sample in roi_dataloader:
+            _, variant_basename = _roi_parts(roi_sample)
+            meta = roi_sample["anomaly_meta"]
+            source_basename = meta["source_anomaly"]
+            source_control = source_basename.rsplit("_", 1)[0]
+            variants_by_control.setdefault(source_control, []).append(
+                (variant_basename, meta["centroid_norm"])
+            )
+
         for control, _, control_filename, *ignored in tqdm(control_sample_dataloader):
             if control_filename in checked_control_names:
                 continue    # against dataloader padding
@@ -328,25 +337,7 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
                 if control.shape[0] >= np.min(control.shape[1:]):
                     print(f"Warning: First dimension of first control sample {control_filename} is larger than another one. Shape: {control.shape}. Channel dimension must be first.")
                 shape_checked = True
-            j = 0
-            anomaly_list = []
-            while True:
-                try:
-                    roi = roi_dataloader.load_numpy_by_basename(
-                        control_filename+"_"+str(j)+".npy",
-                        artifact="anomaly_roi",
-                    )
-                    centroid = config.syn_anomaly_transformations[control_filename+"_"+str(j)+".npy"]["centroid_norm"]
-
-                    anomaly_list.append(
-                        (control_filename+"_"+str(j)+".npy", centroid)
-                    )
-                    j += 1
-                except Exception as e:
-                    print(e.with_traceback(None))
-                    print(f"Finished loading {j-1} synthetic anomalies for control sample {control_filename}.")
-                    break
-            matching_data.append([control_filename,anomaly_list])
+            matching_data.append([control_filename, variants_by_control.get(control_filename, [])])
 
 
     # ------------------------------------------------------------
@@ -369,19 +360,21 @@ def create_matching_dictionary(control_sample_dataloader, roi_dataloader, config
             if i >= roi_dataloader.__len__():
                 if anomaly_duplicates:
                     i = 0
-                    roi, roi_filename = _roi_parts(roi_dataloader[i])
+                    roi_sample = roi_dataloader[i]
+                    roi, roi_filename = _roi_parts(roi_sample)
                     i += 1
                 else:
                     break
             else:
-                roi, roi_filename = _roi_parts(roi_dataloader[i])
+                roi_sample = roi_dataloader[i]
+                roi, roi_filename = _roi_parts(roi_sample)
                 checked_roi_names.add(roi_filename)
                 i += 1
 
             if roi_filename is None:
                 centroid = None
             else:
-                centroid = config.syn_anomaly_transformations[roi_filename]["centroid_norm"]
+                centroid = roi_sample["anomaly_meta"]["centroid_norm"]
 
             matching_data.append(
                 [control_filename, [(roi_filename, centroid)]]

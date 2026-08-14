@@ -433,7 +433,9 @@ def run_feature_calculator(anomaly_dir, synth_anomaly_dir, feature_calculator_fu
 
     for f in Path(synth_anomaly_dir).rglob("*.npy"):    # also checks all sub folders (for roi)
         anomaly_name = f.name
-        real_file_path = os.path.join(anomaly_dir, anomaly_name)    # same name matching
+        metadata = config.syn_anomaly_transformations[anomaly_name]
+        source_anomaly = metadata["source_anomaly"]
+        real_file_path = os.path.join(anomaly_dir, source_anomaly)
         if not os.path.exists(real_file_path):
             print(f"Warning: Missing synth file {real_file_path}. Skipping.")
             continue

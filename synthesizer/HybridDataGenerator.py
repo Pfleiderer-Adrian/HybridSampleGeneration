@@ -12,7 +12,7 @@ from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
 
 from generation_models.model_registry import get_model_spec
 from fusion_backend.fusion_registry import get_fusion_backend_spec
-from synthesizer.mask_manipulation import TransformGenerator
+from synthesizer.mask_manipulation import TransformGenerator, generate_variants
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
 from synthesizer.Configuration import Configuration
@@ -390,7 +390,7 @@ class HybridDataGenerator:
 
         For each anomaly sample:
           - run model.generate(sample, mode="prior"|"posterior")
-          - save output as .npy under sample["fname"]
+          - save each output as a uniquely named ``_variantNNN.npy`` file
 
         Outputs
         -------
@@ -412,71 +412,84 @@ class HybridDataGenerator:
         generation_mode = "prior" if self._config.prior_sampling else "posterior"
 
 
+        # remove metadata for previously generated synthetic samples, if present
+        self._config.syn_anomaly_transformations = {
+            name: meta for name, meta in self._config.syn_anomaly_transformations.items()
+            if "source_anomaly" not in meta # => keep entries for real samples
+        }
+        mask_loader = lambda basename: self._anomaly_dataset.load_numpy_by_basename(
+            basename, artifact="ori_mask"
+        )
+
         # use feedback system to generate similar anomalies
         if self._config.use_feedback:
             bad_anomalies = []
 
             for sample in tqdm(self._anomaly_dataset):
                 img = sample["img"]
-                basename = sample["fname"]
+                source_basename = sample["fname"]
 
-                best = -1
-                best_image = None
-                best_mask = None
-                syn_anomaly_sample = None
-                syn_anomaly_mask = None
-                i = 0
-                while best < self._config.feedback_threshold:
-                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate(
-                        sample,
-                        mode=generation_mode,
-                        variation_strength=self._config.variation_strength,
-                        clamp_01=self._config.clamp01_output,
-                        target_mask_generator=target_mask_generator,
-                    )
+                def generate_with_feedback():
+                    best = -1
+                    best_image = None
+                    best_mask = None
+                    i = 0
+                    while best < self._config.feedback_threshold:
+                        syn_anomaly_sample, syn_anomaly_mask = self._model.generate(
+                            sample,
+                            mode=generation_mode,
+                            variation_strength=self._config.variation_strength,
+                            clamp_01=self._config.clamp01_output,
+                            target_mask_generator=target_mask_generator,
+                        )
+                        if syn_anomaly_sample.shape != img.shape:
+                            raise ValueError(f"{syn_anomaly_sample.shape} vs {img.shape}")
 
-                    if best_image is None:
-                        best_image = syn_anomaly_sample
-                        best_mask = syn_anomaly_mask
+                        similarity_score = ssim_01(img, syn_anomaly_sample)
+                        if similarity_score > best:
+                            best = similarity_score
+                            best_image = syn_anomaly_sample
+                            best_mask = syn_anomaly_mask
+                            print(f"New best Score: {best}")
 
-                    if syn_anomaly_sample.shape != img.shape:
-                        raise ValueError(str(syn_anomaly_sample.shape)+"vs"+str(img.shape))
+                        if i % 100 == 0:
+                            self._config.feedback_threshold *= self._config.threshold_relaxation_factor
+                        i += 1
 
-                    similarity_score = ssim_01(img, syn_anomaly_sample)
+                    print(f"Generated {i} anomalies and save at threshold: {best}")
+                    return best_image, best_mask
 
-                    if similarity_score > best:
-                        best = similarity_score
-                        best_image = syn_anomaly_sample
-                        best_mask = syn_anomaly_mask
-                        print("New best Score: "+str(best))
+                variants = generate_variants(
+                    self._model, sample, mode=generation_mode, config=self._config,
+                    target_mask_generator=target_mask_generator, mask_loader=mask_loader,
+                    generate=generate_with_feedback,
+                )
+                for variant in variants:
+                    save_numpy_as_npy(variant["image"], os.path.join(synth_anomaly_folder, variant["basename"]), overwrite=True)
+                    save_numpy_as_npy(variant["target_mask"], os.path.join(tgt_mask_folder, variant["basename"]), overwrite=True)
+                    self._config.add_anomaly_transformation(variant["basename"], variant["metadata"])
+                    if ssim_01(img, variant["image"]) < 0.25:
+                        bad_anomalies.append(variant["basename"])
 
-                    if i % 100 == 0:
-                        self._config.feedback_threshold = self._config.feedback_threshold * self._config.threshold_relaxation_factor
-                    i = i + 1
-                if(best < 0.25):
-                    bad_anomalies.append(basename)
-                print("Generated "+str(i)+" anomalies and save at threshold: "+str(best))
-                save_numpy_as_npy(best_image, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
-                save_numpy_as_npy(best_mask, str(os.path.join(tgt_mask_folder, basename)), overwrite=True)
             print("Summary")
-            print("No-of bad Anomalies:"+ str(len(bad_anomalies)))
+            print(f"No-of bad Anomalies: {len(bad_anomalies)}")
             for name in bad_anomalies:
                 print(name)
 
         # standard generation without feedback
         else:
             for sample in tqdm(self._anomaly_dataset):
-                basename = sample["fname"]
-                syn_anomaly_sample, syn_anomaly_mask = self._model.generate(
-                    sample,
-                    mode=generation_mode,
-                    variation_strength=self._config.variation_strength,
-                    clamp_01=self._config.clamp01_output,
-                    target_mask_generator=target_mask_generator,
+                source_basename = sample["fname"]
+                variants = generate_variants(
+                    self._model, sample, mode=generation_mode, config=self._config,
+                    target_mask_generator=target_mask_generator, mask_loader=mask_loader,
                 )
-                save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
-                save_numpy_as_npy(syn_anomaly_mask, str(os.path.join(tgt_mask_folder, basename)), overwrite=True)
+                for variant in variants:
+                    save_numpy_as_npy(variant["image"], os.path.join(synth_anomaly_folder, variant["basename"]), overwrite=True)
+                    save_numpy_as_npy(variant["target_mask"], os.path.join(tgt_mask_folder, variant["basename"]), overwrite=True)
+                    self._config.add_anomaly_transformation(variant["basename"], variant["metadata"])
 
+        self._config.save_anomaly_transformations()
         self.load_synth_anomalies()
 
 
@@ -558,11 +571,12 @@ class HybridDataGenerator:
         csv_file_path = paths.matching_dict_file
         _roi_dataset = AnomalyDataset(
             paths,
-            return_artifacts=("anomaly_roi", "fname"),
-            index_artifact="anomaly_roi",
+            return_artifacts=("anomaly_roi", "anomaly_meta", "fname"),
+            index_artifact="synth_anomaly",
+            anomaly_meta_file=paths.anomaly_transformations_file,
             load_to_ram=True,
             dtype=torch.float32,
-            numpy_mode=True
+            numpy_mode=True,
         )
         img = _roi_dataset[0]["anomaly_roi"]
         if img.ndim in [3, 4]:

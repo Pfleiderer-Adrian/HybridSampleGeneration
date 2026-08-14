@@ -560,10 +560,12 @@ class OutlierGUI:
                 del self.metric_map[m][control][anomaly]
 
     def _delete_files_for_anomaly(self, control, anomaly):
+        variant_meta = self.anomaly_transformations[os.path.basename(str(anomaly))]
+        source_anomaly = os.path.basename(str(variant_meta["source_anomaly"]))
         targets = [
             os.path.join(self.synth_roi_dir, control, anomaly),
-            os.path.join(self.anomaly_dir, anomaly),
-            os.path.join(self.anomaly_roi_dir, anomaly),
+            os.path.join(self.anomaly_dir, source_anomaly),
+            os.path.join(self.anomaly_roi_dir, source_anomaly),
             os.path.join(self.synth_anomaly_dir, anomaly)
         ]
         for path in targets:
@@ -621,8 +623,10 @@ class OutlierGUI:
                 deleted_anything = True
 
             if var_real.get():
-                self._remove_if_exists(os.path.join(self.anomaly_dir, anomaly))
-                self._remove_if_exists(os.path.join(self.anomaly_roi_dir, anomaly))
+                variant_meta = self.anomaly_transformations[os.path.basename(str(anomaly))]
+                source_anomaly = os.path.basename(str(variant_meta["source_anomaly"]))
+                self._remove_if_exists(os.path.join(self.anomaly_dir, source_anomaly))
+                self._remove_if_exists(os.path.join(self.anomaly_roi_dir, source_anomaly))
                 deleted_anything = True
 
             if var_synth_roi.get():
@@ -714,17 +718,22 @@ class OutlierGUI:
             _, control, anomaly = item
             self.fig.suptitle(f"{anomaly} in {control}", fontsize=12, fontweight='bold')
 
-            anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, anomaly)
+            variant_meta = self.anomaly_transformations[os.path.basename(str(anomaly))]
+            source_anomaly = os.path.basename(str(variant_meta["source_anomaly"]))
+            anomaly_meta = {
+                **self.anomaly_transformations[source_anomaly],
+                **variant_meta,
+            }
             synth_roi_path = os.path.join(self.synth_roi_dir, control, anomaly)
             synth_roi_mask_path = self._get_fallback_path(os.path.join(self.synth_roi_mask_dir, control), anomaly)
-            real_roi_path = os.path.join(self.anomaly_roi_dir, anomaly)
+            real_roi_path = os.path.join(self.anomaly_roi_dir, source_anomaly)
             generated_mask_path = self._get_fallback_path(self.generated_mask_dir, anomaly)
-            anomaly_mask_path = self._get_fallback_path(self.anomaly_mask_dir, anomaly)
-            anomaly_roi_mask_path = self._get_fallback_path(self.anomaly_roi_mask_dir, anomaly)
+            anomaly_mask_path = self._get_fallback_path(self.anomaly_mask_dir, source_anomaly)
+            anomaly_roi_mask_path = self._get_fallback_path(self.anomaly_roi_mask_dir, source_anomaly)
             paths = [
                 (os.path.join(self.synth_anomaly_dir, anomaly), "synth_anomaly_data", anomaly_meta, None, generated_mask_path),
                 (synth_roi_path, "synth_roi_data", None, None, synth_roi_mask_path),
-                (os.path.join(self.anomaly_dir, anomaly), "anomaly_data", anomaly_meta, real_roi_path, anomaly_mask_path),
+                (os.path.join(self.anomaly_dir, source_anomaly), "anomaly_data", anomaly_meta, real_roi_path, anomaly_mask_path),
                 (real_roi_path, "anomaly_roi_data", None, None, anomaly_roi_mask_path)
             ]
 
@@ -953,16 +962,6 @@ def _load_anomaly_transformations(transformations_file: str) -> Dict[str, dict]:
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
-
-
-def _get_anomaly_meta(transformations: Dict[str, dict], filename: str) -> Optional[dict]:
-    base = os.path.basename(str(filename or ""))
-    stem, _ = os.path.splitext(base)
-    for key in (base, stem, stem + ".npy"):
-        meta = transformations.get(key)
-        if isinstance(meta, dict):
-            return meta
-    return None
 
 
 def _denormalize_array_for_display(arr: np.ndarray, meta: Optional[dict]) -> Tuple[np.ndarray, bool]:
@@ -1886,8 +1885,8 @@ class AnomalyGenerationTab(_ArrayTabBase):
 
         side = ttk.Frame(self, padding=8)
         side.grid(row=0, column=0, sticky="ns")
-        ttk.Label(side, text="anomaly_data", font=("Arial", 10, "bold")).pack(anchor="w")
-        ttk.Label(side, text=self.anomaly_dir, wraplength=260).pack(anchor="w", fill=tk.X)
+        ttk.Label(side, text="synth_anomaly_data", font=("Arial", 10, "bold")).pack(anchor="w")
+        ttk.Label(side, text=self.synth_anomaly_dir, wraplength=260).pack(anchor="w", fill=tk.X)
 
         self.file_list = _build_file_list(side, on_select=self._on_file_selected)
 
@@ -1912,7 +1911,13 @@ class AnomalyGenerationTab(_ArrayTabBase):
         self.canvas.mpl_connect("scroll_event", self._on_scroll)
 
     def refresh_files(self):
-        self._refresh_file_list(self.anomaly_dir)
+        # Synthetic outputs are the primary entities in this tab. A real
+        # anomaly may have no same-named synthetic file when outputs-per-class
+        # creates only ``_variantNNN`` files.
+        self.anomaly_transformations = _load_anomaly_transformations(
+            self.paths.anomaly_transformations_file
+        )
+        self._refresh_file_list(self.synth_anomaly_dir)
         self.render()
 
     def _on_file_selected(self, _event=None):
@@ -1933,15 +1938,20 @@ class AnomalyGenerationTab(_ArrayTabBase):
             ]
             self.fig.suptitle("anomaly generation", fontsize=13, fontweight="bold")
         else:
-            anomaly_path, anomaly_expected = _resolve_file_by_name(self.anomaly_dir, selected)
-            roi_path, roi_expected = _resolve_file_by_name(self.anomaly_roi_dir, selected)
-            extracted_mask_path, extracted_mask_expected = _resolve_file_by_name(self.extracted_mask_dir, selected)
+            variant_meta = self.anomaly_transformations[os.path.basename(str(selected))]
+            source_anomaly = os.path.basename(str(variant_meta["source_anomaly"]))
+            anomaly_meta = {
+                **self.anomaly_transformations[source_anomaly],
+                **variant_meta,
+            }
+            anomaly_path, anomaly_expected = _resolve_file_by_name(self.anomaly_dir, source_anomaly)
+            roi_path, roi_expected = _resolve_file_by_name(self.anomaly_roi_dir, source_anomaly)
+            extracted_mask_path, extracted_mask_expected = _resolve_file_by_name(self.extracted_mask_dir, source_anomaly)
             extracted_roi_mask_path, extracted_roi_mask_expected = _resolve_file_by_name(
-                self.extracted_roi_mask_dir, selected
+                self.extracted_roi_mask_dir, source_anomaly
             )
             synth_path, synth_expected = _resolve_file_by_name(self.synth_anomaly_dir, selected)
             mask_path, mask_expected = _resolve_file_by_name(self.generated_mask_dir, selected)
-            anomaly_meta = _get_anomaly_meta(self.anomaly_transformations, selected)
             show_mask_overlays = bool(self.show_mask_overlays_var.get())
             extracted_overlay_path = (extracted_mask_path or extracted_mask_expected) if show_mask_overlays else None
             extracted_roi_overlay_path = (
