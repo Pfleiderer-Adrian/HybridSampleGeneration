@@ -100,6 +100,7 @@ def random_global_stretch_transform(
     min_stretch=1.0,
     max_stretch=1.2,
     rng=None,
+    order=0,
 ):
     """Apply nearest-neighbour scaling around the mask center while preserving shape."""
     original_dtype = mask_np.dtype
@@ -109,9 +110,10 @@ def random_global_stretch_transform(
 
     transformed_mask = mask_np[0].copy()
     scales = sample_uniform(min_stretch, max_stretch, rng=rng, size=transformed_mask.ndim)
-    transformed_mask = _stretch_spatial_mask(
+    transformed_mask = _stretch_spatial(
         transformed_mask,
         scales=scales,
+        order=order,
     ).astype(original_dtype)
 
     return transformed_mask[None, ...]
@@ -122,6 +124,7 @@ def random_global_zoom_transform(
     min_zoom=0.9,
     max_zoom=0.9,
     rng=None,
+    order=0,
 ):
     """Apply isotropic nearest-neighbour zoom around the mask center while preserving shape."""
     original_dtype = mask_np.dtype
@@ -137,15 +140,16 @@ def random_global_zoom_transform(
     zoom_factor = sample_uniform(min_zoom, max_zoom, rng=rng)
     transformed_mask = mask_np[0].copy()
     scales = np.full(transformed_mask.ndim, zoom_factor, dtype=float)
-    transformed_mask = _stretch_spatial_mask(
+    transformed_mask = _stretch_spatial(
         transformed_mask,
         scales=scales,
+        order=order,
     ).astype(original_dtype)
 
     return transformed_mask[None, ...]
 
 
-def _stretch_spatial_mask(mask, scales):
+def _stretch_spatial(mask, scales, order=0):
     inv_scales = 1.0 / np.array(scales)
     matrix = np.diag(inv_scales)
 
@@ -157,7 +161,7 @@ def _stretch_spatial_mask(mask, scales):
         matrix=matrix,
         offset=offset,
         output_shape=mask.shape,
-        order=0,
+        order=order,
         mode=DEFAULT_PADDING_MODE,
         cval=0,
     )
@@ -180,7 +184,7 @@ def _rotation_center(mask_np: np.ndarray | None) -> np.ndarray | None:
     )
 
 
-def _rotate_spatial_mask(mask, angle, center_mask=None, center=None):
+def _rotate_spatial(mask, angle, center_mask=None, center=None, order=0):
     if mask.ndim < 2:
         raise ValueError(f"Expected at least 2 spatial dimensions, got {mask.ndim}.")
 
@@ -216,10 +220,10 @@ def _rotate_spatial_mask(mask, angle, center_mask=None, center=None):
         matrix=matrix,
         offset=offset,
         output_shape=mask.shape,
-        order=0,
+        order=order,
         mode=DEFAULT_PADDING_MODE,
         cval=0,
-        prefilter=False,
+        prefilter=order > 1,
     )
 
 
@@ -228,6 +232,7 @@ def random_global_rotation_transform(
     max_rotation=5.0,
     rng=None,
     center=None,
+    order=0,
 ):
     """Apply a small nearest-neighbour rotation to the whole label mask."""
     original_dtype = mask_np.dtype
@@ -236,11 +241,12 @@ def random_global_rotation_transform(
         raise ValueError(f"Expected mask with shape (1, H, W) or (1, D, H, W), got {mask_np.shape}.")
 
     angle = sample_uniform(max_value=max_rotation, rng=rng)
-    transformed_mask = _rotate_spatial_mask(
+    transformed_mask = _rotate_spatial(
         mask_np[0].copy(),
         angle=angle,
         center_mask=mask_np[0] != 0,
         center=center,
+        order=order,
     ).astype(original_dtype)
 
     return transformed_mask[None, ...]
@@ -273,7 +279,7 @@ def random_local_stretch_transform(mask_np: np.ndarray, classes=None, priorities
     for cls in classes:
         binary_mask = transformed_mask == cls
         if np.any(binary_mask):
-            binary_mask = _stretch_spatial_mask(
+            binary_mask = _stretch_spatial(
                 binary_mask,
                 scales=scales,
             ).astype(bool)
@@ -312,7 +318,7 @@ def random_local_rotation_transform(mask_np: np.ndarray, classes=None, prioritie
     for cls in classes:
         binary_mask = transformed_mask == cls
         if np.any(binary_mask):
-            binary_mask = _rotate_spatial_mask(
+            binary_mask = _rotate_spatial(
                 binary_mask,
                 angle=angle,
                 center_mask=binary_mask,
@@ -387,6 +393,7 @@ def random_elastic_transform(
     sigma=30,
     magnitude=20,
     rng=None,
+    order=0,
 ):
     """Apply a smooth random displacement field to a 2D or 3D channel-first label mask."""
     original_dtype = mask_np.dtype
@@ -420,10 +427,10 @@ def random_elastic_transform(
     transformed_mask = ndi.map_coordinates(
         transformed_mask,
         displaced_coordinates,
-        order=0,
+        order=order,
         mode=DEFAULT_PADDING_MODE,
-        cval=0, # bg value for constant padding
-        prefilter=False,
+        cval=0, # bg value for constant padding (for masks)
+        prefilter=order > 1,
     ).astype(original_dtype)
 
     return transformed_mask[None, ...]
@@ -595,7 +602,7 @@ def _fit_mask_to_spatial_shape(mask_np, target_shape):
         if fit_scale < 1.0:
             # Stay just inside the crop despite nearest-neighbour boundary rounding.
             fit_scale = max(np.nextafter(fit_scale, 0.0), np.finfo(float).eps)
-            spatial_mask = _stretch_spatial_mask(
+            spatial_mask = _stretch_spatial(
                 spatial_mask,
                 scales=np.full(spatial_mask.ndim, fit_scale, dtype=float),
             ).astype(mask_np.dtype)
@@ -606,7 +613,85 @@ def _fit_mask_to_spatial_shape(mask_np, target_shape):
     )
     return spatial_mask[crop_slices][None, ...]
 
-def _fit_image_like_mask(image_np, transformed_mask, target_shape):
+def interpolate_masked_regions(
+    image_np,
+    foreground_mask,
+    warp,
+    nearest_warp,
+    *,
+    interpolate_background=True,
+    background_fill=None,
+    eps=None,
+):
+    """Warp a channel-first image without mixing foreground and background."""
+    image_np = np.asarray(image_np)
+    foreground_mask = np.asarray(foreground_mask, dtype=bool)
+    if image_np.ndim not in (3, 4):
+        raise ValueError(
+            f"Expected image shape (C,H,W) or (C,D,H,W), got {image_np.shape}."
+        )
+    if foreground_mask.shape != image_np.shape[1:]:
+        raise ValueError(
+            f"foreground_mask shape {foreground_mask.shape} does not match "
+            f"image spatial shape {image_np.shape[1:]}."
+        )
+
+    eps = np.finfo(np.float32).eps if eps is None else float(eps)
+    foreground_support = foreground_mask.astype(np.float32)
+    foreground_weights = warp(foreground_support)
+    foreground_values = np.stack(
+        [warp(channel * foreground_support) for channel in image_np], axis=0
+    )
+    normalized_foreground = np.zeros_like(foreground_values)
+    valid_foreground = foreground_weights > eps
+    normalized_foreground[:, valid_foreground] = (
+        foreground_values[:, valid_foreground]
+        / foreground_weights[valid_foreground][None, ...]
+    )
+    transformed_foreground = nearest_warp(foreground_support) != 0
+
+    if interpolate_background:
+        background_support = 1.0 - foreground_support
+        background_weights = warp(background_support)
+        background_values = np.stack(
+            [warp(channel * background_support) for channel in image_np], axis=0
+        )
+        result = np.zeros_like(background_values)
+        valid_background = background_weights > eps
+        result[:, valid_background] = (
+            background_values[:, valid_background]
+            / background_weights[valid_background][None, ...]
+        )
+    else:
+        valid_background = np.zeros_like(transformed_foreground, dtype=bool)
+        result = np.zeros_like(foreground_values)
+
+    if background_fill is None:
+        fill_values = []
+        for channel in image_np:
+            values = channel[~foreground_mask]
+            finite_values = values[np.isfinite(values)]
+            fill_values.append(
+                float(np.min(finite_values)) if finite_values.size else 0.0
+            )
+        fill_values = np.asarray(fill_values, dtype=result.dtype)
+    elif np.isscalar(background_fill):
+        fill_values = np.full(image_np.shape[0], background_fill, dtype=result.dtype)
+    else:
+        fill_values = np.asarray(background_fill, dtype=result.dtype)
+        if fill_values.shape != (image_np.shape[0],):
+            raise ValueError(
+                f"background_fill must be scalar or have shape ({image_np.shape[0]},), "
+                f"got {fill_values.shape}."
+            )
+
+    invalid_background = ~valid_background & ~transformed_foreground
+    result[:, invalid_background] = fill_values[:, None]
+    result[:, transformed_foreground] = normalized_foreground[:, transformed_foreground]
+    return result.astype(image_np.dtype, copy=False)
+
+
+def _fit_image_like_mask(image_np, transformed_mask, target_shape, image_interpolation_order):
     """Mirror _fit_mask_to_spatial_shape for a channel-first image."""
     target_shape = np.asarray(target_shape, dtype=int)
     spatial_shape = np.asarray(transformed_mask.shape[1:], dtype=int)
@@ -625,10 +710,22 @@ def _fit_image_like_mask(image_np, transformed_mask, target_shape):
     if fit_scale < 1.0:
         fit_scale = max(np.nextafter(fit_scale, 0.0), np.finfo(float).eps)
         scales = np.full(len(spatial_shape), fit_scale, dtype=float)
-        image_np = np.stack(
-            [_stretch_spatial_mask(channel, scales) for channel in image_np],
-            axis=0,
-        ).astype(image_np.dtype, copy=False)
+        if image_interpolation_order == 0:
+            image_np = np.stack(
+                [_stretch_spatial(channel, scales) for channel in image_np],
+                axis=0,
+            ).astype(image_np.dtype, copy=False)
+        else:
+            image_np = interpolate_masked_regions(
+                image_np,
+                foreground,
+                warp=lambda spatial: _stretch_spatial(
+                    spatial, scales, order=image_interpolation_order
+                ),
+                nearest_warp=lambda spatial: _stretch_spatial(
+                    spatial, scales, order=0
+                ),
+            )
     crop = tuple(
         slice(int(start), int(start + size))
         for start, size in zip(crop_start, target_shape)
@@ -660,6 +757,7 @@ class TransformGenerator:
                 getattr(transform_config, "mask_transform_local_as_global", False),
             ),
             transform_image_for_posterior_generation=getattr(transform_config, "transform_image_for_posterior_generation", True),
+            image_interpolation_order=getattr(transform_config, "image_interpolation_order", 1),
         )
 
     @dataclass
@@ -671,6 +769,7 @@ class TransformGenerator:
         rng: np.random.Generator | None = None
         local_as_global: bool = False
         transform_image_for_posterior_generation: bool = True
+        image_interpolation_order: int = 1
         padding_factor: int = 2
 
         def setGlobalParam(self, transform_name: str, probability=None, **params):
@@ -734,6 +833,7 @@ class TransformGenerator:
         background_threshold: float | None = 0.01,
         mask_transform_local_as_global: bool = False,
         transform_image_for_posterior_generation: bool = True,
+        image_interpolation_order: int = 1,
     ) -> None:
         self.global_transform_probs = {}
         self.local_transform_probs = {}
@@ -754,6 +854,7 @@ class TransformGenerator:
         self.background_threshold = background_threshold
         self.mask_transform_local_as_global = mask_transform_local_as_global
         self.transform_image_for_posterior_generation = transform_image_for_posterior_generation
+        self.image_interpolation_order = image_interpolation_order
 
     def create_target_mask(
         self,
@@ -797,17 +898,49 @@ class TransformGenerator:
         target_shape = mask_np.shape[1:]
         mask = _pad_for_transforms(mask_np, padding_factor=self.padding_factor)
         image = _pad_for_transforms(image_np, padding_factor=self.padding_factor)
+        if self.image_interpolation_order > 0:
+            original_background = mask_np[0] == 0
+            valid_canvas = _pad_for_transforms(
+                np.ones_like(mask_np, dtype=np.uint8),
+                padding_factor=self.padding_factor,
+            )[0].astype(bool)
+            for channel_index, channel in enumerate(image_np):
+                background_values = channel[original_background]
+                finite_background = background_values[np.isfinite(background_values)]
+                background_fill = (
+                    float(np.min(finite_background))
+                    if finite_background.size
+                    else 0.0
+                )
+                image[channel_index, ~valid_canvas] = background_fill
 
-        def transform_image_channels(image_to_transform, transform):
+        def transform_image_channels(image_to_transform, transform, foreground_mask):
             before = deepcopy(self.rng.bit_generator.state)
-            transformed = []
-            for channel in image_to_transform:
-                self.rng.bit_generator.state = deepcopy(before) # use same random state for each channel
-                transformed.append(transform(channel[None, ...])[0])
+            after = [before]
 
-            return np.stack(transformed, axis=0).astype(
-                image_to_transform.dtype, copy=False
-            )
+            def replay_transform(spatial, order):
+                self.rng.bit_generator.state = deepcopy(before)
+                transformed = transform(spatial[None, ...], order)[0]
+                after[0] = deepcopy(self.rng.bit_generator.state)
+                return transformed
+
+            if self.image_interpolation_order == 0:
+                transformed_image = np.stack(
+                    [replay_transform(channel, 0) for channel in image_to_transform],
+                    axis=0,
+                ).astype(image_to_transform.dtype, copy=False)
+            else:
+                transformed_image = interpolate_masked_regions(
+                    image_to_transform,
+                    foreground_mask,
+                    warp=lambda spatial: replay_transform(
+                        spatial, self.image_interpolation_order
+                    ),
+                    nearest_warp=lambda spatial: replay_transform(spatial, 0),
+                )
+
+            self.rng.bit_generator.state = after[0]
+            return transformed_image
 
         def transform_image_global(
             image_to_transform,
@@ -821,16 +954,21 @@ class TransformGenerator:
                     return image_to_transform
                 return transform_image_channels(
                     image_to_transform,
-                    lambda channel, params=params, center=rotation_center:
+                    lambda channel, order, params=params, center=rotation_center:
                     random_global_rotation_transform(
-                        channel, rng=self.rng, center=center, **params
+                        channel, rng=self.rng, center=center,
+                        order=order, **params
                     ),
+                    center_mask[0] != 0,
                 )
 
             return transform_image_channels(
                 image_to_transform,
-                lambda channel, name=transform_name, params=params:
-                self.GLOBAL_TRANSFORMS[name](channel, rng=self.rng, **params),
+                lambda channel, order, name=transform_name, params=params:
+                self.GLOBAL_TRANSFORMS[name](
+                    channel, rng=self.rng, order=order, **params
+                ),
+                center_mask[0] != 0,
             )
 
         def transform_image_local(
@@ -859,12 +997,13 @@ class TransformGenerator:
                 return image_to_transform
 
             self.rng.bit_generator.state = parameter_state
-            return transform_image_global(
+            transformed_image = transform_image_global(
                 image_to_transform,
                 self.LOCAL_AS_GLOBAL_TRANSFORMS[transform_name],
                 params,
                 previous_mask,
             )
+            return transformed_image
 
         for transform_name in self.GLOBAL_TRANSFORMS:
             probability = self.global_transform_probs.get(transform_name)
@@ -909,6 +1048,20 @@ class TransformGenerator:
                 class_id: mask[0] == class_id
                 for class_id in class_order
             }
+            spatial_background = mask[0] == 0
+            background_image = image.copy()
+            if np.any(spatial_background):
+                nearest_background = ndi.distance_transform_edt(
+                    ~spatial_background,
+                    return_distances=False,
+                    return_indices=True,
+                )
+                foreground_coords = tuple(
+                    axis[~spatial_background] for axis in nearest_background
+                )
+                background_image[:, ~spatial_background] = image[
+                    (slice(None), *foreground_coords)
+                ]
             class_images = {
                 class_id: image * class_masks[class_id][None, ...]
                 for class_id in class_order
@@ -963,12 +1116,14 @@ class TransformGenerator:
                 mask = self._compose_class_masks(
                     class_masks, class_order, mask.dtype
                 )
-                image = np.zeros_like(image)
+                image = background_image.copy()
                 for class_id in reversed(class_order):
                     visible = class_masks[class_id]
                     image[:, visible] = class_images[class_id][:, visible]
 
-        transformed_image = _fit_image_like_mask(image, mask, target_shape)
+        transformed_image = _fit_image_like_mask(
+            image, mask, target_shape, self.image_interpolation_order
+        )
         transformed_mask = _fit_mask_to_spatial_shape(mask, target_shape)
         if mask_tensor:
             transformed_mask = torch.as_tensor(
