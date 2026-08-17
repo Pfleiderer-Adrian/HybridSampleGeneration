@@ -501,14 +501,7 @@ class ConvNeXtcVAE3D(HybridVAEBase):
         self.fc_logvar = nn.Linear(flat, self.cfg.bottleneck_dim).to(device)
         self.fc_decode = nn.Linear(self.cfg.bottleneck_dim, flat).to(device)
 
-    def forward(
-        self,
-        x: torch.Tensor,
-        ori_mask: torch.Tensor,
-        tgt_mask: Optional[torch.Tensor] = None,
-        tgt_img: Optional[torch.Tensor] = None,
-        use_target: Optional[torch.Tensor] = None,
-    ) -> Dict[str, torch.Tensor]:
+    def forward(self, x: torch.Tensor, ori_mask: torch.Tensor, tgt_mask: Optional[torch.Tensor]=None) -> Dict[str, torch.Tensor]:
         """Forward pass through encoder (x and ori_mask) -> bottleneck -> decoder with SPADE using tgt_mask."""
         if tgt_mask is None:
             tgt_mask = ori_mask
@@ -520,12 +513,6 @@ class ConvNeXtcVAE3D(HybridVAEBase):
             raise ValueError(f"Expected C={self.in_channels}, got C={x.shape[1]}")
 
         x = x.float()
-        if tgt_img is not None:
-            tgt_img = tgt_img.to(device=x.device, dtype=x.dtype)
-            if tgt_img.shape != x.shape:
-                raise ValueError(
-                    f"Expected tgt_img shape {tuple(x.shape)}, got {tuple(tgt_img.shape)}"
-                )
         device = x.device
         B = x.shape[0]
         ref_dhw = tuple(x.shape[-3:])
@@ -543,30 +530,6 @@ class ConvNeXtcVAE3D(HybridVAEBase):
         # Encode -> (latent feature map, skips)
         enc_in = torch.cat([x_pad, ori_mask_pad], dim=1)    # concat x and ori_mask for encoder input
         h, skips = self.encoder(enc_in)
-        decoder_mask_pad = ori_mask_pad
-        reconstruction_target = x
-        if tgt_img is not None:
-            if use_target is None:
-                raise ValueError("tgt_img requires use_target.")
-            use_target = torch.as_tensor(
-                use_target, device=x.device, dtype=torch.bool
-            ).reshape(-1)
-            if use_target.numel() != B:
-                raise ValueError(
-                    f"Expected use_target to have {B} values, got {use_target.numel()}."
-                )
-            target_indices = torch.where(use_target)[0]
-
-        if tgt_img is not None and target_indices.numel() > 0:
-            tgt_img_pad = F.pad(tgt_img, pad, mode="constant", value=0.0) if sum(pad) > 0 else tgt_img
-            skip_in = torch.cat([tgt_img_pad[target_indices], tgt_mask_pad[target_indices]], dim=1)
-            _, target_skips = self.encoder(skip_in)
-            skips = [
-                original.index_copy(0, target_indices, target)
-                for original, target in zip(skips, target_skips)
-            ]
-            decoder_mask_pad = ori_mask_pad.index_copy(0, target_indices, tgt_mask_pad[target_indices])
-            reconstruction_target = x.index_copy(0, target_indices, tgt_img[target_indices])
         latent_dhw = tuple(h.shape[-3:])
 
         # Ensure FC layers
@@ -585,11 +548,11 @@ class ConvNeXtcVAE3D(HybridVAEBase):
         h_dec = self.fc_decode(z).reshape(B, self.cfg.z_channels, *latent_dhw)
         self.decoder.set_skips(skips)
         
-        recon = self.decoder(h_dec, decoder_mask_pad)
+        recon = self.decoder(h_dec, tgt_mask_pad)
 
         # Crop recon back to original spatial size
         recon = self._crop_like(recon, ref_dhw)
-        x_ref = self._crop_like(reconstruction_target, ref_dhw)
+        x_ref = self._crop_like(x_pad, ref_dhw) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
 
@@ -620,13 +583,7 @@ class ConvNeXtcVAE3D(HybridVAEBase):
         raise TypeError(f"Unknown batch type: {type(batch)}")
 
     def _forward_args_from_batch(self, batch) -> tuple:
-        x, ori_mask, tgt_mask = self._extract_inputs(batch)
-        if isinstance(batch, dict):
-            tgt_img = batch.get("tgt_img", batch.get("target_img"))
-            if tgt_img is not None:
-                if tgt_mask is None:
-                    raise ValueError("A training batch with tgt_img/target_img also requires tgt_mask.")
-                return x, ori_mask, tgt_mask, torch.as_tensor(tgt_img), batch.get("use_target")
+        x, ori_mask, _ = self._extract_inputs(batch)
         return x, ori_mask, ori_mask
 
     def _generate_posterior(
@@ -693,14 +650,12 @@ class ConvNeXtcVAE3D(HybridVAEBase):
         if original_mask is None:
             raise ValueError("original_mask is required for conditional generation.")
         
-        # --- WICHTIG: KEIN .float() mehr für die Masken! ---
-        ori_x = x
         transformed_x = None
         ori_mask = torch.as_tensor(original_mask)
         if target_mask is None and target_mask_generator is not None:
             if target_mask_generator.transform_image_for_posterior_generation:
                 target_mask, transformed_x = target_mask_generator.create_target_mask_and_transformed_image(
-                    original_mask, ori_x)
+                    original_mask, x)
             else:
                 target_mask = target_mask_generator.create_target_mask(
                     original_mask=original_mask, conditional=True)
@@ -713,20 +668,20 @@ class ConvNeXtcVAE3D(HybridVAEBase):
 
         single = False
 
-        if ori_x.ndim == 4:
-            ori_x = ori_x.unsqueeze(0)  # (1,C,D,H,W)
+        if x.ndim == 4:
+            x = x.unsqueeze(0)  # (1,C,D,H,W)
             if transformed_x is not None:
                 transformed_x = transformed_x.unsqueeze(0)
             single = True
-        elif ori_x.ndim != 5:
-            raise ValueError(f"Expected (C,D,H,W) or (B,C,D,H,W), got {tuple(ori_x.shape)}")
+        elif x.ndim != 5:
+            raise ValueError(f"Expected (C,D,H,W) or (B,C,D,H,W), got {tuple(x.shape)}")
 
         if clamp_01:
-            ori_x = ori_x.clamp(0.0, 1.0)
+            x = x.clamp(0.0, 1.0)
             if transformed_x is not None:
                 transformed_x = transformed_x.clamp(0.0, 1.0)
 
-        ori_x = ori_x.to(device)
+        x = x.to(device)
         if transformed_x is not None:
             transformed_x = transformed_x.to(device)
         
@@ -736,9 +691,9 @@ class ConvNeXtcVAE3D(HybridVAEBase):
 
         with torch.no_grad():
             # --- same preprocessing as forward() ---
-            ref_dhw = tuple(ori_x.shape[-3:])
+            ref_dhw = tuple(x.shape[-3:])
             multiple = 2 ** self.cfg.n_levels
-            x_pad, pad = self._pad_to_multiple(ori_x, multiple)
+            x_pad, pad = self._pad_to_multiple(x, multiple)
             if sum(pad) > 0:
                 ori_mask_pad = F.pad(ori_mask, pad, mode="constant", value=0.0)
                 tgt_mask_pad = F.pad(tgt_mask, pad, mode="constant", value=0.0)
@@ -756,7 +711,7 @@ class ConvNeXtcVAE3D(HybridVAEBase):
             latent_dhw = tuple(h.shape[-3:])
             model._ensure_fcs(latent_dhw, device)
 
-            B = ori_x.shape[0]
+            B = x.shape[0]
             h_flat = h.reshape(B, -1)
             mu = model.fc_mu(h_flat)
             logvar = model.fc_logvar(h_flat)
