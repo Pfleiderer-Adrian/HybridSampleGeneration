@@ -911,7 +911,6 @@ if __name__ == "__main__":
         save_path=MVTECAD2_SAVE,
     )
 
-    """
     # Downstream call after generation:
     run_evaluation_and_visualization_for_all_usecases(
         root=MVTECAD2_ROOT,
