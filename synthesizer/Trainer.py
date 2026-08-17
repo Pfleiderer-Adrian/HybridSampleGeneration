@@ -1,8 +1,9 @@
 import os
+import numpy as np
 import optuna
 import torch
 from optuna import Trial
-from torch.utils.data import random_split, DataLoader, Dataset
+from torch.utils.data import random_split, DataLoader, Dataset, get_worker_info
 from tqdm import tqdm
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
@@ -10,6 +11,7 @@ from generation_models.interfaces import StepOutput
 from generation_models.model_configuration import ModelConfiguration
 from generation_models.model_registry import get_model_spec
 from synthesizer.Configuration import Configuration
+from synthesizer.mask_manipulation import TransformGenerator
 
 
 class _TrainingTransformDataset(Dataset):
@@ -36,6 +38,62 @@ class _TrainingTransformDataset(Dataset):
         if isinstance(item, dict):
             return self.transform.transform_sample(item)
         return self.transform(item)
+
+
+class _RandomTargetTransform:
+    """Add a jointly transformed target image and mask to selected samples."""
+
+    def __init__(self, config: Configuration, probability: float) -> None:
+        self.config = config
+        self.target_mask_generator = None
+        self.worker_id = None
+        self.probability = float(probability)
+        if not 0.0 <= self.probability <= 1.0:
+            raise ValueError(
+                "two_encoder_training_probability must be between 0 and 1, "
+                f"got {self.probability}."
+            )
+
+    def transform_sample(self, item):
+        if not isinstance(item, dict):
+            return item
+
+        image_key = next((key for key in ("img", "x") if key in item), None)
+        mask_key = next((key for key in ("ori_mask", "mask") if key in item), None)
+        if image_key is None or mask_key is None:
+            return item
+
+        if torch.rand(()).item() < self.probability:
+            target_mask_generator = self._get_target_mask_generator()
+            target_mask, target_image = (
+                target_mask_generator.create_target_mask_and_transformed_image(
+                    item[mask_key], item[image_key]
+                )
+            )
+            use_target = True
+        else:
+            target_image = item[image_key]
+            target_mask = item[mask_key]
+            use_target = False
+
+        transformed = dict(item)
+        transformed["tgt_img"] = target_image
+        transformed["tgt_mask"] = target_mask
+        transformed["use_target"] = use_target
+        return transformed
+
+    def __call__(self, item):
+        return self.transform_sample(item)
+
+    def _get_target_mask_generator(self):
+        worker_info = get_worker_info()
+        worker_id = worker_info.id if worker_info is not None else -1
+        if self.target_mask_generator is None or self.worker_id != worker_id:
+            self.target_mask_generator = TransformGenerator.from_config(self.config)
+            seed = worker_info.seed if worker_info is not None else torch.initial_seed()
+            self.target_mask_generator.rng = np.random.default_rng(seed % (2**32))
+            self.worker_id = worker_id
+        return self.target_mask_generator
 
 
 class _RandomSpatialOffset:
@@ -271,6 +329,7 @@ def objective(trial: Trial, config: Configuration, dataset):
     g = torch.Generator().manual_seed(42)
     train_ds, val_ds = random_split(dataset, [n_train, n_val], generator=g)
     train_ds = _apply_training_offset_augmentation(train_ds, config)
+    train_ds = _apply_two_encoder_training_augmentation(train_ds, config)
 
     _anomaly_train_loader = DataLoader(
             train_ds,
@@ -326,6 +385,19 @@ def _apply_training_offset_augmentation(dataset, config: Configuration):
         foreground_threshold_rel=config.random_offset_foreground_threshold_rel,
     )
     return _TrainingTransformDataset(dataset, transform)
+
+
+def _apply_two_encoder_training_augmentation(dataset, config: Configuration):
+    probability = float(getattr(config, "two_encoder_training_probability", 0.0))
+    if (
+        config.model_name not in {"cVAE_ConvNeXt_2D", "cVAE_ConvNeXt_3D"}
+        or probability <= 0.0
+    ):
+        return dataset
+    return _TrainingTransformDataset(
+        dataset,
+        _RandomTargetTransform(config, probability),
+    )
 
 
 def sample_model_params(trial: Trial, model_params):

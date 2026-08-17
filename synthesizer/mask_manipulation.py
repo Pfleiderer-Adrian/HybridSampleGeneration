@@ -163,19 +163,37 @@ def _stretch_spatial_mask(mask, scales):
     )
 
 
-def _rotate_spatial_mask(mask, angle, center_mask=None):
+def _rotation_center(mask_np: np.ndarray | None) -> np.ndarray | None:
+    """Return the bounding-box center of a spatial mask without a channel axis."""
+    if mask_np is None:
+        return None
+
+    foreground = mask_np != 0
+    if not np.any(foreground):
+        return None
+    return np.array(
+        [
+            (float(axis_coords.min()) + float(axis_coords.max())) / 2.0
+            for axis_coords in np.where(foreground)
+        ],
+        dtype=float,
+    )
+
+
+def _rotate_spatial_mask(mask, angle, center_mask=None, center=None):
     if mask.ndim < 2:
         raise ValueError(f"Expected at least 2 spatial dimensions, got {mask.ndim}.")
 
-    if not np.any(center_mask):
-        return mask.copy()
-
-    # Compute the rotation center from the selected mask bounding box
-    coords = np.where(center_mask)
-    center = np.array(
-        [(np.min(axis_coords) + np.max(axis_coords)) / 2.0 for axis_coords in coords],
-        dtype=float,
-    )
+    if center is None:
+        center = _rotation_center(center_mask)
+        if center is None:
+            return mask.copy()
+    else:
+        center = np.asarray(center, dtype=float)
+        if center.shape != (mask.ndim,):
+            raise ValueError(
+                f"Expected rotation center with shape ({mask.ndim},), got {center.shape}."
+            )
 
     angle_rad = np.deg2rad(angle)
     cos_angle = np.cos(angle_rad)
@@ -209,6 +227,7 @@ def random_global_rotation_transform(
     mask_np: np.ndarray,
     max_rotation=5.0,
     rng=None,
+    center=None,
 ):
     """Apply a small nearest-neighbour rotation to the whole label mask."""
     original_dtype = mask_np.dtype
@@ -221,6 +240,7 @@ def random_global_rotation_transform(
         mask_np[0].copy(),
         angle=angle,
         center_mask=mask_np[0] != 0,
+        center=center,
     ).astype(original_dtype)
 
     return transformed_mask[None, ...]
@@ -523,19 +543,22 @@ def default_elastic_params_from_anomaly_size(anomaly_size):
 
 
 
-def _pad_mask_for_transforms(mask_np, padding_factor=2):
-    """Center a channel-first mask on a larger zero-filled transform canvas."""
-    if mask_np.ndim not in (3, 4) or mask_np.shape[0] != 1:
-        raise ValueError(f"Expected mask with shape (1, H, W) or (1, D, H, W), got {mask_np.shape}.")
+def _pad_for_transforms(array_np, padding_factor=2):
+    """Center a channel-first array on a larger zero-filled transform canvas."""
+    if array_np.ndim not in (3, 4):
+        raise ValueError(
+            f"Expected channel-first array with shape (C, H, W) or (C, D, H, W), "
+            f"got {array_np.shape}."
+        )
 
-    spatial_shape = np.asarray(mask_np.shape[1:], dtype=int)
+    spatial_shape = np.asarray(array_np.shape[1:], dtype=int)
     padded_shape = spatial_shape * int(padding_factor)
     total_padding = padded_shape - spatial_shape
     pad_width = [(0, 0)] + [
         (int(padding // 2), int(padding - padding // 2))
         for padding in total_padding
     ]
-    return np.pad(mask_np, pad_width, mode="constant", constant_values=0)
+    return np.pad(array_np, pad_width, mode="constant", constant_values=0)
 
 
 def _fit_mask_to_spatial_shape(mask_np, target_shape):
@@ -583,6 +606,34 @@ def _fit_mask_to_spatial_shape(mask_np, target_shape):
     )
     return spatial_mask[crop_slices][None, ...]
 
+def _fit_image_like_mask(image_np, transformed_mask, target_shape):
+    """Mirror _fit_mask_to_spatial_shape for a channel-first image."""
+    target_shape = np.asarray(target_shape, dtype=int)
+    spatial_shape = np.asarray(transformed_mask.shape[1:], dtype=int)
+    crop_start = (spatial_shape - target_shape) // 2
+    crop_end = crop_start + target_shape - 1
+    foreground = transformed_mask[0] != 0
+    fit_scale = 1.0
+    if np.any(foreground):
+        center = spatial_shape.astype(float) / 2.0
+        for axis, coords in enumerate(np.where(foreground)):
+            low, high = float(coords.min()), float(coords.max())
+            if low < crop_start[axis]:
+                fit_scale = min(fit_scale, (center[axis] - crop_start[axis]) / (center[axis] - low))
+            if high > crop_end[axis]:
+                fit_scale = min(fit_scale, (crop_end[axis] - center[axis]) / (high - center[axis]))
+    if fit_scale < 1.0:
+        fit_scale = max(np.nextafter(fit_scale, 0.0), np.finfo(float).eps)
+        scales = np.full(len(spatial_shape), fit_scale, dtype=float)
+        image_np = np.stack(
+            [_stretch_spatial_mask(channel, scales) for channel in image_np],
+            axis=0,
+        ).astype(image_np.dtype, copy=False)
+    crop = tuple(
+        slice(int(start), int(start + size))
+        for start, size in zip(crop_start, target_shape)
+    )
+    return image_np[(slice(None), *crop)]
 
 class TransformGenerator:
     """Central orchestration object for mask augmentation."""
@@ -608,6 +659,7 @@ class TransformGenerator:
                 "local_as_global",
                 getattr(transform_config, "mask_transform_local_as_global", False),
             ),
+            transform_image_for_posterior_generation=getattr(transform_config, "transform_image_for_posterior_generation", True),
         )
 
     @dataclass
@@ -618,6 +670,7 @@ class TransformGenerator:
         priorities: list[int] | tuple[int, ...] | None = None
         rng: np.random.Generator | None = None
         local_as_global: bool = False
+        transform_image_for_posterior_generation: bool = True
         padding_factor: int = 2
 
         def setGlobalParam(self, transform_name: str, probability=None, **params):
@@ -680,6 +733,7 @@ class TransformGenerator:
         anomaly_size: tuple[int, ...] | list[int] | None = None,
         background_threshold: float | None = 0.01,
         mask_transform_local_as_global: bool = False,
+        transform_image_for_posterior_generation: bool = True,
     ) -> None:
         self.global_transform_probs = {}
         self.local_transform_probs = {}
@@ -699,6 +753,7 @@ class TransformGenerator:
         self.rng = rng if rng is not None else np.random.default_rng()
         self.background_threshold = background_threshold
         self.mask_transform_local_as_global = mask_transform_local_as_global
+        self.transform_image_for_posterior_generation = transform_image_for_posterior_generation
 
     def create_target_mask(
         self,
@@ -726,6 +781,204 @@ class TransformGenerator:
 
         return self.augment_mask(np.asarray(original_mask))
 
+    def create_target_mask_and_transformed_image(self, original_mask, image):
+        """Apply exactly the same sampled generation-time transforms to mask and image."""
+        mask_tensor = torch.is_tensor(original_mask)
+        image_tensor = torch.is_tensor(image)
+        mask_np = original_mask.detach().cpu().numpy() if mask_tensor else np.asarray(original_mask)
+        image_device = image.device if image_tensor else None
+        image_dtype = image.dtype if image_tensor else None
+        image_np = image.detach().cpu().numpy() if image_tensor else np.asarray(image)
+        if mask_np.ndim not in (3, 4) or mask_np.shape[0] != 1:
+            raise ValueError(f"Expected mask (1,H,W) or (1,D,H,W), got {mask_np.shape}.")
+        if image_np.ndim != mask_np.ndim or image_np.shape[1:] != mask_np.shape[1:]:
+            raise ValueError(f"Image shape {image_np.shape} does not match mask shape {mask_np.shape}.")
+
+        target_shape = mask_np.shape[1:]
+        mask = _pad_for_transforms(mask_np, padding_factor=self.padding_factor)
+        image = _pad_for_transforms(image_np, padding_factor=self.padding_factor)
+
+        def transform_image_channels(image_to_transform, transform):
+            before = deepcopy(self.rng.bit_generator.state)
+            transformed = []
+            for channel in image_to_transform:
+                self.rng.bit_generator.state = deepcopy(before) # use same random state for each channel
+                transformed.append(transform(channel[None, ...])[0])
+
+            return np.stack(transformed, axis=0).astype(
+                image_to_transform.dtype, copy=False
+            )
+
+        def transform_image_global(
+            image_to_transform,
+            transform_name,
+            params,
+            center_mask,
+        ):
+            if transform_name == "rotate":
+                rotation_center = _rotation_center(center_mask[0])
+                if rotation_center is None:
+                    return image_to_transform
+                return transform_image_channels(
+                    image_to_transform,
+                    lambda channel, params=params, center=rotation_center:
+                    random_global_rotation_transform(
+                        channel, rng=self.rng, center=center, **params
+                    ),
+                )
+
+            return transform_image_channels(
+                image_to_transform,
+                lambda channel, name=transform_name, params=params:
+                self.GLOBAL_TRANSFORMS[name](channel, rng=self.rng, **params),
+            )
+
+        def transform_image_local(
+            image_to_transform,
+            transform_name,
+            params,
+            previous_mask,
+            transformed_mask,
+            class_ids,
+            parameter_state,
+        ):
+            if transform_name == "local_dilate":
+                for class_id in class_ids:
+                    source_mask = previous_mask[0] == class_id
+                    added = (transformed_mask[0] == class_id) & ~source_mask
+                    if np.any(source_mask) and np.any(added):
+                        nearest = ndi.distance_transform_edt(
+                            ~source_mask,
+                            return_distances=False,
+                            return_indices=True,
+                        )
+                        source_coords = tuple(axis[added] for axis in nearest)
+                        image_to_transform[:, added] = image_to_transform[
+                            (slice(None), *source_coords)
+                        ]
+                return image_to_transform
+
+            self.rng.bit_generator.state = parameter_state
+            return transform_image_global(
+                image_to_transform,
+                self.LOCAL_AS_GLOBAL_TRANSFORMS[transform_name],
+                params,
+                previous_mask,
+            )
+
+        for transform_name in self.GLOBAL_TRANSFORMS:
+            probability = self.global_transform_probs.get(transform_name)
+            if probability is None or not self._should_apply(probability):
+                continue
+            parameter_state = deepcopy(self.rng.bit_generator.state)
+            mask_before_transform = mask
+            mask = self._apply_global_transform(mask, transform_name)
+            after_state = deepcopy(self.rng.bit_generator.state)
+            self.rng.bit_generator.state = parameter_state
+            image = transform_image_global(
+                image,
+                transform_name,
+                dict(self.transform_params.get(transform_name, {})),
+                mask_before_transform,
+            )
+            self.rng.bit_generator.state = after_state
+
+        class_order = self._local_class_order(mask)
+        if self.mask_transform_local_as_global:
+            for transform_name in self.LOCAL_TRANSFORMS:
+                probability = self._merged_local_probability(transform_name, class_order)
+                if probability is None or not self._should_apply(probability):
+                    continue
+                local_params = self._merged_local_params(transform_name, class_order)
+                parameter_state = deepcopy(self.rng.bit_generator.state)
+                previous_mask = mask.copy()
+                mask = self._apply_merged_local_transform(mask, transform_name, class_order)
+                after_state = deepcopy(self.rng.bit_generator.state)
+                image = transform_image_local(
+                    image,
+                    transform_name,
+                    local_params,
+                    previous_mask,
+                    mask,
+                    class_order,
+                    parameter_state,
+                )
+                self.rng.bit_generator.state = after_state
+        else:
+            class_masks = {
+                class_id: mask[0] == class_id
+                for class_id in class_order
+            }
+            class_images = {
+                class_id: image * class_masks[class_id][None, ...]
+                for class_id in class_order
+            }
+            any_local_transform_applied = False
+
+            for class_id in class_order:
+                class_transforms = dict(self.local_transform_probs)
+                class_transforms.update(self.class_transform_probs.get(class_id, {}))
+                for transform_name in self.LOCAL_TRANSFORMS:
+                    probability = class_transforms.get(transform_name)
+                    if probability is None or not self._should_apply(probability):
+                        continue
+
+                    previous_class_mask = class_masks[class_id]
+                    class_canvas = np.zeros_like(mask)
+                    class_canvas[0][previous_class_mask] = class_id
+                    parameter_state = deepcopy(self.rng.bit_generator.state)
+                    transformed_canvas = self._apply_local_transform(
+                        class_canvas, class_id, transform_name
+                    )
+                    after_state = deepcopy(self.rng.bit_generator.state)
+                    transformed_class_mask = transformed_canvas[0] == class_id
+                    class_image = class_images[class_id]
+
+                    local_params = dict(
+                        self.transform_params.get(transform_name, {})
+                    )
+                    local_params.update(
+                        self.class_transform_params.get(class_id, {}).get(
+                            transform_name, {}
+                        )
+                    )
+                    class_image = transform_image_local(
+                        class_image,
+                        transform_name,
+                        local_params,
+                        class_canvas,
+                        transformed_canvas,
+                        [class_id],
+                        parameter_state,
+                    )
+
+                    self.rng.bit_generator.state = after_state
+                    class_masks[class_id] = transformed_class_mask
+                    class_images[class_id] = (
+                        class_image * transformed_class_mask[None, ...]
+                    )
+                    any_local_transform_applied = True
+
+            if any_local_transform_applied:
+                mask = self._compose_class_masks(
+                    class_masks, class_order, mask.dtype
+                )
+                image = np.zeros_like(image)
+                for class_id in reversed(class_order):
+                    visible = class_masks[class_id]
+                    image[:, visible] = class_images[class_id][:, visible]
+
+        transformed_image = _fit_image_like_mask(image, mask, target_shape)
+        transformed_mask = _fit_mask_to_spatial_shape(mask, target_shape)
+        if mask_tensor:
+            transformed_mask = torch.as_tensor(
+                transformed_mask, device=original_mask.device, dtype=original_mask.dtype
+            )
+        if image_tensor:
+            transformed_image = torch.as_tensor(
+                transformed_image, device=image_device, dtype=image_dtype
+            )
+        return transformed_mask, transformed_image
     def create_target_mask_from_synth_anomaly(self, synth_anomaly_image):
         if synth_anomaly_image is None:
             raise ValueError("synth_anomaly_image is required for threshold target-mask generation.")
@@ -757,7 +1010,7 @@ class TransformGenerator:
 
     def augment_mask(self, mask_np: np.ndarray) -> np.ndarray:
         original_spatial_shape = mask_np.shape[1:]
-        augmented = _pad_mask_for_transforms(mask_np, padding_factor=self.padding_factor)
+        augmented = _pad_for_transforms(mask_np, padding_factor=self.padding_factor)
 
         for transform_name in self.GLOBAL_TRANSFORMS:
             probability = self.global_transform_probs.get(transform_name)

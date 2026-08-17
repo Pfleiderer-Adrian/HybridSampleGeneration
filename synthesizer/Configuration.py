@@ -147,6 +147,9 @@ class Configuration:
         self.log_every = None
         self.training_dtype = None
         self.grad_clip_norm = None
+        # Fraction of conditional-VAE training samples that use original
+        # posterior features with skips from a jointly transformed cutout/mask.
+        self.two_encoder_training_probability = 0.25
         self.monitor_metric = None
         self.early_stopping = True
         self.early_stopping_params = {
