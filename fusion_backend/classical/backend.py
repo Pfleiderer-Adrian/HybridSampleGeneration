@@ -6,7 +6,7 @@ from scipy.ndimage import binary_dilation, zoom
 
 from fusion_backend.classical.configuration import CONFIDENCE_LEVELS, Config
 from fusion_backend.fusion_configuration import FusionConfiguration
-from fusion_backend.interfaces import FusionOutput
+from fusion_backend.interfaces import FusionOutput, control_background_mask, keep_control_background_after_fusion
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_square_clip, dynamic_roi_size as dynamic_roi_size_2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_cube_clip, dynamic_roi_size as dynamic_roi_size_3d
 from synthesizer.mask_manipulation import interpolate_masked_regions
@@ -251,6 +251,19 @@ class ClassicalFusionBackend:
         #    This local region is used for intensity normalization.
         # ------------------------------------------------------------
         bg_slice = ctrl[(slice(None), *insert_slices)]
+        crop_shape = bg_slice.shape[1:]
+        crop_to_bg = tuple(slice(0, int(size)) for size in crop_shape)
+
+        if self.params.get("fusion_keep_bg", False):
+            control_bg_mask = control_background_mask(
+                ctrl,
+                self.params.get("fusion_bg_value", None),
+                self.params.get("fusion_relative_bg_threshold", None),
+                self.params.get("fusion_bg_exterior_only", True),
+            )
+            bg_mask = control_bg_mask[insert_slices]
+            target_mask = target_mask.copy()
+            target_mask[crop_to_bg] = np.where(bg_mask, 0, target_mask[crop_to_bg])
 
         # ------------------------------------------------------------
         # 7) Create a spatial valid mask for anomaly foreground.
@@ -290,9 +303,7 @@ class ClassicalFusionBackend:
         # 10) Crop anomaly and alpha to exactly match the clamped
         #     insertion region. This handles anomalies near image borders.
         # ------------------------------------------------------------
-        crop_shape = bg_slice.shape[1:]
         output_slices = tuple(slice(int(offset[axis]), int(offset[axis] + crop_shape[axis])) for axis in range(spatial_ndim))
-        crop_to_bg = tuple(slice(0, int(size)) for size in crop_shape)
         anom_crop = anom[(slice(None), *crop_to_bg)]
         alpha_crop = alpha[(slice(None), *crop_to_bg)]
 
@@ -314,6 +325,14 @@ class ClassicalFusionBackend:
         segmentation = segmentation[None, ...]
         if channels != 1:
             segmentation = np.repeat(segmentation, channels, axis=0)
+
+        if self.params.get("fusion_keep_bg", False):
+            fused_image, segmentation = keep_control_background_after_fusion(
+                fused_image,
+                segmentation,
+                ctrl,
+                control_bg_mask,
+            )
 
         # Empty target masks intentionally return the unchanged control
         # sample and no ROI debug crops.
