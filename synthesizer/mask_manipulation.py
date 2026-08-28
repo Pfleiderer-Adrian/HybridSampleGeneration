@@ -745,7 +745,11 @@ class TransformGenerator:
                 "local_as_global",
                 getattr(transform_config, "mask_transform_local_as_global", False),
             ),
-            transform_image_for_posterior_generation=getattr(transform_config, "transform_image_for_posterior_generation", True),
+            use_transformed_skips_for_posterior_generation=getattr(
+                transform_config,
+                "use_transformed_skips_for_posterior_generation",
+                True,
+            ),
             image_interpolation_order=getattr(transform_config, "image_interpolation_order", 1),
         )
 
@@ -757,7 +761,7 @@ class TransformGenerator:
         priorities: list[int] | tuple[int, ...] | None = None
         rng: np.random.Generator | None = None
         local_as_global: bool = False
-        transform_image_for_posterior_generation: bool = True
+        use_transformed_skips_for_posterior_generation: bool = True
         image_interpolation_order: int = 1
         padding_factor: int = 2
 
@@ -821,7 +825,7 @@ class TransformGenerator:
         anomaly_size: tuple[int, ...] | list[int] | None = None,
         background_threshold: float | None = 0.01,
         mask_transform_local_as_global: bool = False,
-        transform_image_for_posterior_generation: bool = True,
+        use_transformed_skips_for_posterior_generation: bool = True,
         image_interpolation_order: int = 1,
     ) -> None:
         self.global_transform_probs = {}
@@ -842,7 +846,7 @@ class TransformGenerator:
         self.rng = rng if rng is not None else np.random.default_rng()
         self.background_threshold = background_threshold
         self.mask_transform_local_as_global = mask_transform_local_as_global
-        self.transform_image_for_posterior_generation = transform_image_for_posterior_generation
+        self.use_transformed_skips_for_posterior_generation = use_transformed_skips_for_posterior_generation
         self.image_interpolation_order = image_interpolation_order
 
     def create_target_mask(

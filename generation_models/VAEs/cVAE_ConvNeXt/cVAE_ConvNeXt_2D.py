@@ -615,7 +615,7 @@ class ConvNeXtcVAE2D(HybridVAEBase):
         transformed_x = None
         ori_mask = torch.as_tensor(original_mask)
         if target_mask is None and target_mask_generator is not None:
-            if target_mask_generator.transform_image_for_posterior_generation:
+            if target_mask_generator.use_transformed_skips_for_posterior_generation:
                 target_mask, transformed_x = target_mask_generator.create_target_mask_and_transformed_image(
                     original_mask, x)
             else:
