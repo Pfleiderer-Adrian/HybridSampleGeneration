@@ -614,22 +614,14 @@ def _fit_mask_to_spatial_shape(mask_np, target_shape):
     return spatial_mask[crop_slices][None, ...]
 
 def interpolate_masked_regions(
-    image_np,
-    foreground_mask,
-    warp,
-    nearest_warp,
-    *,
-    interpolate_background=True,
-    background_fill=None,
-    eps=None,
+    image_np, foreground_mask, warp, nearest_warp, *,
+    interpolate_background=True, background_fill=None, eps=None,
 ):
     """Warp a channel-first image without mixing foreground and background."""
     image_np = np.asarray(image_np)
     foreground_mask = np.asarray(foreground_mask, dtype=bool)
     if image_np.ndim not in (3, 4):
-        raise ValueError(
-            f"Expected image shape (C,H,W) or (C,D,H,W), got {image_np.shape}."
-        )
+        raise ValueError(f"Expected image shape (C,H,W) or (C,D,H,W), got {image_np.shape}.")
     if foreground_mask.shape != image_np.shape[1:]:
         raise ValueError(
             f"foreground_mask shape {foreground_mask.shape} does not match "
@@ -669,11 +661,9 @@ def interpolate_masked_regions(
     if background_fill is None:
         fill_values = []
         for channel in image_np:
-            values = channel[~foreground_mask]
-            finite_values = values[np.isfinite(values)]
-            fill_values.append(
-                float(np.min(finite_values)) if finite_values.size else 0.0
-            )
+            finite_values = channel[~foreground_mask]
+            finite_values = finite_values[np.isfinite(finite_values)]
+            fill_values.append(float(np.min(finite_values)) if finite_values.size else 0.0)
         fill_values = np.asarray(fill_values, dtype=result.dtype)
     elif np.isscalar(background_fill):
         fill_values = np.full(image_np.shape[0], background_fill, dtype=result.dtype)
@@ -689,7 +679,6 @@ def interpolate_masked_regions(
     result[:, invalid_background] = fill_values[:, None]
     result[:, transformed_foreground] = normalized_foreground[:, transformed_foreground]
     return result.astype(image_np.dtype, copy=False)
-
 
 def _fit_image_like_mask(image_np, transformed_mask, target_shape, image_interpolation_order):
     """Mirror _fit_mask_to_spatial_shape for a channel-first image."""
