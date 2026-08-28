@@ -849,6 +849,99 @@ class TransformGenerator:
         self.use_transformed_skips_for_posterior_generation = use_transformed_skips_for_posterior_generation
         self.image_interpolation_order = image_interpolation_order
 
+    def _transform_image_channels(self, image_to_transform, transform, foreground_mask):
+        before = deepcopy(self.rng.bit_generator.state)
+        after = [before]
+
+        def replay_transform(spatial, order):
+            self.rng.bit_generator.state = deepcopy(before)
+            transformed = transform(spatial[None, ...], order)[0]
+            after[0] = deepcopy(self.rng.bit_generator.state)
+            return transformed
+
+        if self.image_interpolation_order == 0:
+            transformed_image = np.stack(
+                [replay_transform(channel, 0) for channel in image_to_transform],
+                axis=0,
+            ).astype(image_to_transform.dtype, copy=False)
+        else:
+            transformed_image = interpolate_masked_regions(
+                image_to_transform,
+                foreground_mask,
+                warp=lambda spatial: replay_transform(
+                    spatial, self.image_interpolation_order
+                ),
+                nearest_warp=lambda spatial: replay_transform(spatial, 0),
+            )
+
+        self.rng.bit_generator.state = after[0]
+        return transformed_image
+
+    def _transform_image_global(
+        self,
+        image_to_transform,
+        transform_name,
+        params,
+        center_mask,
+    ):
+        if transform_name == "rotate":
+            rotation_center = _rotation_center(center_mask[0])
+            if rotation_center is None:
+                return image_to_transform
+            return self._transform_image_channels(
+                image_to_transform,
+                lambda channel, order, params=params, center=rotation_center:
+                random_global_rotation_transform(
+                    channel, rng=self.rng, center=center,
+                    order=order, **params
+                ),
+                center_mask[0] != 0,
+            )
+
+        return self._transform_image_channels(
+            image_to_transform,
+            lambda channel, order, name=transform_name, params=params:
+            self.GLOBAL_TRANSFORMS[name](
+                channel, rng=self.rng, order=order, **params
+            ),
+            center_mask[0] != 0,
+        )
+
+    def _transform_image_local(
+        self,
+        image_to_transform,
+        transform_name,
+        params,
+        previous_mask,
+        transformed_mask,
+        class_ids,
+        parameter_state,
+    ):
+        if transform_name == "local_dilate":
+            for class_id in class_ids:
+                source_mask = previous_mask[0] == class_id
+                added = (transformed_mask[0] == class_id) & ~source_mask
+                if np.any(source_mask) and np.any(added):
+                    nearest = ndi.distance_transform_edt(
+                        ~source_mask,
+                        return_distances=False,
+                        return_indices=True,
+                    )
+                    source_coords = tuple(axis[added] for axis in nearest)
+                    image_to_transform[:, added] = image_to_transform[
+                        (slice(None), *source_coords)
+                    ]
+            return image_to_transform
+
+        self.rng.bit_generator.state = parameter_state
+        transformed_image = self._transform_image_global(
+            image_to_transform,
+            self.LOCAL_AS_GLOBAL_TRANSFORMS[transform_name],
+            params,
+            previous_mask,
+        )
+        return transformed_image
+
     def create_target_mask(
         self,
         *,
@@ -907,97 +1000,6 @@ class TransformGenerator:
                 )
                 image[channel_index, ~valid_canvas] = background_fill
 
-        def transform_image_channels(image_to_transform, transform, foreground_mask):
-            before = deepcopy(self.rng.bit_generator.state)
-            after = [before]
-
-            def replay_transform(spatial, order):
-                self.rng.bit_generator.state = deepcopy(before)
-                transformed = transform(spatial[None, ...], order)[0]
-                after[0] = deepcopy(self.rng.bit_generator.state)
-                return transformed
-
-            if self.image_interpolation_order == 0:
-                transformed_image = np.stack(
-                    [replay_transform(channel, 0) for channel in image_to_transform],
-                    axis=0,
-                ).astype(image_to_transform.dtype, copy=False)
-            else:
-                transformed_image = interpolate_masked_regions(
-                    image_to_transform,
-                    foreground_mask,
-                    warp=lambda spatial: replay_transform(
-                        spatial, self.image_interpolation_order
-                    ),
-                    nearest_warp=lambda spatial: replay_transform(spatial, 0),
-                )
-
-            self.rng.bit_generator.state = after[0]
-            return transformed_image
-
-        def transform_image_global(
-            image_to_transform,
-            transform_name,
-            params,
-            center_mask,
-        ):
-            if transform_name == "rotate":
-                rotation_center = _rotation_center(center_mask[0])
-                if rotation_center is None:
-                    return image_to_transform
-                return transform_image_channels(
-                    image_to_transform,
-                    lambda channel, order, params=params, center=rotation_center:
-                    random_global_rotation_transform(
-                        channel, rng=self.rng, center=center,
-                        order=order, **params
-                    ),
-                    center_mask[0] != 0,
-                )
-
-            return transform_image_channels(
-                image_to_transform,
-                lambda channel, order, name=transform_name, params=params:
-                self.GLOBAL_TRANSFORMS[name](
-                    channel, rng=self.rng, order=order, **params
-                ),
-                center_mask[0] != 0,
-            )
-
-        def transform_image_local(
-            image_to_transform,
-            transform_name,
-            params,
-            previous_mask,
-            transformed_mask,
-            class_ids,
-            parameter_state,
-        ):
-            if transform_name == "local_dilate":
-                for class_id in class_ids:
-                    source_mask = previous_mask[0] == class_id
-                    added = (transformed_mask[0] == class_id) & ~source_mask
-                    if np.any(source_mask) and np.any(added):
-                        nearest = ndi.distance_transform_edt(
-                            ~source_mask,
-                            return_distances=False,
-                            return_indices=True,
-                        )
-                        source_coords = tuple(axis[added] for axis in nearest)
-                        image_to_transform[:, added] = image_to_transform[
-                            (slice(None), *source_coords)
-                        ]
-                return image_to_transform
-
-            self.rng.bit_generator.state = parameter_state
-            transformed_image = transform_image_global(
-                image_to_transform,
-                self.LOCAL_AS_GLOBAL_TRANSFORMS[transform_name],
-                params,
-                previous_mask,
-            )
-            return transformed_image
-
         for transform_name in self.GLOBAL_TRANSFORMS:
             probability = self.global_transform_probs.get(transform_name)
             if probability is None or not self._should_apply(probability):
@@ -1007,7 +1009,7 @@ class TransformGenerator:
             mask = self._apply_global_transform(mask, transform_name)
             after_state = deepcopy(self.rng.bit_generator.state)
             self.rng.bit_generator.state = parameter_state
-            image = transform_image_global(
+            image = self._transform_image_global(
                 image,
                 transform_name,
                 dict(self.transform_params.get(transform_name, {})),
@@ -1026,7 +1028,7 @@ class TransformGenerator:
                 previous_mask = mask.copy()
                 mask = self._apply_merged_local_transform(mask, transform_name, class_order)
                 after_state = deepcopy(self.rng.bit_generator.state)
-                image = transform_image_local(
+                image = self._transform_image_local(
                     image,
                     transform_name,
                     local_params,
@@ -1088,7 +1090,7 @@ class TransformGenerator:
                             transform_name, {}
                         )
                     )
-                    class_image = transform_image_local(
+                    class_image = self._transform_image_local(
                         class_image,
                         transform_name,
                         local_params,
