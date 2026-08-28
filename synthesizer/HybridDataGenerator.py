@@ -12,7 +12,7 @@ from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
 
 from generation_models.model_registry import get_model_spec
 from fusion_backend.fusion_registry import get_fusion_backend_spec
-from synthesizer.mask_manipulation import TransformGenerator
+from synthesizer.Transformation import TransformGenerator
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
 from synthesizer.Configuration import Configuration

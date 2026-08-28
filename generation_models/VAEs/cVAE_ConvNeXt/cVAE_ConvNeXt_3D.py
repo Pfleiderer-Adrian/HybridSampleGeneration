@@ -21,7 +21,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from generation_models.VAEs.vae_base import HybridVAEBase
-from synthesizer.mask_manipulation import TransformGenerator, to_one_hot_3D
+from synthesizer.Transformation import TransformGenerator, to_one_hot_3D
 
 
 class SPADE3D(nn.Module):
