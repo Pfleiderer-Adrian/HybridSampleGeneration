@@ -11,7 +11,7 @@ from generation_models.model_registry import get_model_spec, registered_model_na
 from fusion_backend.fusion_configuration import FusionConfiguration
 from fusion_backend.fusion_registry import get_fusion_backend_spec, registered_fusion_backend_names
 from synthesizer.StudyPaths import StudyPaths
-from synthesizer.mask_manipulation import TransformGenerator
+from synthesizer.Transformation import TransformGenerator
 
 ALLOWED_MODELS = registered_model_names()
 ALLOWED_FUSION_BACKENDS = registered_fusion_backend_names()

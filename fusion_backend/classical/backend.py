@@ -9,7 +9,7 @@ from fusion_backend.fusion_configuration import FusionConfiguration
 from fusion_backend.interfaces import FusionOutput, control_background_mask, keep_control_background_after_fusion
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_square_clip, dynamic_roi_size as dynamic_roi_size_2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_cube_clip, dynamic_roi_size as dynamic_roi_size_3d
-from synthesizer.mask_manipulation import interpolate_masked_regions
+from synthesizer.Transformation import interpolate_masked_regions
 
 
 class ClassicalFusionBackend:

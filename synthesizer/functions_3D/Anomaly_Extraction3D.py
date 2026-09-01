@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.ndimage import zoom, label, find_objects, center_of_mass
 
-from synthesizer.mask_manipulation import interpolate_masked_regions
+from synthesizer.Transformation import interpolate_masked_regions
 
 
 def _as_axis_tuple(value, ndim, name):

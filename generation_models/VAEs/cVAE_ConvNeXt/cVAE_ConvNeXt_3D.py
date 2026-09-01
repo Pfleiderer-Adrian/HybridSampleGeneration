@@ -21,7 +21,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from generation_models.VAEs.vae_base import HybridVAEBase
-from synthesizer.mask_manipulation import TransformGenerator, to_one_hot_3D
+from synthesizer.Transformation import TransformGenerator, to_one_hot_3D
 
 
 class SPADE3D(nn.Module):
@@ -650,10 +650,15 @@ class ConvNeXtcVAE3D(HybridVAEBase):
         if original_mask is None:
             raise ValueError("original_mask is required for conditional generation.")
         
-        # --- WICHTIG: KEIN .float() mehr für die Masken! ---
+        transformed_x = None
         ori_mask = torch.as_tensor(original_mask)
         if target_mask is None and target_mask_generator is not None:
-            target_mask = target_mask_generator.create_target_mask(original_mask=original_mask, conditional=True)
+            if target_mask_generator.use_transformed_skips_for_posterior_generation:
+                target_mask, transformed_x = target_mask_generator.create_target_mask_and_transformed_image(
+                    original_mask, x)
+            else:
+                target_mask = target_mask_generator.create_target_mask(
+                    original_mask=original_mask, conditional=True)
 
         if target_mask is None:
             tgt_mask = ori_mask
@@ -665,14 +670,20 @@ class ConvNeXtcVAE3D(HybridVAEBase):
 
         if x.ndim == 4:
             x = x.unsqueeze(0)  # (1,C,D,H,W)
+            if transformed_x is not None:
+                transformed_x = transformed_x.unsqueeze(0)
             single = True
         elif x.ndim != 5:
             raise ValueError(f"Expected (C,D,H,W) or (B,C,D,H,W), got {tuple(x.shape)}")
 
         if clamp_01:
             x = x.clamp(0.0, 1.0)
+            if transformed_x is not None:
+                transformed_x = transformed_x.clamp(0.0, 1.0)
 
         x = x.to(device)
+        if transformed_x is not None:
+            transformed_x = transformed_x.to(device)
         
         # to device and then one-hot
         ori_mask = to_one_hot_3D(ori_mask.to(device), self.cfg.num_anomaly_classes)
@@ -693,6 +704,10 @@ class ConvNeXtcVAE3D(HybridVAEBase):
             enc_in = torch.cat([x_pad, ori_mask_pad], dim=1)
             # Encode once
             h, skips = model.encoder(enc_in)
+            if transformed_x is not None:
+                transformed_x_pad = F.pad(transformed_x, pad, mode="constant", value=0.0) if sum(pad) > 0 else transformed_x
+                skip_in = torch.cat([transformed_x_pad, tgt_mask_pad], dim=1)
+                _, skips = model.encoder(skip_in)
             latent_dhw = tuple(h.shape[-3:])
             model._ensure_fcs(latent_dhw, device)
 

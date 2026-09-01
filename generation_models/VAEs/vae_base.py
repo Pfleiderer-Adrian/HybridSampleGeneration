@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from generation_models.interfaces import StepOutput
-from synthesizer.mask_manipulation import TransformGenerator
+from synthesizer.Transformation import TransformGenerator
 
 
 class HybridVAEBase(nn.Module, ABC):

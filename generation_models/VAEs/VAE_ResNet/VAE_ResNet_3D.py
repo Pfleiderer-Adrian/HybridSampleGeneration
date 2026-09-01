@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from generation_models.VAEs.vae_base import HybridVAEBase
-from synthesizer.mask_manipulation import TransformGenerator
+from synthesizer.Transformation import TransformGenerator
 
 
 # -------------------------
