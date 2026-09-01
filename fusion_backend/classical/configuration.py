@@ -36,6 +36,10 @@ class Config:
     fusion_relation_mode: str = "delta"  # alternatively "ratio" if intensities are not too close to 0 and have matching signs
     fusion_relation_norm_classes_separately: bool = False
     fusion_relation_min_context_size: int = 8
+    fusion_keep_bg: bool = False
+    fusion_bg_value: float | None = None
+    fusion_relative_bg_threshold: float | None = 0.01
+    fusion_bg_exterior_only: bool = True
 
 
 def get_classical_fusion_configuration():

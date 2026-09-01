@@ -671,7 +671,9 @@ class ConvNeXtcVAE2D(HybridVAEBase):
             if alpha_skips <= 0:
                 model.decoder.set_skips(None)
             else:
-                rep_skips = [(alpha_skips * sk).repeat_interleave(n, dim=0) for sk in skips]
+                # The decoder applies skip_alpha. Pass the raw encoder skips here
+                # so posterior generation uses the same scaling as training.
+                rep_skips = [sk.repeat_interleave(n, dim=0) for sk in skips]
                 model.decoder.set_skips(rep_skips)
 
             tgt_mask_pad_rep = tgt_mask_pad.repeat_interleave(n, dim=0)
