@@ -26,14 +26,14 @@ CATEGORY_ALIASES = {
 }
 
 CATEGORY_ANOMALY_SHAPES: dict[str, tuple[int, int, int]] = {
-    "can": (3, 64, 64),
-    "fabric": (3, 64, 64),
-    "fruit_jelly": (3, 64, 64),
-    "rice": (3, 64, 64),
-    "sheet_metal": (1, 64, 64),
-    "vial": (1, 64, 64),
-    "wallplugs": (1, 64, 64),
-    "walnuts": (3, 64, 64),
+    "can": (3, 128, 128),
+    "fabric": (3, 128, 128),
+    "fruit_jelly": (3, 128, 128),
+    "rice": (3, 128, 128),
+    "sheet_metal": (1, 128, 128),
+    "vial": (1, 128, 128),
+    "wallplugs": (1, 128, 128),
+    "walnuts": (3, 128, 128),
 }
 
 CATEGORY_GENERATION_MODEL: dict[str, str] = {
@@ -147,7 +147,7 @@ def configure_mvtecad2_defaults(config: Configuration):
     config.variation_strength = 1.25
 
     # matching settings
-    config.matching_routine = "global"
+    config.matching_routine = "batchwise"
     config.anomaly_duplicates = True
     config.fusions_per_control = 2
     config.max_fusions_per_control_deviation = 1
@@ -200,7 +200,7 @@ def configure_mvtecad2_defaults(config: Configuration):
     """
     # Training settings
     config.val_ratio = 0.1
-    config.batch_size = 8
+    config.batch_size = 32
     config.epochs = 1000
     config.lr = 1e-4
     config.grad_clip_norm = 1.0

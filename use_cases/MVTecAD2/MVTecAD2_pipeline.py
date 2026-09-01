@@ -299,6 +299,10 @@ def run_hybrid_sample_generation_for_usecase(
         )
 
     if "generate_synthetic_anomalies" in selected_steps:
+        generator.load_generator(
+            path_to_db_file=None if generator_db_path is None else str(generator_db_path),
+            trial_id=generator_trial_id,
+        )        
         generator.generate_synth_anomalies()
     elif "load_synthetic_anomalies" in selected_steps or _needs_synthetic_anomalies_loaded(selected_steps):
         generator.load_synth_anomalies()
@@ -893,11 +897,21 @@ def _validate_dataset_root(root: Path) -> None:
 
 
 if __name__ == "__main__":
-    categories = ("rice")
+    categories = (
+    "can",
+    "fabric",
+    "fruit_jelly",
+    "rice",
+    "sheet_metal",
+    "vial",
+    "wallplugs",
+    "walnuts")
+
+    """
     run_hybrid_sample_generation_for_all_usecases(
         root=MVTECAD2_ROOT,
         categories=categories,
-        no_of_trials=1,
+        no_of_trials=10,
         steps=(
             "extract",
             "train",
@@ -907,13 +921,14 @@ if __name__ == "__main__":
             "fusion",
             "save"
         ),
-        generator_trial_id=-2,  # -1: best Model, -2: newest Model, else Trial-/Modely number
-        save_path=MVTECAD2_SAVE,
+        generator_trial_id=-1,  # -1: best Model, -2: newest Model, else Trial-/Modely number
+        save_path=os.path.join(MVTECAD2_SAVE, "128x128"),
     )
+    """
 
     # Downstream call after generation:
     run_evaluation_and_visualization_for_all_usecases(
         root=MVTECAD2_ROOT,
         categories=categories,
-        save_path=MVTECAD2_SAVE,
+        save_path=os.path.join(MVTECAD2_SAVE, "128x128"),
     )

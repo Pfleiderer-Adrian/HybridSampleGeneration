@@ -131,7 +131,7 @@ class Configuration:
 
         self.fusions_per_control = 1  # for local, global and batchwise matching
         self.max_fusions_per_control_deviation = 0
-        self.matching_batchwise_batch_size = 64   # number of ROI candidates evaluated per control during batchwise matching. Must be a positive integer.
+        self.matching_batchwise_batch_size = 16   # number of ROI candidates evaluated per control during batchwise matching. Must be a positive integer.
         self.matching_intensity_weight = 1
         self.matching_gradient_weight = 2
 
