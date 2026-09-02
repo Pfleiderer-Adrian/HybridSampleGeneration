@@ -259,6 +259,7 @@ class ConvNeXtSPADEUNetDecoder3D(nn.Module):
         skip_dropout_p: float = 0.0,
         skip_dropout_ps: Optional[Iterable[float]] = None,
         skip_alpha: float = 1.0,
+        skip_alphas: Optional[Iterable[float]] = None,
         gn_groups: int = 8,
     ):
         super().__init__()
@@ -267,6 +268,7 @@ class ConvNeXtSPADEUNetDecoder3D(nn.Module):
         self.skip_dropout_p = float(skip_dropout_p)
         self.skip_dropout_ps = HybridVAEBase._normalize_skip_dropout_ps(skip_dropout_ps, n_levels, self.skip_dropout_p)
         self.skip_alpha = float(skip_alpha)
+        self.skip_alphas = HybridVAEBase._normalize_skip_alphas(skip_alphas, n_levels, self.skip_alpha)
         self._skips: Optional[List[torch.Tensor]] = None
         self.n_spade_blocks = n_spade_blocks
 
@@ -360,7 +362,7 @@ class ConvNeXtSPADEUNetDecoder3D(nn.Module):
                 skip = HybridVAEBase._crop_like(skip, target)
 
             # Skip gating: downscale skip strength to reduce bypass and force latent usage
-            skip = skip * self.skip_alpha
+            skip = skip * self.skip_alphas[-1 - i]
 
             x = torch.cat([x, skip], dim=1)
             x = self.fuse[i](x)
@@ -445,6 +447,9 @@ class Config:
     # Skip gating factor: scales skip features before concatenation in the decoder.
     # 1.0 disables gating (default). Typical values for encouraging latent usage: 0.2 - 0.6
     skip_alpha: float = 1.0
+    # Optional per-resolution scales in encoder order: [highest resolution, ..., deepest].
+    # If set, this overrides skip_alpha for individual skip levels.
+    skip_alphas: Optional[List[float]] = None
 
 class ConvNeXtcVAE3D(HybridVAEBase):
     """3D ConvNeXt-U-Net VAE with SPADE."""
@@ -481,6 +486,7 @@ class ConvNeXtcVAE3D(HybridVAEBase):
             skip_dropout_p=cfg.skip_dropout_p,
             skip_dropout_ps=cfg.skip_dropout_ps,
             skip_alpha=cfg.skip_alpha,
+            skip_alphas=cfg.skip_alphas,
         )
 
         # Lazy FC layers (depend on latent spatial size)

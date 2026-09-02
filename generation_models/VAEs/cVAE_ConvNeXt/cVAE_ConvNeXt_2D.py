@@ -280,6 +280,7 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
         skip_dropout_p: float = 0.0,
         skip_dropout_ps: Optional[Iterable[float]] = None,
         skip_alpha: float = 1.0,
+        skip_alphas: Optional[Iterable[float]] = None,
     ):
         super().__init__()
         self.n_levels = n_levels
@@ -289,6 +290,7 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
         self.skip_dropout_p = float(skip_dropout_p)
         self.skip_dropout_ps = HybridVAEBase._normalize_skip_dropout_ps(skip_dropout_ps, n_levels, self.skip_dropout_p)
         self.skip_alpha = float(skip_alpha)
+        self.skip_alphas = HybridVAEBase._normalize_skip_alphas(skip_alphas, n_levels, self.skip_alpha)
 
         self.bottom_ch = 2 ** (n_levels + 3)
         self.from_z = nn.Sequential(
@@ -374,8 +376,9 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
                 skip = HybridVAEBase._crop_like(skip, target)
 
             # Apply skip scaling
-            if self.skip_alpha != 1.0:
-                skip = skip * self.skip_alpha
+            skip_alpha = self.skip_alphas[-1 - i]
+            if skip_alpha != 1.0:
+                skip = skip * skip_alpha
 
             # Skip-Dropout manually implemented
             p = self.skip_dropout_ps[-1 - i]
@@ -437,6 +440,9 @@ class Config:
     # If set, this overrides skip_dropout_p for individual skip levels.
     skip_dropout_ps: Optional[List[float]] = None
     skip_alpha: float = 1.0      # Scale skips (0.0 disables skips, 0.2 keeps small guidance)
+    # Optional per-resolution scales in encoder order: [highest resolution, ..., deepest].
+    # If set, this overrides skip_alpha for individual skip levels.
+    skip_alphas: Optional[List[float]] = None
 
 
 class ConvNeXtcVAE2D(HybridVAEBase):
@@ -478,6 +484,7 @@ class ConvNeXtcVAE2D(HybridVAEBase):
             skip_dropout_p=cfg.skip_dropout_p,
             skip_dropout_ps=cfg.skip_dropout_ps,
             skip_alpha=cfg.skip_alpha,
+            skip_alphas=cfg.skip_alphas,
         )
 
         self.fc_mu: Optional[nn.Linear] = None

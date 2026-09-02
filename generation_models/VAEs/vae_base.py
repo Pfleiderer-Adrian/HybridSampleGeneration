@@ -104,6 +104,25 @@ class HybridVAEBase(nn.Module, ABC):
         return values
 
     @staticmethod
+    def _normalize_skip_alphas(
+        skip_alphas: Optional[Iterable[float]],
+        n_levels: int,
+        fallback: float,
+    ) -> List[float]:
+        """Return non-negative per-level skip scales in encoder order."""
+        if skip_alphas is None:
+            values = [float(fallback)] * n_levels
+        else:
+            values = [float(alpha) for alpha in skip_alphas]
+            if len(values) != n_levels:
+                raise ValueError(f"Expected {n_levels} skip alpha values, got {len(values)}")
+
+        for alpha in values:
+            if alpha < 0.0:
+                raise ValueError(f"Skip alpha values must be >= 0, got {alpha}")
+        return values
+
+    @staticmethod
     def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
         """Sample z ~ N(mu, sigma^2) using the reparameterization trick."""
         std = torch.exp(0.5 * logvar)
