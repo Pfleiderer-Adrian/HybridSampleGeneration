@@ -675,7 +675,8 @@ class ConvNeXtcVAE2D(HybridVAEBase):
             h_dec = model.fc_decode(z).reshape(B * n, self.cfg.z_channels, *latent_hw)
 
             alpha_skips = float(self.cfg.skip_alpha)
-            if alpha_skips <= 0:
+            skip_alphas = getattr(self.cfg, "skip_alphas", None)
+            if alpha_skips <= 0 and skip_alphas is None:
                 model.decoder.set_skips(None)
             else:
                 # The decoder applies skip_alpha. Pass the raw encoder skips here
