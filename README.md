@@ -249,6 +249,8 @@ The parameters are:
       Shape the alpha falloff from anomaly interior to boundary.
   - upsampling_factor:
       Increases mask resolution during distance-transform computation for smoother alpha masks.
+  - max_blend_width_pixels:
+      Optionally caps the distance-based alpha transition at a fixed number of pixels in the original image resolution. `None` preserves the relative, anomaly-size-dependent transition width. Smaller anomalies whose transition is already below the cap are unchanged.
   - sobel_threshold:
       Controls which gradients are treated as anomaly edges when `fusion_use_sobel_for_alpha_mask` is enabled.
   - dilation_size / shave_pixels:

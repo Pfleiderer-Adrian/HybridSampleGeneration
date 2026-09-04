@@ -913,10 +913,28 @@ def _distance_alpha(clean_mask, max_alpha, sq, steepness_factor, config):
     else:
         dist_map = scipy.ndimage.distance_transform_edt(clean_mask)
 
-    # Normalize to [0, 1].
+    # Normalize to [0, 1]. By default the transition width remains relative to
+    # the largest interior distance, matching the original behavior exactly.
+    # For large masks, optionally increase the effective steepness just enough
+    # to cap that transition at a fixed number of original-resolution pixels.
     current_max = dist_map.max()
     if current_max > 0:
         dist_map /= current_max
+
+        max_blend_width = config.get("max_blend_width_pixels")
+        if max_blend_width is not None:
+            max_blend_width = float(max_blend_width)
+            if max_blend_width <= 0:
+                raise ValueError("max_blend_width_pixels must be > 0 or None")
+
+            # Distances computed on an upsampled mask retain upsampled-pixel
+            # units after interpolation back to the original array shape.
+            distance_scale = float(upsampling_factor) if upsampling_factor > 1 else 1.0
+            max_width_distance_units = max_blend_width * distance_scale
+            steepness_factor = max(
+                float(steepness_factor),
+                float(current_max) / max_width_distance_units,
+            )
 
     # ------------------------------------------------------------
     # 5) Apply shaping parameters to control falloff and maximum alpha.

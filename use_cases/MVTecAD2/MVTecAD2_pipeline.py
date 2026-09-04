@@ -913,10 +913,10 @@ if __name__ == "__main__":
         categories=categories,
         no_of_trials=10,
         steps=(
-            "extract",
-            "train",
-            "generate_synth",
-            "matching",
+            #"extract",
+            #"train",
+            #"generate_synth",
+            #"matching",
             "train_fusion",
             "fusion",
             "save"
@@ -924,8 +924,8 @@ if __name__ == "__main__":
         generator_trial_id=-1,  # -1: best Model, -2: newest Model, else Trial-/Modely number
         save_path=os.path.join(MVTECAD2_SAVE, "128x128"),
     )
+    
     """
-
     # Downstream call after generation:
     run_evaluation_and_visualization_for_all_usecases(
         root=MVTECAD2_ROOT,

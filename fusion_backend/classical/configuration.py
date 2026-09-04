@@ -18,6 +18,9 @@ class Config:
     sq: float = 2
     steepness_factor: float = 3
     upsampling_factor: int = 2
+    # Optional upper bound for the distance-based alpha transition in pixels
+    # at the original image resolution. None preserves the relative behavior.
+    max_blend_width_pixels: float | None = None
     sobel_threshold: float = 0.05
     dilation_size: int = 2
     shave_pixels: int = 1

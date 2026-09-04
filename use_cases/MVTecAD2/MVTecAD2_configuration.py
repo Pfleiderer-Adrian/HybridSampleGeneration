@@ -152,18 +152,23 @@ def configure_mvtecad2_defaults(config: Configuration):
     config.fusions_per_control = 2
     config.max_fusions_per_control_deviation = 1
 
+
     # Fusion settings
     config.set_fusion_backend("classical")
     config.fusion_params.set_fusion_params(
         max_alpha=1.0,
-        sq=1.5,
-        steepness_factor=1.5,
+        sq=1.0,
+        steepness_factor=2.5,
         upsampling_factor=4,
+        max_blend_width_pixels=6,
+
+
         sobel_threshold=0.01,
         dilation_size=1,
         shave_pixels=0,
         fusion_use_sobel_for_alpha_mask=False,
-        fusion_variation=True,
+
+        fusion_variation=False,
         alpha_variation=0.05,
         sq_variation=0.1,
         steepness_variation=0.2,
@@ -173,7 +178,6 @@ def configure_mvtecad2_defaults(config: Configuration):
         fusion_relation_mode = "ratio",  # alternatively "ratio" if intensities are not too close to 0 and have matching signs
         fusion_relation_norm_classes_separately = False,
         fusion_relation_min_context_size = 8
-
     )
     """
     config.set_fusion_backend("learned_residual_alpha")
@@ -278,7 +282,7 @@ def configure_mvtecad2_defaults(config: Configuration):
 def configure_can(config: Configuration) -> Configuration:
     config.variation_strength = 1.5
     config.fusion_params.set_fusion_params(max_alpha=0.9, sobel_threshold=0.05)
-    config.min_roi_size = (256, 256)
+    #config.min_roi_size = (256, 256)
 
 
 
