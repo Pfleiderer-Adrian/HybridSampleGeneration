@@ -1,9 +1,8 @@
-import os
-from PIL import Image
-
-from use_cases.image_2d.ImageDataloader import ImageDataloader, save_image
+from use_cases.image_2d.ImageDataloader import ImageDataloader
 from synthesizer.Configuration import Configuration
+from synthesizer.Evaluation import evaluate_study
 from synthesizer.HybridDataGenerator import HybridDataGenerator
+from data_handler.Visualizer import run_hybrid_visualizer
 
 path_to_img = "add image path here for samples with anomalies"
 path_to_seg = "add segmentation path here for samples with anomalies"
@@ -24,64 +23,37 @@ if __name__ == "__main__":
     # define a basic configuration
     config = Configuration("images", "VAE_ResNet_2D", (3, 32, 32))
     # Optional trainable fusion backend:
-    # config.set_fusion_backend("learned_residual_alpha")
+    # config.fusion.set_backend("learned_residual_alpha")
 
-    HDG = HybridDataGenerator(config)
+    generator = HybridDataGenerator(config)
     # 1) Extract anomaly cutouts + ROI cutouts from anomaly-labeled samples
-    HDG.extract_anomalies(dataloader_samples_with_anomalies)
-    # 1) Or load already extracted anomalies
-    HDG.load_anomalies()
+    generator.extract_anomalies(dataloader_samples_with_anomalies)
 
     # 2) Train generator via Optuna
-    HDG.train_generator(no_of_trials=1)
-    # 2) Or only load a trained model
-    HDG.load_generator()
+    generator.train_generator(no_of_trials=1)
+    # To reuse a trained model instead: omit training and call generator.load_generator().
 
-    # 3) Generate and load synthetic anomalies
-    HDG.generate_synth_anomalies()
-    # 3) Or load already generated synthetic anomalies
-    HDG.load_synth_anomalies()
+    # 3) Generate synthetic anomalies
+    generator.generate_synthetic_anomalies()
 
-    # 4) Create matching between control samples and anomaly ROIs
-    HDG.create_matching_dict(dataloader_samples_without_anomalies)
-    # 4) Or load already created matching dict
-    HDG.load_matching_dict()
+    # 4) Plan multiple hybrid variants and normalized placements
+    generator.plan_hybrid_samples(dataloader_samples_without_anomalies)
 
     # Optional when using a trainable fusion backend:
-    # HDG.train_fusion_backend(dataloader_samples_with_anomalies)
-    # 5) Initialize the configured fusion backend
-    HDG.load_fusion_backend()
+    # generator.train_fusion_backend(dataloader_samples_with_anomalies)
 
-    # set result folder
-    paths = config.get_paths()
-    img_folder = paths.generated_images
-    seg_folder = paths.generated_segmentations
-    os.makedirs(img_folder, exist_ok=True)
-    os.makedirs(seg_folder, exist_ok=True)
-
-    # iterate over your control samples
-    for control_image, _, basename in dataloader_samples_without_anomalies:
-
-        if basename not in config.matching_dict:
-            print(basename+" not found in matching dict")
-            continue
-
-        # 6) Fuse synthetic anomaly into one control sample
-        img, seg = HDG.fusion_synth_anomalies(control_image, basename)
-
-        filepath = os.path.join(img_folder, basename)
-        save_image(img, filepath)
-
-        filepath = os.path.join(seg_folder, basename)
-        save_image(seg, filepath)
+    # 5) Materialize every planned hybrid; the fusion backend is initialized lazily
+    generator.materialize_hybrid_samples()
+    hybrid_dataset = generator.datasets.hybrid_samples(
+        load_to_ram=False,
+        numpy_mode=True,
+    )
 
     # save the actual configuration
     config.save_config_file()
 
-    dataloader_samples_with_anomalies = ImageDataloader(path_to_img, path_to_seg)
+    # 6) Compute metric differences directly from persisted study relationships
+    evaluate_study(config)
 
-    # 7) Compute (textural and morphological) metric differences for real-synthetic pairs
-    HDG.run_evaluation_pipeline(dataloader_samples_with_anomalies)
-
-    # 8) Start Outlier Viewer for manual inspection of generated samples
-    HDG.visualize_evaluation_results()
+    # 7) Browse the persisted study hierarchy
+    run_hybrid_visualizer(config)

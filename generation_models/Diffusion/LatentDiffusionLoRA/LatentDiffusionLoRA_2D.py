@@ -81,7 +81,7 @@ class LatentDiffusionLoRA2D(nn.Module):
 
     def configure_optimizers(self, config):
         if self.pipeline is None:
-            self.warmup(config.anomaly_size, config=config)
+            raise RuntimeError("warmup() must be called before configure_optimizers().")
 
         trainable_params = [param for param in self.parameters() if param.requires_grad]
         if not trainable_params:
@@ -89,7 +89,7 @@ class LatentDiffusionLoRA2D(nn.Module):
 
         optimizer = torch.optim.AdamW(
             trainable_params,
-            lr=config.lr,
+            lr=config.learning_rate,
             betas=(self.cfg.adam_beta1, self.cfg.adam_beta2),
             weight_decay=self.cfg.adam_weight_decay,
             eps=self.cfg.adam_epsilon,

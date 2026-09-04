@@ -171,6 +171,6 @@ class FusionBackend(Protocol):
         control_img: np.ndarray,
         position: Any,
         *,
-        config=None,
+        extraction_config=None,
     ) -> FusionOutput:
         ...

@@ -62,10 +62,10 @@ class ClassicalFusionBackend:
         control_img,
         position,
         *,
-        config=None,
+        extraction_config=None,
     ) -> FusionOutput:
-        if config is None:
-            raise ValueError("ClassicalFusionBackend requires config for fusion parameters.")
+        if extraction_config is None:
+            raise ValueError("ClassicalFusionBackend requires extraction_config for ROI construction.")
 
         control = control_img
         anomaly = sample["synth_anomaly"]
@@ -81,7 +81,7 @@ class ClassicalFusionBackend:
                 anomaly_meta,
                 position,
                 target_mask,
-                config,
+                extraction_config,
                 spatial_ndim=2,
                 crop_roi=crop_square_clip,
                 dynamic_roi_size=dynamic_roi_size_2d,
@@ -96,7 +96,7 @@ class ClassicalFusionBackend:
                 anomaly_meta,
                 position,
                 target_mask,
-                config,
+                extraction_config,
                 spatial_ndim=3,
                 crop_roi=crop_cube_clip,
                 dynamic_roi_size=dynamic_roi_size_3d,
@@ -113,7 +113,7 @@ class ClassicalFusionBackend:
         anomaly_meta,
         position,
         target_mask,
-        config,
+        extraction_config,
         *,
         spatial_ndim: int,
         crop_roi,
@@ -295,7 +295,7 @@ class ClassicalFusionBackend:
             anomaly_roi_mask,
             alpha_mask,
             self.params,
-            normalization_eps=getattr(config, "normalization_eps", 1e-8),
+            normalization_eps=extraction_config.normalization_eps,
         )
         alpha = alpha_mask[None, ...]
 
@@ -344,10 +344,16 @@ class ClassicalFusionBackend:
         #     and ROI-level evaluation.
         # ------------------------------------------------------------
         centroid = tuple(float(offset[axis]) + float(crop_shape[axis]) / 2.0 for axis in range(spatial_ndim))
-        if config.extraction_fixed_roi_size is None:
-            roi_size = dynamic_roi_size(crop_shape, config.extraction_min_roi_padding, config.extraction_roi_padding_ratio, config.min_roi_size)
+        roi_config = extraction_config.roi
+        if roi_config.fixed_size is None:
+            roi_size = dynamic_roi_size(
+                crop_shape,
+                roi_config.min_padding,
+                roi_config.padding_ratio,
+                roi_config.min_size,
+            )
         else:
-            roi_size = config.extraction_fixed_roi_size
+            roi_size = roi_config.fixed_size
 
         fused_roi = crop_roi(
             fused_image,

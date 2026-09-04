@@ -133,7 +133,7 @@ class HybridVAEBase(nn.Module, ABC):
         trainable_params = [param for param in self.parameters() if param.requires_grad]
         if not trainable_params:
             raise ValueError(f"{self.__class__.__name__} has no trainable parameters.")
-        return torch.optim.Adam(trainable_params, lr=config.lr), None
+        return torch.optim.Adam(trainable_params, lr=config.learning_rate), None
 
     def training_step(self, batch, batch_idx: int, config=None) -> StepOutput:
         """Compute one training batch loss and metrics."""

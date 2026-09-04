@@ -186,10 +186,12 @@ class LearnedResidualAlphaFusionBackend:
         control_img,
         position,
         *,
-        config=None,
+        extraction_config=None,
     ) -> FusionOutput:
-        if config is None:
-            raise ValueError("LearnedResidualAlphaFusionBackend requires config for ROI parameters.")
+        if extraction_config is None:
+            raise ValueError(
+                "LearnedResidualAlphaFusionBackend requires extraction_config for ROI construction."
+            )
         control = control_img
         anomaly = sample["synth_anomaly"]
         anomaly_meta = sample["anomaly_meta"]
@@ -209,11 +211,11 @@ class LearnedResidualAlphaFusionBackend:
             position,
             target_mask,
             control_bg_mask=control_bg_mask,
-            normalization_eps=getattr(config, "normalization_eps", 1e-8),
+            normalization_eps=extraction_config.normalization_eps,
         )
         spatial_dims = proposal["spatial_dims"]
 
-        self.warmup(proposal["control"].shape, config=config)
+        self.warmup(proposal["control"].shape, config=extraction_config)
         self.model.eval()
 
         features, scale = self._build_features(
@@ -260,15 +262,26 @@ class LearnedResidualAlphaFusionBackend:
             float(proposal["offset"][axis]) + float(crop_shape[axis]) / 2.0
             for axis in range(spatial_dims)
         )
-        if config.extraction_fixed_roi_size is None:
+        roi_config = extraction_config.roi
+        if roi_config.fixed_size is None:
             if spatial_dims == 2:
-                roi_size = dynamic_roi_size_2d(crop_shape, config.extraction_min_roi_padding, config.extraction_roi_padding_ratio, config.min_roi_size)
+                roi_size = dynamic_roi_size_2d(
+                    crop_shape,
+                    roi_config.min_padding,
+                    roi_config.padding_ratio,
+                    roi_config.min_size,
+                )
                 crop_roi = crop_square_clip
             else:
-                roi_size = dynamic_roi_size_3d(crop_shape, config.extraction_min_roi_padding, config.extraction_roi_padding_ratio, config.min_roi_size)
+                roi_size = dynamic_roi_size_3d(
+                    crop_shape,
+                    roi_config.min_padding,
+                    roi_config.padding_ratio,
+                    roi_config.min_size,
+                )
                 crop_roi = crop_cube_clip
         else:
-            roi_size = config.extraction_fixed_roi_size
+            roi_size = roi_config.fixed_size
             crop_roi = crop_square_clip if spatial_dims == 2 else crop_cube_clip
 
         return FusionOutput(

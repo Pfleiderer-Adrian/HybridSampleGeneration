@@ -1,710 +1,416 @@
-import os
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
+from __future__ import annotations
+
 import json
-from scipy.stats import entropy
-from scipy.ndimage import center_of_mass
+import os
 from collections import defaultdict
-from pathlib import Path
-import tkinter as tk
-from tkinter import messagebox
+from dataclasses import dataclass
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from scipy.ndimage import center_of_mass
+
+from synthesizer.ArtifactStore import ArtifactStore
+from synthesizer.StudyPaths import StudyPaths
+from synthesizer.StudyRepository import StudyRepository
+from synthesizer.configuration.evaluation import EvaluationConfiguration
 
 
-from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
-from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
-from data_handler.AnomalyDataset import save_numpy_as_npy
-from data_handler.Visualizer import OutlierGUI
+@dataclass(frozen=True)
+class EvaluationPair:
+    id: str
+    real_anomaly_id: str
+    synthetic_anomaly_id: str
+    real_image_path: str
+    synthetic_image_path: str
+    real_mask_path: str | None = None
+    synthetic_mask_path: str | None = None
+    placement_id: str | None = None
 
 
-def _relative_foreground_mask(arr, background_threshold):
-    threshold_rel = float(background_threshold)
-    if threshold_rel < 0.0:
-        raise ValueError(f"background_threshold must be >= 0, got {background_threshold}.")
-
-    min_val = float(np.nanmin(arr))
-    max_val = float(np.nanmax(arr))
-    threshold = min_val + threshold_rel * (max_val - min_val)
-    return arr > threshold
-
-
-def compare_intensity_range(sample_dataloader, synth_dir):
-
-    global_min = np.inf
-    global_max = -np.inf
-    for arr, seg, basename in sample_dataloader:
-        scan_min = arr.min()
-        scan_max = arr.max()
-        global_min = round(min(global_min, scan_min), 2)
-        global_max = round(max(global_max, scan_max), 2)
-    real_range_min, real_range_max = float(global_min), float(global_max)
-
-    if not os.path.exists(synth_dir):
-        print("Directory doesn't exist.")
-        return
-    global_min = np.inf
-    global_max = -np.inf
-    for f in Path(synth_dir).rglob("*.npy"):
-        arr = np.load(f, mmap_mode="r")
-        scan_min = arr.min()
-        scan_max = arr.max()
-        global_min = round(min(global_min, scan_min), 2)
-        global_max = round(max(global_max, scan_max), 2)
-    synth_range_min, synth_range_max = float(global_min), float(global_max)
+def evaluate_study(config):
+    """Evaluate one persisted study without constructing a workflow orchestrator."""
+    paths = config.study.paths
+    repository = StudyRepository(paths.artifact_database)
+    artifact_store = ArtifactStore(paths.study_folder)
+    return evaluation_pipeline(
+        repository,
+        artifact_store,
+        paths,
+        config.evaluation,
+    )
 
 
-    print(f"Intensity range of real data with anomalies: ({real_range_min}, {real_range_max})")
-    print(f"Intensity range of synthetic data with anomalies: ({synth_range_min}, {synth_range_max})")
+def _relative_foreground_mask(array, background_threshold):
+    threshold = float(background_threshold)
+    if threshold < 0:
+        raise ValueError("background_threshold must be non-negative.")
+    minimum = float(np.nanmin(array))
+    maximum = float(np.nanmax(array))
+    return array > minimum + threshold * (maximum - minimum)
 
-
-
-# -- local analysis --
-# glcm
 
 def compute_glcm(volume, mask, levels=32):
-
-    glcm_total = np.zeros((levels, levels), dtype=np.float32)
-    for c in range(volume.shape[0]):
-        # mask can be with or without channel
-        current_mask = mask[c] if mask.ndim == volume.ndim else mask
-        glcm_total += _compute_glcm_for_channel(volume[c], current_mask, levels) # one glcm computation per channel
-
-    # norm
-    total_sum = glcm_total.sum()
-    if total_sum > 0:
-        glcm_total /= total_sum
-    return glcm_total
+    volume = np.asarray(volume)
+    mask = np.asarray(mask)
+    if volume.ndim not in (3, 4):
+        raise ValueError(f"Expected channel-first 2D/3D data, got {volume.shape}.")
+    glcm = np.zeros((levels, levels), dtype=np.float64)
+    for channel_index in range(volume.shape[0]):
+        if mask.ndim == volume.ndim:
+            mask_index = min(channel_index, mask.shape[0] - 1)
+            channel_mask = mask[mask_index]
+        else:
+            channel_mask = mask
+        glcm += _compute_glcm_for_channel(
+            volume[channel_index], channel_mask > 0, levels
+        )
+    total = glcm.sum()
+    return (glcm / total).astype(np.float32) if total > 0 else glcm.astype(np.float32)
 
 
 def _compute_glcm_for_channel(volume, mask, levels=32):
-
     lesion = volume[mask]
+    glcm = np.zeros((levels, levels), dtype=np.float64)
     if lesion.size == 0:
-        print("Mask empty. GLCM is 0.")
-        return np.zeros((levels, levels), dtype=np.float32)
-
-    # quantization
-    vol_min = lesion.min()
-    vol_max = lesion.max()
-    delta = vol_max - vol_min
-    
-    if delta == 0:
-        volume_q = np.zeros_like(volume, dtype=int)
+        return glcm
+    minimum = float(np.nanmin(lesion))
+    value_range = float(np.nanmax(lesion)) - minimum
+    if not np.isfinite(value_range) or value_range <= 0:
+        quantized = np.zeros_like(volume, dtype=np.int64)
     else:
-        volume_q = ((volume - vol_min) / delta * (levels - 1)).astype(int)
-        volume_q = np.clip(volume_q, 0, levels - 1)
-    
-    # vectorized computation
-    glcm = np.zeros((levels, levels), dtype=np.float32)
-
-    if volume.ndim == 2:
-        displacements = [(0, 1), (1, 1), (1, 0), (1, -1)]
-    
-    elif volume.ndim == 3:
-        displacements = [(1,0,1), (0,0,1), (-1,0,1), (1,1,1), (0,1,1), (-1,1,1), 
-                        (1,1,0), (0,1,0), (-1,1,0), (1,1,-1), (0,1,-1), (-1,1,-1), (1,0,0)]
-        
-    else:
-        raise ValueError(f"Data must be 2D or 3D without channel. (here {volume.ndim})")
-    
-    # bool mask for fast indexing
-    mask_bool = (mask >= 1) # only works for 0, 1 masks
-
+        quantized = np.clip(
+            ((volume - minimum) / value_range * (levels - 1)).astype(np.int64),
+            0,
+            levels - 1,
+        )
+    displacements = (
+        ((0, 1), (1, 1), (1, 0), (1, -1))
+        if volume.ndim == 2
+        else (
+            (1, 0, 1), (0, 0, 1), (-1, 0, 1), (1, 1, 1), (0, 1, 1),
+            (-1, 1, 1), (1, 1, 0), (0, 1, 0), (-1, 1, 0), (1, 1, -1),
+            (0, 1, -1), (-1, 1, -1), (1, 0, 0),
+        )
+    )
     for displacement in displacements:
-        # volume[0:-1] vs volume[1:] compares i with i+1 without loop
-        slices_src = []
-        slices_dst = []
-        
-        for d in displacement:
-            if d == 0:
-                slices_src.append(slice(None))
-                slices_dst.append(slice(None))
-            elif d > 0:
-                slices_src.append(slice(0, -d))
-                slices_dst.append(slice(d, None))
-            else: # d < 0
-                slices_src.append(slice(-d, None))
-                slices_dst.append(slice(0, d))
-        
-        slices_src = tuple(slices_src)
-        slices_dst = tuple(slices_dst)
-
-        # cut out shifted array
-        src_vals = volume_q[slices_src]
-        dst_vals = volume_q[slices_dst]
-        
-        # cut out shifted mask
-        src_mask = mask_bool[slices_src]
-        dst_mask = mask_bool[slices_dst]
-        
-        # only where pixel/voxel and neighbor are both in mask
-        valid_pairs = src_mask & dst_mask
-        
-        if not np.any(valid_pairs):
+        source_slices = []
+        target_slices = []
+        for delta in displacement:
+            if delta == 0:
+                source_slices.append(slice(None))
+                target_slices.append(slice(None))
+            elif delta > 0:
+                source_slices.append(slice(0, -delta))
+                target_slices.append(slice(delta, None))
+            else:
+                source_slices.append(slice(-delta, None))
+                target_slices.append(slice(0, delta))
+        source_slices = tuple(source_slices)
+        target_slices = tuple(target_slices)
+        valid = mask[source_slices] & mask[target_slices]
+        if not np.any(valid):
             continue
-            
-        # value pairs
-        i_vals = src_vals[valid_pairs]
-        j_vals = dst_vals[valid_pairs]
-        
-        # fill glcm (symmetric)
-        np.add.at(glcm, (i_vals, j_vals), 1)
-        np.add.at(glcm, (j_vals, i_vals), 1)
-    
+        source = quantized[source_slices][valid]
+        target = quantized[target_slices][valid]
+        np.add.at(glcm, (source, target), 1)
+        np.add.at(glcm, (target, source), 1)
     return glcm
 
 
 def glcm_features(glcm, roi=False):
     levels = glcm.shape[0]
-    i = np.arange(levels).reshape((-1,1))   # col vector
-    j = np.arange(levels).reshape((1,-1))   # row vector
-    
-    # Contrast
-    contrast = np.sum((i-j)**2 * glcm)
-    
-    # Homogeneity
-    homogeneity = np.sum(glcm / (1.0 + (i-j)**2))
-    
-    # Energy
-    energy = np.sqrt(np.sum(glcm**2))
-    
-    # Correlation
-    mean_i = np.sum(i * glcm)   
-    mean_j = np.sum(j * glcm)
-    std_i = np.sqrt(np.sum((i - mean_i)**2 * glcm))    
-    std_j = np.sqrt(np.sum((j - mean_j)**2 * glcm))
-    if std_i * std_j == 0:
-        correlation = 1.0
-    else:
-        correlation = np.sum((i - mean_i) * (j - mean_j) * glcm) / (std_i * std_j)
-    
-    if roi:
-        return {
-            "roi_Contrast": contrast,
-            "roi_Homogeneity": homogeneity,
-            "roi_Energy": energy,
-            "roi_Correlation": correlation
-        }
-        
+    row = np.arange(levels).reshape((-1, 1))
+    column = np.arange(levels).reshape((1, -1))
+    contrast = float(np.sum((row - column) ** 2 * glcm))
+    homogeneity = float(np.sum(glcm / (1.0 + (row - column) ** 2)))
+    energy = float(np.sqrt(np.sum(glcm**2)))
+    mean_row = np.sum(row * glcm)
+    mean_column = np.sum(column * glcm)
+    std_row = np.sqrt(np.sum((row - mean_row) ** 2 * glcm))
+    std_column = np.sqrt(np.sum((column - mean_column) ** 2 * glcm))
+    correlation = (
+        1.0
+        if std_row * std_column == 0
+        else float(
+            np.sum((row - mean_row) * (column - mean_column) * glcm)
+            / (std_row * std_column)
+        )
+    )
+    prefix = "roi_" if roi else ""
     return {
-        "Contrast": contrast,
-        "Homogeneity": homogeneity,
-        "Energy": energy,
-        "Correlation": correlation
+        prefix + "Contrast": contrast,
+        prefix + "Homogeneity": homogeneity,
+        prefix + "Energy": energy,
+        prefix + "Correlation": correlation,
     }
 
-def get_glcm_feature_diffs(real_arr, real_mask, synth_arr, synth_mask):
-    """
-    computes glcm features for real and synth and their differences
-    """
 
-    real_features = glcm_features(compute_glcm(real_arr, real_mask))
-    synth_features = glcm_features(compute_glcm(synth_arr, synth_mask))
-    
-    diff_features = {}
-
-    for name in real_features.keys():
-        if name in synth_features:
-            diff_features[name] = abs(real_features[name] - synth_features[name])
-    
-    return real_features, synth_features, diff_features
-
-def get_glcm_roi_feature_diffs(real_arr, real_mask, synth_arr, synth_mask):
-    """
-    computes glcm features for real and synth and their differences (roi)
-    """
-
-    real_features = glcm_features(compute_glcm(real_arr, real_mask), roi=True)
-    synth_features = glcm_features(compute_glcm(synth_arr, synth_mask), roi=True)
-    
-    diff_features = {}
-
-    for name in real_features.keys():
-        if name in synth_features:
-            diff_features[name] = abs(real_features[name] - synth_features[name])
-    
-    return real_features, synth_features, diff_features
+def get_glcm_feature_diffs(real_array, real_mask, synthetic_array, synthetic_mask):
+    real = glcm_features(compute_glcm(real_array, real_mask))
+    synthetic = glcm_features(compute_glcm(synthetic_array, synthetic_mask))
+    return real, synthetic, {
+        name: abs(real[name] - synthetic[name]) for name in real
+    }
 
 
-# center of mass and volume
-def get_volume_feature_diffs(real_anomaly, real_mask, synth_anomaly, synth_mask):
-    
-    mask_dim = real_mask.ndim
-    if mask_dim == real_anomaly.ndim:
-        # mask has channel dim
-        real_mask = np.max(real_mask, axis=0)
-        mask_dim -=1
-
-    if synth_mask.ndim == real_anomaly.ndim:
-        # synth mask has channel dim
-        synth_mask = np.max(synth_mask, axis=0)
+def get_glcm_roi_feature_diffs(real_array, real_mask, synthetic_array, synthetic_mask):
+    real = glcm_features(compute_glcm(real_array, real_mask), roi=True)
+    synthetic = glcm_features(
+        compute_glcm(synthetic_array, synthetic_mask), roi=True
+    )
+    return real, synthetic, {
+        name: abs(real[name] - synthetic[name]) for name in real
+    }
 
 
-    real_vol = np.sum(real_mask).astype(np.int64)
-    synth_vol = np.sum(synth_mask).astype(np.int64)
-
-    real_center = center_of_mass(real_mask)    # use anomaly instead of mask, if center should be influenced by anomaly intensity
-    synth_center = center_of_mass(synth_mask)
-
-    if mask_dim == 2:
-        real_features = {
-            "Volume": real_vol,
-            "H-center": real_center[0],
-            "W-center": real_center[1]
-        }
-        
-        synth_features = {
-            "Volume": synth_vol,
-            "H-center": synth_center[0],
-            "W-center": synth_center[1]
-        }
-        
-        diff_features = {
-            "Volume": abs(real_vol - synth_vol),
-            "H-center": abs(real_center[0] - synth_center[0]),
-            "W-center": abs(real_center[1] - synth_center[1])
-        }
-
-    elif mask_dim == 3:
-        real_features = {
-            "Volume": real_vol,
-            "D-center": real_center[0],
-            "H-center": real_center[1],
-            "W-center": real_center[2]
-        }
-        
-        synth_features = {
-            "Volume": synth_vol,
-            "D-center": synth_center[0],
-            "H-center": synth_center[1],
-            "W-center": synth_center[2]
-        }
-        
-        diff_features = {
-            "Volume": abs(real_vol - synth_vol),
-            "D-center": abs(real_center[0] - synth_center[0]),
-            "H-center": abs(real_center[1] - synth_center[1]),
-            "W-center": abs(real_center[2] - synth_center[2])
-        }
-
-    else:
-        raise ValueError(f"Data must be 2D or 3D without channel. (here {mask_dim})")
-
-    return real_features, synth_features, diff_features
+def get_volume_feature_diffs(real_array, real_mask, synthetic_array, synthetic_mask):
+    real_mask = _spatial_mask(real_mask)
+    synthetic_mask = _spatial_mask(synthetic_mask)
+    real_center = center_of_mass(real_mask)
+    synthetic_center = center_of_mass(synthetic_mask)
+    names = ("H-center", "W-center") if real_mask.ndim == 2 else (
+        "D-center", "H-center", "W-center"
+    )
+    real = {"Volume": int(real_mask.sum())}
+    synthetic = {"Volume": int(synthetic_mask.sum())}
+    real.update(dict(zip(names, real_center)))
+    synthetic.update(dict(zip(names, synthetic_center)))
+    return real, synthetic, {
+        name: abs(real[name] - synthetic[name]) for name in real
+    }
 
 
-def save_difference_histograms(differences_dict, save_path):
-    """
-    creates one hist for every metric in differenes_dict and saves it to save_path as png.
-    """
-    num_features = len(differences_dict)
-    
-    cols = 2
-    rows = (num_features + cols - 1) // cols
-    
-    fig, axes = plt.subplots(rows, cols, figsize=(10, rows * 4))
-    axes = axes.flatten()
-    
-    for i, (name, diff_list) in enumerate(differences_dict.items()):
-        if not diff_list:
-            print(f"Found no data for histogram {name}.")
+def _spatial_mask(mask):
+    mask = np.asarray(mask) > 0
+    if mask.ndim in (3, 4):
+        mask = np.any(mask, axis=0)
+    if mask.ndim not in (2, 3):
+        raise ValueError(f"Expected a 2D or 3D spatial mask, got {mask.shape}.")
+    return mask
+
+
+def run_feature_calculator(
+    pairs: list[EvaluationPair],
+    feature_calculator_func,
+    artifact_store: ArtifactStore,
+    paths: StudyPaths,
+    config: EvaluationConfiguration,
+    *,
+    use_recorded_masks: bool,
+):
+    real_totals = defaultdict(float)
+    synthetic_totals = defaultdict(float)
+    differences = defaultdict(list)
+    differences_with_ids = defaultdict(list)
+    csv_rows = []
+
+    for pair in pairs:
+        real_array = artifact_store.load_array(pair.real_image_path)
+        synthetic_array = artifact_store.load_array(pair.synthetic_image_path)
+        if use_recorded_masks and pair.real_mask_path and pair.synthetic_mask_path:
+            real_mask = artifact_store.load_array(pair.real_mask_path) > 0
+            synthetic_mask = artifact_store.load_array(pair.synthetic_mask_path) > 0
+        elif use_recorded_masks and config.foreground_threshold is not None:
+            real_mask = _relative_foreground_mask(real_array, config.foreground_threshold)
+            synthetic_mask = _relative_foreground_mask(
+                synthetic_array, config.foreground_threshold
+            )
+        else:
+            real_mask = np.ones_like(real_array, dtype=bool)
+            synthetic_mask = np.ones_like(synthetic_array, dtype=bool)
+
+        real_features, synthetic_features, pair_differences = feature_calculator_func(
+            real_array, real_mask, synthetic_array, synthetic_mask
+        )
+        csv_rows.append(
+            {
+                "pair_id": pair.id,
+                "real_anomaly_id": pair.real_anomaly_id,
+                "synthetic_anomaly_id": pair.synthetic_anomaly_id,
+                "placement_id": pair.placement_id,
+                "feature_calculator": feature_calculator_func.__name__,
+                "metric_diffs": json.dumps(
+                    {name: _scalar(value) for name, value in pair_differences.items()}
+                ),
+            }
+        )
+        for name, difference in pair_differences.items():
+            real_totals[name] += real_features[name]
+            synthetic_totals[name] += synthetic_features[name]
+            differences[name].append(difference)
+            differences_with_ids[name].append(
+                {"value": difference, "sample": pair.id}
+            )
+
+    sample_count = len(pairs)
+    outliers = {
+        name: _outliers(values, differences_with_ids[name], config, name)
+        for name, values in differences.items()
+    }
+    if csv_rows:
+        pd.DataFrame(csv_rows).to_csv(
+            paths.metric_diffs_csv,
+            mode="a",
+            index=False,
+            header=not os.path.exists(paths.metric_diffs_csv),
+        )
+    return {
+        "sample_counter": sample_count,
+        "mean_real": {
+            name: value / sample_count for name, value in real_totals.items()
+        } if sample_count else {},
+        "mean_synth": {
+            name: value / sample_count for name, value in synthetic_totals.items()
+        } if sample_count else {},
+        "outliers": outliers,
+        "all_diffs": dict(differences),
+    }
+
+
+def _outliers(values, entries, config, metric_name):
+    if not values:
+        return []
+    q1, q3 = np.percentile(values, [25, 75])
+    iqr = q3 - q1
+    lower, upper = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+    custom = config.outlier_thresholds.get(metric_name, {})
+    lower = custom.get("min") if custom.get("min") is not None else lower
+    upper = custom.get("max") if custom.get("max") is not None else upper
+    return sorted(
+        [entry for entry in entries if entry["value"] < lower or entry["value"] > upper],
+        key=lambda entry: abs(entry["value"]),
+        reverse=True,
+    )
+
+
+def _scalar(value):
+    return value.item() if hasattr(value, "item") else value
+
+
+def _cutout_pairs(repository: StudyRepository) -> list[EvaluationPair]:
+    pairs = []
+    for synthetic in repository.list_synthetic_anomalies():
+        real = repository.get_real_anomaly(synthetic.real_anomaly_id)
+        pairs.append(
+            EvaluationPair(
+                id=synthetic.id,
+                real_anomaly_id=real.id,
+                synthetic_anomaly_id=synthetic.id,
+                real_image_path=real.image_path,
+                synthetic_image_path=synthetic.image_path,
+                real_mask_path=real.segmentation_path,
+                synthetic_mask_path=synthetic.segmentation_path,
+            )
+        )
+    return pairs
+
+
+def _roi_pairs(repository: StudyRepository) -> list[EvaluationPair]:
+    pairs = []
+    for entry in repository.hierarchy():
+        placement = entry.placement
+        if placement.roi_image_path is None:
             continue
-            
-        ax = axes[i]
-        bins = 32
-        ax.hist(diff_list, bins, edgecolor='black', alpha=0.7)
-        ax.set_title(f'Difference Histogram: {name}')
-        ax.set_xlabel('Absolute Difference (Real - Synthetic)')
-        ax.set_ylabel('# Pairs')
-        ax.grid(axis='y', linestyle='--', alpha=0.7)
-    
-    for j in range(i + 1, len(axes)):
-        axes[j].axis('off')
-        
-    plt.tight_layout()
-
-    if save_path:
-        save_dir = os.path.dirname(save_path)
-        
-        if save_dir and not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-        plt.savefig(save_path, bbox_inches='tight')
-        print(f"\nSaved histograms: {save_path}")
-    else:
-        plt.show()
-    
-    plt.close(fig)
+        pairs.append(
+            EvaluationPair(
+                id=placement.id,
+                real_anomaly_id=entry.real_anomaly.id,
+                synthetic_anomaly_id=entry.synthetic_anomaly.id,
+                real_image_path=entry.real_anomaly.roi_image_path,
+                synthetic_image_path=placement.roi_image_path,
+                real_mask_path=entry.real_anomaly.roi_segmentation_path,
+                synthetic_mask_path=placement.roi_segmentation_path,
+                placement_id=placement.id,
+            )
+        )
+    return pairs
 
 
-def get_overlapping_samples(outliers_data):
-    
-    sample_tracker = defaultdict(list)
-    
-    for metric_name, sample_list in outliers_data.items():
-        for entry in sample_list:
-            sample_name = entry["sample"]
-            # append metric to this samples list
-            sample_tracker[sample_name].append(metric_name)
-            
-    overlapping_samples = {
-        sample: metrics for sample, metrics in sample_tracker.items() if len(metrics) > 1
+def evaluation_pipeline(
+    repository: StudyRepository,
+    artifact_store: ArtifactStore,
+    paths: StudyPaths,
+    config: EvaluationConfiguration,
+):
+    """Evaluate pairs joined through SyntheticAnomaly.real_anomaly_id."""
+    config.validate()
+    os.makedirs(paths.evaluation_results, exist_ok=True)
+    if os.path.exists(paths.metric_diffs_csv):
+        os.remove(paths.metric_diffs_csv)
+    cutouts = _cutout_pairs(repository)
+    rois = _roi_pairs(repository)
+    results = {
+        "glcm_cutout": run_feature_calculator(
+            cutouts, get_glcm_feature_diffs, artifact_store, paths, config,
+            use_recorded_masks=True,
+        ),
+        "volume_cutout": run_feature_calculator(
+            cutouts, get_volume_feature_diffs, artifact_store, paths, config,
+            use_recorded_masks=True,
+        ),
+        "glcm_roi": run_feature_calculator(
+            rois, get_glcm_roi_feature_diffs, artifact_store, paths, config,
+            use_recorded_masks=False,
+        ),
     }
-    return overlapping_samples
-
-
-def print_overlap_summary(overlaps_list):
-    
-    sample_to_metrics = {}
-    
-    for metric_group in overlaps_list:
-        # metric_group {'Contrast': [...], 'Homogeneity': [...]}
-        for metric_name, occurrences in metric_group.items():
-            # occurrences:  {'value': ..., 'sample': ...}
-            for entry in occurrences:
-                sample_name = entry['sample']
-                
-                if sample_name not in sample_to_metrics:
-                    sample_to_metrics[sample_name] = set()
-                
-                sample_to_metrics[sample_name].add(metric_name)
-
-    stats = {}
-    for metrics_set in sample_to_metrics.values():
-        n = len(metrics_set)
-        if n > 0:
-            stats[n] = stats.get(n, 0) + 1
-
-    print("- Summary of Overlaps -")
-    if not stats:
-        print("Found no overlaps.")
-    else:
-        for n in sorted(stats.keys(), reverse=True):
-            count = stats[n]
-            label = "sample" if count == 1 else "samples"
-            label2 = "metric" if n == 1 else "metrics"
-            print(f"outlier in {n} {label2}: {count} {label}")
+    histogram_paths = {
+        "glcm_cutout": paths.glcm_cutout_difference_histograms,
+        "volume_cutout": paths.volume_cutout_difference_histograms,
+        "glcm_roi": paths.glcm_roi_difference_histograms,
+    }
+    for name, result in results.items():
+        analyze_results(result)
+        if result["all_diffs"]:
+            save_difference_histograms(result["all_diffs"], histogram_paths[name])
+    print_overlap_summary([result["outliers"] for result in results.values()])
+    return results
 
 
 def analyze_results(results):
-    
-    if results is None or results["sample_counter"] == 0:
+    if not results or not results["sample_counter"]:
         print("No results.")
         return
-
-    mean_real = results["mean_real"]
-    mean_synth = results["mean_synth"]
-    outliers = results["outliers"]
-
-    print("\n---------- REAL DATA (Means) ----------")
-    for name, value in mean_real.items():
-        print(f"{name}: {value:.4f}")
-
-    print("\n---------- SYNTHETIC DATA (Means) ----------")
-    for name, value in mean_synth.items():
-        print(f"{name}: {value:.4f}")
-        
-    # Outlier
-    print(f"\n ---------- Metric difference outliers ----------")
-    for name, top_list in outliers.items():
-        list_len = len(top_list)
-        if list_len == 1:
-            print(f"{name} -> 1 outlier")
-        else:
-            print(f"{name} -> {list_len} outliers")
-    
-
-def run_feature_calculator(anomaly_dir, synth_anomaly_dir, feature_calculator_func, config, cutout=True):
-    """
-    if cutout=True create mask (anomaly > bg_thresh or 0), else take whole images (for roi)
-    """
-    sample_counter = 0
-    real_totals = {}
-    synth_totals = {}
-    feature_differences = {}
-
-    all_diffs_and_sample = {}
-    diff_outliers = {}
-    # smallest_diffs = {}
-
-    csv_rows = []
-    csv_path = config.get_paths().metric_diffs_csv
-
-    grouped_roi_data = {}
-
-    for f in Path(synth_anomaly_dir).rglob("*.npy"):    # also checks all sub folders (for roi)
-        anomaly_name = f.name
-        real_file_path = os.path.join(anomaly_dir, anomaly_name)    # same name matching
-        if not os.path.exists(real_file_path):
-            print(f"Warning: Missing synth file {real_file_path}. Skipping.")
-            continue
-        
-        try:
-            synth_arr = np.load(f)
-            real_arr = np.load(real_file_path)
-        except Exception as e:
-            print(f"Error trying to load {f} and {real_file_path}: {e}. Skipping.")
-            continue
-
-        if cutout:
-            if config.background_threshold is not None:
-                real_mask = _relative_foreground_mask(real_arr, config.background_threshold)
-                synth_mask = _relative_foreground_mask(synth_arr, config.background_threshold)
-            else:
-                real_mask = real_arr > 0
-                synth_mask = synth_arr > 0
-        else: # roi
-            real_mask = np.ones_like(real_arr, dtype=bool)
-            synth_mask = np.ones_like(synth_arr, dtype=bool)
-
-        sample_counter += 1
-
-        real_features, synth_features, diff_features = feature_calculator_func(real_arr, real_mask, synth_arr, synth_mask)
-
-        if isinstance(diff_features, dict):
-            diff_features_serializable = {k: (v.item() if hasattr(v, 'item') else v) for k, v in diff_features.items()}
-        else:
-            diff_features_serializable = diff_features
-
-        if cutout:
-            csv_rows.append({
-                "sample_name": anomaly_name,
-                "feature_calculator": feature_calculator_func.__name__,
-                "metric_diffs": json.dumps(diff_features_serializable)
-            })
-        else:   # use control name as key for ROI metrics (and anomaly name as sub key)
-            control_name = f.parent.name
-            if control_name not in grouped_roi_data:
-                grouped_roi_data[control_name] = {}
-            grouped_roi_data[control_name][anomaly_name] = diff_features_serializable
-
-        for name, diff in diff_features.items():
-            # if name not in real_features or name not in synth_features:
-            #     continue
-
-            real_val = real_features[name]
-            synth_val = synth_features[name]
-            
-            real_totals[name] = real_totals.get(name, 0.0) + real_val
-            synth_totals[name] = synth_totals.get(name, 0.0) + synth_val
-            
-            if name not in feature_differences:
-                feature_differences[name] = []
-            feature_differences[name].append(diff)
-            
-            if name not in all_diffs_and_sample:
-                all_diffs_and_sample[name] = []
-            relative_path = str(f.relative_to(synth_anomaly_dir))
-            new_entry = {"value": diff, "sample": relative_path}
-            all_diffs_and_sample[name].append(new_entry)
-        
-    for control_name, anomalies_dict in grouped_roi_data.items():
-        csv_rows.append({
-            "sample_name": control_name,
-            "feature_calculator": "roi_" + feature_calculator_func.__name__,
-            "differences_dict": json.dumps(anomalies_dict)
-        })
-
-    if sample_counter == 0:
-        print("WARNING: Found no pairs. Return.")
-        return None
-    
-    print(f"Calculation done. Analysed {sample_counter} pairs.")
-    
-    feature_names_list = list(real_totals.keys())
-
-    mean_real_features = {name: real_totals[name] / sample_counter for name in feature_names_list}
-    mean_synth_features = {name: synth_totals[name] / sample_counter for name in feature_names_list}
-
-    for name, all_values_dicts in all_diffs_and_sample.items():
-        # smallest_diffs (smallest first)
-        # sorted_by_diff = sorted(all_values_dicts, key=lambda x: x["value"])
-        # smallest_diffs[name] = sorted_by_diff[:config.n_smallest_diffs]
-        
-        # Outlier
-        raw_values = feature_differences[name]
-        if not raw_values:
-            diff_outliers[name] = []
-            continue
-
-        q1, q3 = np.percentile(raw_values, [25, 75])
-        iqr = q3 - q1
-        lower_threshold = q1 - (1.5 * iqr)
-        upper_threshold = q3 + (1.5 * iqr)
-
-        custom = config.custom_outlier_thresholds.get(name)
-        if custom:
-            custom_min = custom.get("min")
-            custom_max = custom.get("max")
-            if custom_min is not None:
-                lower_threshold = custom_min
-            if custom_max is not None:
-                upper_threshold = custom_max
-
-        outliers_for_metric = []
-        for sample in all_values_dicts:
-            if sample["value"] > upper_threshold or sample["value"] < lower_threshold:
-                outliers_for_metric.append(sample)
-
-        # biggest first
-        outliers_for_metric.sort(key=lambda x: abs(x["value"]), reverse=True)
-        diff_outliers[name] = outliers_for_metric
-
-    if csv_rows:
-        df_new = pd.DataFrame(csv_rows)
-        os.makedirs(os.path.dirname(csv_path), exist_ok=True)
-        file_exists = os.path.isfile(csv_path)
-        
-        # creates "metric_diffs.csv" in directory "evaluation_results"
-        df_new.to_csv(csv_path, mode='a', index=False, header=not file_exists)
-
-    return {
-        "sample_counter": sample_counter,
-        "mean_real": mean_real_features,
-        "mean_synth": mean_synth_features,
-        "outliers": diff_outliers,
-        # "smallest_diffs": smallest_diffs,
-        "all_diffs": feature_differences
-    }
+    print(f"Analysed {results['sample_counter']} explicit real/synthetic pairs.")
+    for name, value in results["mean_real"].items():
+        print(f"Real {name}: {value:.4f}")
+    for name, value in results["mean_synth"].items():
+        print(f"Synthetic {name}: {value:.4f}")
 
 
-def evaluation_pipeline(sample_dataloader, config):
-
-    paths = config.get_paths()
-    eval_results_folder = paths.evaluation_results
-    os.makedirs(eval_results_folder, exist_ok=True)
-
-    csv_path = paths.metric_diffs_csv
-    
-    if os.path.exists(csv_path):
-        os.remove(csv_path)
-        print(f"Old results file {csv_path} deleted.")
-    
-    ghs_img_dir = paths.generated_images_npy
-    ghs_seg_dir = paths.generated_segmentations_npy
-
-    # print("--- Global comparison ---")
-    # if config.global_intensity_check:
-    #     print("- Computing histograms -")
-    #     compare_hist_and_metrics(img_dir, ghs_img_dir)
-    
-    print("\n- Computing intensity ranges -")
-    compare_intensity_range(sample_dataloader, ghs_img_dir)
-
-    print("\n--- Compare anomaly cutouts ---")
-    print("- Computing glcm on cutouts -")
-    anomaly_dir = paths.anomaly_data
-    synth_anomaly_dir = paths.synth_anomaly_data
-
-    glcm_cutout_results = run_feature_calculator(anomaly_dir, synth_anomaly_dir, get_glcm_feature_diffs, config, cutout=True)
-    glcm_cutout_hist_path = paths.glcm_cutout_difference_histograms
-    analyze_results(glcm_cutout_results)
-    save_difference_histograms(glcm_cutout_results["all_diffs"], glcm_cutout_hist_path)
-
-    print("\n- Computing volume features on cutouts -")
-    volume_cutout_results = run_feature_calculator(anomaly_dir, synth_anomaly_dir, get_volume_feature_diffs, config, cutout=True)
-    volume_cutout_hist_path = paths.volume_cutout_difference_histograms
-    analyze_results(volume_cutout_results)
-    save_difference_histograms(volume_cutout_results["all_diffs"], volume_cutout_hist_path)
-
-    print("\n--- Compare ROIs ---")
-
-    print("- Computing glcm on ROIs (VAE input-output pair) -")
-    roi_dir = paths.anomaly_roi_data
-    synth_roi_dir = paths.synth_roi_data
-
-    glcm_roi_results = run_feature_calculator(roi_dir, synth_roi_dir, get_glcm_roi_feature_diffs, config, cutout=False)
-    glcm_roi_hist_path = paths.glcm_roi_difference_histograms
-    analyze_results(glcm_roi_results)
-    save_difference_histograms(glcm_roi_results["all_diffs"], glcm_roi_hist_path)
+def save_difference_histograms(differences, save_path):
+    if not differences:
+        return
+    columns = 2
+    rows = (len(differences) + columns - 1) // columns
+    figure, axes = plt.subplots(rows, columns, figsize=(10, rows * 4), squeeze=False)
+    flat_axes = axes.flatten()
+    for axis, (name, values) in zip(flat_axes, differences.items()):
+        axis.hist(values, bins=32, edgecolor="black", alpha=0.7)
+        axis.set_title(f"Difference Histogram: {name}")
+        axis.set_xlabel("Absolute difference")
+        axis.set_ylabel("Pairs")
+    for axis in flat_axes[len(differences):]:
+        axis.set_axis_off()
+    figure.tight_layout()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    figure.savefig(save_path, bbox_inches="tight")
+    plt.close(figure)
 
 
-    print("\n--- Examining Outliers ---")
-    overlaps_list = [glcm_cutout_results["outliers"], volume_cutout_results["outliers"], glcm_roi_results["outliers"]]
-    print_overlap_summary(overlaps_list)
-
-    auto_remove_outliers(overlaps_list, config)
-
-def auto_remove_outliers(overlaps_list, config):
-    """
-    Deletes statistical outliers.
-    Only deletes synth_anomaly for anomaly outliers and synth_roi for roi outliers.
-    """
-    anomaly_outlier_paths = set()
-    roi_outlier_paths = set()
-
-    for group in overlaps_list:
-        for metric, items in group.items():
-            is_roi = "roi" in metric.lower()
-            for item in items:
-                path = item['sample']
-                if is_roi:
-                    roi_outlier_paths.add(path)
-                else:
-                    anomaly_outlier_paths.add(path)
-
-    if not anomaly_outlier_paths and not roi_outlier_paths:
-        print("No outliers found.")
-        return False
-
-    paths = config.get_paths()
-    synth_anomaly_dir = paths.synth_anomaly_data
-    synth_roi_dir = paths.synth_roi_data
-
-    def count_npy_files(directory):
-        if not os.path.exists(directory):
-            return 0
-        return sum(len([f for f in files if f.endswith('.npy')]) for _, _, files in os.walk(directory))
-
-    total_anomalies = count_npy_files(synth_anomaly_dir)
-    total_rois = count_npy_files(synth_roi_dir)
-
-    files_to_delete = []
-    
-    for rel_path in anomaly_outlier_paths:
-        full_path = os.path.join(synth_anomaly_dir, rel_path)
-        if os.path.exists(full_path):
-            files_to_delete.append(full_path)
-
-    for rel_path in roi_outlier_paths:
-        full_path = os.path.join(synth_roi_dir, rel_path)
-        if os.path.exists(full_path):
-            files_to_delete.append(full_path)
-
-    if not files_to_delete:
-        print("Outliers identified, but no corresponding files found on disk.")
-        return False
-
-    tk_root = tk.Tk()
-    tk_root.withdraw() 
-    tk_root.attributes('-topmost', True)
-
-    message = (
-        f"Outlier Statistics:\n"
-        f"------------------------------\n"
-        f"Anomalies: {len(anomaly_outlier_paths)} outliers found (Total: {total_anomalies})\n"
-        f"ROIs: {len(roi_outlier_paths)} outliers found (Total: {total_rois})\n\n"
-        f"Total files to be deleted: {len(files_to_delete)} (This only deletes the specific outlier files)\n\n"
-        f"Do you want to proceed with the deletion?"
-    )
-
-    confirm = messagebox.askyesno(
-        title="Delete Outliers",
-        message=message,
-        parent=tk_root
-    )
-
-    if confirm:
-        deleted_count = 0
-        for filepath in files_to_delete:
-            try:
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-                    deleted_count += 1
-            except Exception as e:
-                print(f"Error trying to remove {filepath}: {e}")
-        
-        messagebox.showinfo(title="Success", message=f"Successfully removed {deleted_count} files.", parent=tk_root)
-        print(f"Auto-removed {deleted_count} files.")
-    
-    tk_root.destroy()
-    return True
+def print_overlap_summary(outlier_groups):
+    sample_metrics = defaultdict(set)
+    for group in outlier_groups:
+        for metric, entries in group.items():
+            for entry in entries:
+                sample_metrics[entry["sample"]].add(metric)
+    if not sample_metrics:
+        print("No metric outlier overlaps.")
+        return
+    counts = defaultdict(int)
+    for metrics in sample_metrics.values():
+        counts[len(metrics)] += 1
+    print("Outlier overlaps: " + ", ".join(
+        f"{sample_count} samples in {metric_count} metrics"
+        for metric_count, sample_count in sorted(counts.items())
+    ))

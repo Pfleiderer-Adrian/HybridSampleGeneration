@@ -1,9 +1,33 @@
 from collections.abc import Mapping
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 
 
 DEFAULT_INPUT_ARTEFACTS = ("img", "fname")
 IMMUTABLE_MODEL_PARAMS = {"in_channels"}
+
+
+@dataclass
+class GeneratorModelConfiguration:
+    """Selected generator implementation and its model-specific parameters."""
+
+    name: str
+    parameters: "ModelConfiguration"
+    uses_masks: bool = False
+
+    def to_dict(self):
+        return {
+            "name": self.name,
+            "uses_masks": self.uses_masks,
+            "parameters": self.parameters.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, values):
+        return cls(
+            name=values["name"],
+            uses_masks=bool(values.get("uses_masks", False)),
+            parameters=ModelConfiguration.from_value(values["parameters"]),
+        )
 
 
 class ModelConfiguration:

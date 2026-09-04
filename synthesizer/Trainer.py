@@ -10,6 +10,8 @@ from generation_models.interfaces import StepOutput
 from generation_models.model_configuration import ModelConfiguration
 from generation_models.model_registry import get_model_spec
 from synthesizer.Configuration import Configuration
+from synthesizer.configuration.augmentation import AugmentationConfiguration
+from synthesizer.configuration.training import TrainingConfiguration
 
 
 class _TrainingTransformDataset(Dataset):
@@ -181,7 +183,7 @@ def optimize(no_of_trials, config:Configuration, dataset):
     Run Optuna hyperparameter optimization for a generative model.
 
     This function:
-      1) Creates (or reuses) an Optuna study stored via `config.get_paths()`.
+      1) Creates (or reuses) an Optuna study stored via `config.study.paths`.
       2) Runs `objective(...)` for `no_of_trials` trials.
       3) Prints summary information about the best trial found.
 
@@ -190,10 +192,7 @@ def optimize(no_of_trials, config:Configuration, dataset):
     no_of_trials:
         Number of Optuna trials to run (each trial trains one model instance).
     config:
-        Global configuration containing:
-          - study_folder, study_name
-          - model_name, model_params search space
-          - training params (epochs, lr, batch_size, val_ratio, ...)
+        Root configuration containing explicit study, model and training sections.
     dataset:
         PyTorch-style dataset (must implement __len__ and __getitem__),
         expected to yield anomaly cutouts (inputs for training).
@@ -206,10 +205,10 @@ def optimize(no_of_trials, config:Configuration, dataset):
           - Trains and saves models per trial into `<study_folder>/trained_models/`
           - Prints best-trial statistics to stdout.
     """
-    paths = config.get_paths()
+    paths = config.study.paths
     os.makedirs(paths.study_folder, exist_ok=True)
 
-    study = optuna.create_study(study_name=config.study_name, direction='minimize', load_if_exists=True,
+    study = optuna.create_study(study_name=config.study.name, direction='minimize', load_if_exists=True,
                                 storage=paths.optuna_storage_url)
 
     # Run optimization process
@@ -233,9 +232,9 @@ def objective(trial: Trial, config: Configuration, dataset):
     Optuna objective function: samples hyperparameters, trains a model, saves it, and returns a score.
 
     The objective:
-      1) Builds a hyperparameter set from config.model_params.
-      2) Instantiates the model architecture specified by `config.model_name`.
-      3) Splits dataset into train/val and trains for up to `config.epochs`.
+      1) Builds a hyperparameter set from config.model.parameters.
+      2) Instantiates the model architecture specified by config.model.name.
+      3) Splits the dataset and trains according to config.training.
       4) Stores hyperparameters + paths as Optuna user attributes for reproducibility.
       5) Returns the minimum validation loss observed during training.
 
@@ -259,22 +258,23 @@ def objective(trial: Trial, config: Configuration, dataset):
     - Writes trial metadata into the Optuna DB (user_attrs)
     """
     # 1. set hyperparameter tuning space via optuna
-    params = sample_model_params(trial, config.model_params)
+    params = sample_model_params(trial, config.model.parameters)
 
 
     # 2. Create the model with chosen hyperparameters
-    model = get_model_spec(config.model_name).build(params)
+    model = get_model_spec(config.model.name).build(params)
 
-    n_val = int(len(dataset) * config.val_ratio)
+    training_config = config.training
+    n_val = int(len(dataset) * training_config.validation_ratio)
     n_train = len(dataset) - n_val
 
-    g = torch.Generator().manual_seed(42)
+    g = torch.Generator().manual_seed(config.study.seed)
     train_ds, val_ds = random_split(dataset, [n_train, n_val], generator=g)
-    train_ds = _apply_training_offset_augmentation(train_ds, config)
+    train_ds = _apply_training_offset_augmentation(train_ds, config.augmentation)
 
     _anomaly_train_loader = DataLoader(
             train_ds,
-            batch_size=config.batch_size,
+            batch_size=training_config.batch_size,
             shuffle=True,
             num_workers=4,
             pin_memory=True,
@@ -282,7 +282,7 @@ def objective(trial: Trial, config: Configuration, dataset):
         )
     _anomaly_val_loader = DataLoader(
             val_ds,
-            batch_size=config.batch_size,
+            batch_size=training_config.batch_size,
             shuffle=False,
             num_workers=4,
             pin_memory=True,
@@ -290,7 +290,7 @@ def objective(trial: Trial, config: Configuration, dataset):
         )
 
     # 3. Start training of the model
-    directory = config.get_paths().trained_models
+    directory = config.study.paths.trained_models
     os.makedirs(directory, exist_ok=True)
     best_model_path = os.path.join(directory, f"model_trial_{trial.number}_best.pth")
 
@@ -298,7 +298,8 @@ def objective(trial: Trial, config: Configuration, dataset):
         model=model,
         train_loader=_anomaly_train_loader,
         val_loader=_anomaly_val_loader,
-        config=config,
+        config=training_config,
+        anomaly_size=config.extraction.anomaly_size,
         best_model_path=best_model_path,
     )
 
@@ -311,19 +312,19 @@ def objective(trial: Trial, config: Configuration, dataset):
     trial.set_user_attr("best_epoch", best_epoch)
     trial.set_user_attr("best_val_loss", float(best_val))
     trial.set_user_attr("params", params)
-    trial.set_user_attr("model_name", config.model_name)
+    trial.set_user_attr("model_name", config.model.name)
 
     # lowest validation/monitor error over all epochs
     return min(val_losses) if val_losses else float(best_val)
 
 
-def _apply_training_offset_augmentation(dataset, config: Configuration):
-    if not config.random_offset:
+def _apply_training_offset_augmentation(dataset, config: AugmentationConfiguration):
+    if not config.random_offset_enabled:
         return dataset
 
     transform = _RandomSpatialOffset(
         max_fraction=config.random_offset_max_fraction,
-        foreground_threshold_rel=config.random_offset_foreground_threshold_rel,
+        foreground_threshold_rel=config.random_offset_foreground_threshold,
     )
     return _TrainingTransformDataset(dataset, transform)
 
@@ -507,12 +508,20 @@ def _average_metric_dicts(metric_dicts: list[dict]) -> dict:
     return {key: sums[key] / counts[key] for key in sums}
 
 
-def _run_epoch(model, loader, optimizer, config, device, *, training: bool) -> dict:
+def _run_epoch(
+    model,
+    loader,
+    optimizer,
+    config: TrainingConfiguration,
+    device,
+    *,
+    training: bool,
+) -> dict:
     model.train(training)
     step_fn = model.training_step if training else model.validation_step
 
     metric_dicts = []
-    grad_clip_norm = config.grad_clip_norm
+    grad_clip_norm = config.gradient_clip_norm
     iterator = tqdm(loader, desc=("train" if training else "val"), leave=False, dynamic_ncols=True)
 
     for batch_idx, batch in enumerate(iterator):
@@ -545,7 +554,15 @@ def _run_epoch(model, loader, optimizer, config, device, *, training: bool) -> d
     return _average_metric_dicts(metric_dicts)
 
 
-def train(model, train_loader, val_loader, config, *, best_model_path=None):
+def train(
+    model,
+    train_loader,
+    val_loader,
+    config: TrainingConfiguration,
+    *,
+    anomaly_size,
+    best_model_path=None,
+):
     """
     Train a model through the TrainableModule batch-level interface.
 
@@ -569,9 +586,9 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
 
         model.to(device)
         model.warmup(
-            config.anomaly_size,
+            anomaly_size,
             device=device,
-            dtype=config.training_dtype,
+            dtype=config.dtype,
             config=config,
         )
 
@@ -579,12 +596,12 @@ def train(model, train_loader, val_loader, config, *, best_model_path=None):
         if optimizer is None:
             raise ValueError(f"{model.__class__.__name__}.configure_optimizers() returned no optimizer.")
 
-        if scheduler is None and config.lr_scheduler:
-            scheduler = ReduceLROnPlateau(optimizer, "min", **config.lr_scheduler_params)
+        if scheduler is None and config.lr_scheduler_enabled:
+            scheduler = ReduceLROnPlateau(optimizer, "min", **config.lr_scheduler)
 
         early_stopping = None
-        if config.early_stopping:
-            early_stopping = _EarlyStoppingTracker(**config.early_stopping_params)
+        if config.early_stopping_enabled:
+            early_stopping = _EarlyStoppingTracker(**config.early_stopping)
 
         for epoch in range(config.epochs):
             model.on_epoch_start(epoch, config=config)

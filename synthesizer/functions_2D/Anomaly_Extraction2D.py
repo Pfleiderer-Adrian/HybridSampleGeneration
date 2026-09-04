@@ -2,6 +2,7 @@ import numpy as np
 from scipy.ndimage import zoom, label, find_objects
 
 from synthesizer.mask_manipulation import interpolate_masked_regions
+from synthesizer.configuration.extraction import ExtractionConfiguration
 
 
 def _as_axis_tuple(value, ndim, name):
@@ -266,11 +267,7 @@ def add_background_noise_floor(img, sigma_rel=0.003, eps=1e-8):
 def crop_and_center_anomaly_2d(
     img,
     seg,
-    config,
-    target_size,
-    *,
-    normalization=None,
-    normalization_eps=1e-8,
+    config: ExtractionConfiguration,
 ):
     """
     Extract connected anomaly regions from a 2D segmentation mask and return:
@@ -294,15 +291,11 @@ def crop_and_center_anomaly_2d(
         np.ndarray (C, H, W)
     seg:
         np.ndarray (C, H, W)  (segmentation / anomaly mask)
-    target_size:
-        Target spatial size (tH, tW) or (C,tH,tW)
+    config:
+        ExtractionConfiguration containing target size, normalization and ROI rules.
     min_region_pixels:
         Minimum number of pixels for a connected component to be kept.
         If <=0, defaults to 5% of the target crop area.
-    normalization:
-        Normalization mode for anomaly cutouts: "zscore", "zscore_median", or None.
-    normalization_eps:
-        Small epsilon to avoid division by zero in normalization.
 
     Returns
     -------
@@ -328,7 +321,8 @@ def crop_and_center_anomaly_2d(
         list[np.ndarray]
         Segmentation crops around anomaly centroid, shape (C, tH, tW).
     """
-    target_size = _spatial_target_size(target_size)
+    config.validate()
+    target_size = _spatial_target_size(config.anomaly_size)
 
     if seg is None or np.all(seg == 0):
         return None, None, None
@@ -337,15 +331,18 @@ def crop_and_center_anomaly_2d(
         raise ValueError(f"img must be 3D (C,H,W). Got {img.shape}")
     if seg.ndim != 3:
         raise ValueError(f"seg must be 3D (C,H,W). Got {seg.shape}")
-    #if img.shape != seg.shape:
-    #    raise ValueError(f"img and seg must have same shape. Got img={img.shape}, seg={seg.shape}")
+    if seg.shape[1:] != img.shape[1:] or seg.shape[0] not in (1, img.shape[0]):
+        raise ValueError(
+            "img and seg must share their spatial shape and seg must have one or "
+            f"{img.shape[0]} channels. Got img={img.shape}, seg={seg.shape}"
+        )
 
     C, H, W = img.shape
     shape = img.shape
 
     binary2d = np.any(seg > 0, axis=0).astype(np.uint8)  # (H,W)
 
-    if config.separated_anomaly:
+    if config.separate_components:
         labeled, num = label(binary2d)
         regions = [r for r in find_objects(labeled) if r is not None]
     else:
@@ -362,7 +359,7 @@ def crop_and_center_anomaly_2d(
     org_masks = []
     roi_masks = []
 
-    min_region_pixels = int(config.extraction_min_anomaly_coverage_ratio * (target_size[0] * target_size[1]))
+    min_region_pixels = int(config.min_coverage_ratio * (target_size[0] * target_size[1]))
 
     for ridx, region in enumerate(regions, start=1):
 
@@ -377,7 +374,7 @@ def crop_and_center_anomaly_2d(
         result = img[:, hsl, wsl]  # (C,h,w)
         result = np.where(region_mask, result, np.min(img))
 
-        if config.extraction_add_background_noise:
+        if config.add_background_noise:
             result = add_background_noise_floor(result)
 
         #ch, cw = center_of_mass(binary2d, labeled, ridx)
@@ -396,7 +393,7 @@ def crop_and_center_anomaly_2d(
             foreground_mask=region_mask,
         )
         padded_arr, norm_meta = _normalize_anomaly(
-            padded_arr, normalization=normalization, eps=float(normalization_eps)
+            padded_arr, normalization=config.normalization, eps=float(config.normalization_eps)
         )
         scale_factor = tuple(round(float(ele), 4) for ele in scale_factor)
 
@@ -411,10 +408,15 @@ def crop_and_center_anomaly_2d(
         }
         meta_data.update(norm_meta)
 
-        if config.extraction_fixed_roi_size is None:
-            size_spatial = dynamic_roi_size(result.shape[-2:], config.extraction_min_roi_padding, config.extraction_roi_padding_ratio, config.min_roi_size)
+        if config.roi.fixed_size is None:
+            size_spatial = dynamic_roi_size(
+                result.shape[-2:],
+                config.roi.min_padding,
+                config.roi.padding_ratio,
+                config.roi.min_size,
+            )
         else:
-            size_spatial = config.extraction_fixed_roi_size
+            size_spatial = config.roi.fixed_size
         
         anomalies_roi.append(crop_square_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False))
         roi_masks.append(crop_square_clip(seg, centroid_voxel, size_spatial, centroid_is_normalized=False))

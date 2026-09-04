@@ -1,710 +1,511 @@
 from __future__ import annotations
-import os.path
-from typing import Iterator
+
+import random
+from contextlib import contextmanager
+from dataclasses import replace
+from pathlib import Path
+
 import numpy as np
-from typing import Tuple
 import optuna
-import pandas as pd
 import torch
 from tqdm import tqdm
 
-from data_handler.AnomalyDataset import AnomalyDataset, save_numpy_as_npy
-
-from generation_models.model_registry import get_model_spec
+from data_handler.StudyDatasets import StudyDatasets
+from fusion_backend.interfaces import FusionBackend
 from fusion_backend.fusion_registry import get_fusion_backend_spec
-from synthesizer.mask_manipulation import TransformGenerator
+from generation_models.interfaces import GenerativeBackend
+from generation_models.model_registry import get_model_spec
+from synthesizer.ArtifactStore import ArtifactStore
+from synthesizer.Configuration import Configuration
+from synthesizer.InputSample import iter_input_samples
+from synthesizer.Matching import (
+    combine_label_masks,
+    persist_original_sample,
+    plan_hybrid_samples as build_hybrid_plan,
+    ssim_01,
+)
+from synthesizer.StudyRecords import HybridSample, RealAnomaly, SyntheticAnomaly
+from synthesizer.StudyRepository import StudyRepository, stable_id, stable_seed
+from synthesizer.Trainer import optimize
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_and_center_anomaly_2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_and_center_anomaly_3d
-from synthesizer.Configuration import Configuration
-from synthesizer.Matching import center_foreground_com, combine_label_masks, create_matching_dictionary, crop_border, ssim_01, template_matching
-from synthesizer.Trainer import optimize
-from synthesizer.Evaluation import evaluation_pipeline
-from data_handler.Visualizer import run_hybrid_visualizer
+from synthesizer.mask_manipulation import TransformGenerator
 
 
 class HybridDataGenerator:
-    """
-    Wraps the entire hybrid data generation workflow in a single class.
+    """Coordinates write operations for the record-based generation pipeline.
 
-    Supported input shapes obtained from an external iterator/dataloader:
-      - 2D: (C, H, W)
-      - 3D: (C, D, H, W)
-
-    Requirements:
-      - All images and masks must have exactly the same shape.
-      - ndim must be 3 (C + H + W) or 4 (C + D + H + W).
-      - dataloader must yield: image (np.ndarray), mask (np.ndarray), basename (str).
+    Persisted state lives in StudyRepository. Only expensive runtime components
+    (the generator model and fusion backend) are retained between method calls.
     """
 
-    def __init__(self, config: Configuration) -> None:
-        """
-        Initialize the hybrid data generator with a configuration.
-
-        Inputs
-        ------
-        config:
-            Configuration object containing paths, study name, anomaly size, fusion params, thresholds, etc.
-
-        Outputs
-        -------
-        None
-            Initializes internal state (datasets/model start as None).
-        """
-        self._config = config
-        self._anomaly_dataset = None
-        self._synth_anomaly_dataset = None
-        self._model = None
-        self._fusion_backend = None
+    def __init__(
+        self,
+        config: Configuration,
+        *,
+        generator_model: GenerativeBackend | None = None,
+        fusion_backend: FusionBackend | None = None,
+    ) -> None:
+        config.validate()
+        self.config = config
+        paths = config.study.paths
+        self.repository = StudyRepository(paths.artifact_database)
+        self.artifact_store = ArtifactStore(paths.study_folder)
+        self.datasets = StudyDatasets(self.repository, self.artifact_store)
+        self._generator_model = generator_model
+        self._fusion_backend = fusion_backend
 
     def _log_step(self, message: str) -> None:
         print(f"[HybridDataGenerator] {message}")
 
-    def extract_anomalies(
-        self,
-        sample_dataloader: Iterator[Tuple[np.ndarray, np.ndarray, str]],
-    ):
-        """
-        Extract anomaly cutouts (and anomaly ROIs) from samples that contain anomalies.
+    def extract_anomalies(self, sample_dataloader) -> list[RealAnomaly]:
+        """Extract and register real anomalies and their owning original samples."""
+        self._log_step("Extracting real anomalies into normalized study records.")
+        self.repository.clear_all_records()
+        extracted: list[RealAnomaly] = []
 
-        This method:
-          1) Iterates over the provided dataloader (img, seg, basename).
-          2) Skips samples without anomalies (empty segmentation).
-          3) Crops and centers anomaly cutouts and ROI cutouts.
-          4) Saves anomaly cutouts to disk for training.
-          5) Saves ROI cutouts to disk for matching.
-          6) Stores transformation meta-data per anomaly in the config and persists it.
-          7) Loads the anomaly dataset from disk (self.load_anomalies).
-
-        Inputs
-        ------
-        sample_dataloader:
-            Iterator yielding tuples (img, seg, basename):
-              - img: np.ndarray, the image/volume
-              - seg: np.ndarray, the anomaly mask (same shape as img)
-              - basename: str, unique sample identifier used for filenames with extension (e.g. .nii)
-        Notes
-        -----
-            Saved anomaly cutouts are always centered. Dynamic random offset
-            augmentation is applied later in the training dataloader.
-            Normalization is controlled via config.normalization and config.normalization_eps.
-
-        Outputs
-        -------
-        None
-            Side effects: writes .npy files, updates config transformation file, sets self._anomaly_dataset.
-        """
-        self._log_step("Step 1/9: Extracting anomaly cutouts and ROI samples.")
-        paths = self._config.get_paths()
-        anomaly_folder = paths.anomaly_data
-        anomaly_roi_folder = paths.anomaly_roi_data
-        anomaly_mask_folder = paths.anomaly_mask_data
-        anomaly_mask_roi_folder = paths.anomaly_mask_roi_data
-
-        paths.confirm_and_clear_artifact_dirs(
-            anomaly_folder,
-            anomaly_roi_folder,
-            anomaly_mask_folder,
-            anomaly_mask_roi_folder
-        )
-        self._config.syn_anomaly_transformations = {}
-
-        for img, seg, basename in sample_dataloader:
-            # check if sample has no anomaly
-            if not np.any(seg):
-                # continue if sample contains no anomaly
+        for sample in iter_input_samples(sample_dataloader):
+            if not np.any(sample.segmentation):
                 continue
-
-            if img.ndim == 3:
-                anomalies, anomalies_roi, org_masks, roi_masks = crop_and_center_anomaly_2d(
-                    img,
-                    seg,
-                    self._config,
-                    self._config.anomaly_size,
-                    normalization=self._config.normalization,
-                    normalization_eps=self._config.normalization_eps,
+            original = persist_original_sample(sample, self.repository, self.artifact_store)
+            if sample.image.ndim == 3:
+                result = crop_and_center_anomaly_2d(
+                    sample.image, sample.segmentation, self.config.extraction
                 )
-            elif img.ndim == 4:
-                anomalies, anomalies_roi, org_masks, roi_masks = crop_and_center_anomaly_3d(
-                    img,
-                    seg,
-                    self._config,
-                    self._config.anomaly_size,
-                    normalization=self._config.normalization,
-                    normalization_eps=self._config.normalization_eps,
+            elif sample.image.ndim == 4:
+                result = crop_and_center_anomaly_3d(
+                    sample.image, sample.segmentation, self.config.extraction
                 )
             else:
-                raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
-
-            # save anomaly cutout for training
-            for i, (anomaly_sample, meta_data) in enumerate(anomalies):
-                artifact_name = basename + "_" + str(i) + ".npy"
-                save_numpy_as_npy(
-                    anomaly_sample,
-                    os.path.join(anomaly_folder, artifact_name),
-                    overwrite=True,
+                raise ValueError(
+                    f"Unexpected shape {sample.image.shape}; expected (C,H,W) or (C,D,H,W)."
                 )
-                self._config.add_anomaly_transformation(artifact_name, meta_data)
+            if not result or result[0] is None:
+                continue
+            anomalies, anomaly_rois, masks, roi_masks = result
+            if not (len(anomalies) == len(anomaly_rois) == len(masks) == len(roi_masks)):
+                raise RuntimeError("Extraction returned unaligned anomaly artifacts.")
 
-            # save roi of anomaly for matching
-            for i, roi_sample in enumerate(anomalies_roi):
-                artifact_name = basename + "_" + str(i) + ".npy"
-                save_numpy_as_npy(
-                    roi_sample,
-                    os.path.join(anomaly_roi_folder, artifact_name),
-                    overwrite=True,
+            for component_index, ((image, metadata), roi, mask, roi_mask) in enumerate(
+                zip(anomalies, anomaly_rois, masks, roi_masks)
+            ):
+                record_id = stable_id("real", original.id, component_index)
+                image_path = self.artifact_store.save_entity_array(
+                    "real_anomalies", record_id, "image", image
                 )
-
-            # save mask of anomaly
-            for i, mask_sample in enumerate(org_masks):
-                artifact_name = basename + "_" + str(i) + ".npy"
-                save_numpy_as_npy(
-                    mask_sample,
-                    os.path.join(anomaly_mask_folder, artifact_name),
-                    overwrite=True,
+                segmentation_path = self.artifact_store.save_entity_array(
+                    "real_anomalies", record_id, "segmentation", mask
                 )
-
-            # save mask of roi
-            for i, mask_sample in enumerate(roi_masks):
-                artifact_name = basename + "_" + str(i) + ".npy"
-                save_numpy_as_npy(
-                    mask_sample,
-                    os.path.join(anomaly_mask_roi_folder, artifact_name),
-                    overwrite=True,
+                roi_image_path = self.artifact_store.save_entity_array(
+                    "real_anomalies", record_id, "roi_image", roi
                 )
+                roi_segmentation_path = self.artifact_store.save_entity_array(
+                    "real_anomalies", record_id, "roi_segmentation", roi_mask
+                )
+                position = tuple(float(value) for value in metadata["centroid_norm"])
+                position_z, position_y, position_x = _position_columns(position)
+                record = RealAnomaly(
+                    id=record_id,
+                    original_sample_id=original.id,
+                    component_index=component_index,
+                    image_path=image_path,
+                    segmentation_path=segmentation_path,
+                    roi_image_path=roi_image_path,
+                    roi_segmentation_path=roi_segmentation_path,
+                    spatial_dimensions=sample.image.ndim - 1,
+                    position_z=position_z,
+                    position_y=position_y,
+                    position_x=position_x,
+                    metadata=dict(metadata),
+                )
+                self.repository.upsert_real_anomaly(record)
+                extracted.append(record)
 
-        self._config.save_anomaly_transformations()
-        self.load_anomalies()
+        if not extracted:
+            raise ValueError("No real anomalies were extracted from the supplied samples.")
+        return extracted
 
-    def load_anomalies(self):
-        """
-        Load previously extracted anomaly cutouts into an AnomalyDataset and
-        load their transformation meta-data from config.
-        If conditional model: calculate num_anomaly_classes if necessary and sets model param.
-
-        Outputs
-        -------
-        None
-            Side effects: sets self._anomaly_dataset and loads config transformations into memory.
-        """
-        self._log_step("Step 2/9: Loading anomaly dataset.")
-        paths = self._config.get_paths()
-
-        self._anomaly_dataset = AnomalyDataset(
-            paths,
-            return_artifacts=self._config.model_params.input_artefacts,
+    def _training_dataset(self):
+        records = self.repository.list_real_anomalies()
+        if not records:
+            raise ValueError("No real anomalies found. Run extract_anomalies first.")
+        if self.config.model.uses_masks:
+            max_class = max(
+                int(round(float(record.metadata.get("label", 0))))
+                for record in records
+            )
+            self.config.model.parameters.set_model_param(
+                "num_anomaly_classes", max_class
+            )
+        return self.datasets.real_anomalies(
+            return_artifacts=self.config.model.parameters.input_artefacts,
             load_to_ram=True,
             dtype=torch.float32,
         )
 
-        if self._config.conditional:
-            if self._config.num_anomaly_classes is None:
-                max_class_val = 0
-                for sample in self._anomaly_dataset:
-                    mask = sample["ori_mask"]
-                    max_class_val = max(max_class_val, int(mask.max().item()))
-                self._config.num_anomaly_classes = max_class_val
-
-            self._config.model_params.set_model_param(
-                "num_anomaly_classes",
-                self._config.num_anomaly_classes,
-            )
-
-        self._config.load_anomaly_transformations()
-
     def train_generator(self, no_of_trials):
-        """
-        Train/optimize the generator model using Optuna via `optimize(...)`,
-        then load the resulting model via `load_generator()`.
-
-        Inputs
-        ------
-        no_of_trials:
-            Number of Optuna trials to run (hyperparameter optimization / training runs).
-
-        Outputs
-        -------
-        None
-            Side effects: writes Optuna study DB, writes model weights, sets self._model.
-        """
-        self._log_step("Step 3/9: Training generator model (with Optuna optimization).")
-        if self._anomaly_dataset is None:
-            raise ValueError(f"No Anomalies Loaded: Run extract_anomalies or load_anomalies first")
-        else:
-            optimize(no_of_trials, self._config, self._anomaly_dataset)
-
-        if no_of_trials > 1:
-            self.load_generator(trial_id=-1)  # load best trial
-        else:
-            self.load_generator(trial_id=-2)  # load last trial
+        self._log_step("Training generator model.")
+        dataset = self._training_dataset()
+        optimize(no_of_trials, self.config, dataset)
+        return self.load_generator(trial_id=-1 if no_of_trials > 1 else -2)
 
     def load_generator(self, path_to_db_file=None, trial_id=-1):
-        """
-        Load a trained generator model from an Optuna study database.
-
-        Inputs
-        ------
-        path_to_db_file:
-            Path to the SQLite DB file containing the Optuna study.
-            If None: "<study_folder>/<study_name>.db"
-        trial_id:
-            Which trial to load:
-              - -1: load best trial (study.best_trial)
-              - -2: load last trial
-              - otherwise: load trial with matching ts.number
-
-        Outputs
-        -------
-        None
-            Side effects: sets self._model and loads its weights.
-        """
-        self._log_step("Step 4/9: Loading trained generator model.")
-        if path_to_db_file is None:
-            path_to_db_model = self._config.get_paths().optuna_storage_url
-        else:
-            path_to_db_model = "sqlite:///" + path_to_db_file
-
-        study = optuna.load_study(
-            study_name=self._config.study_name,
-            storage=path_to_db_model
+        self._log_step("Loading generator model.")
+        storage = (
+            self.config.study.paths.optuna_storage_url
+            if path_to_db_file is None
+            else "sqlite:///" + str(path_to_db_file)
         )
-
-        t = None
+        study = optuna.load_study(study_name=self.config.study.name, storage=storage)
         if trial_id == -1:
-            t = study.best_trial
-        if trial_id == -2:
-            all_trials = study.get_trials()
-            i = -1
-            for ts in all_trials:
-                if ts.number > i:
-                    i=i+1
-                    t = ts
-        if trial_id >= 0:
-            all_trials = study.get_trials()
-            for ts in all_trials:
-                if ts.number == trial_id:
-                    t = ts
-                    break
-        print()
-        print("Loaded Model Number: "+str(t.number))
-        print(t.user_attrs)
-
-        # load model from study
-        params = t.user_attrs['params']
-        model_name = t.user_attrs['model_name']
-        self._model = get_model_spec(model_name).build(params)
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self._model.to(device)
-        self._model.warmup(
-            self._config.anomaly_size,
-            device=device,
-            dtype=self._config.training_dtype,
-            config=self._config,
+            trial = study.best_trial
+        elif trial_id == -2:
+            trial = max(study.get_trials(), key=lambda value: value.number)
+        else:
+            trial = next(
+                (value for value in study.get_trials() if value.number == trial_id), None
+            )
+            if trial is None:
+                raise ValueError(f"Optuna trial {trial_id} does not exist.")
+        self._generator_model = get_model_spec(trial.user_attrs["model_name"]).build(
+            trial.user_attrs["params"]
         )
-        model_path = t.user_attrs['model_path']
-        self._model.load_checkpoint(model_path)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self._generator_model.to(device)
+        self._generator_model.warmup(
+            self.config.extraction.anomaly_size,
+            device=device,
+            dtype=self.config.training.dtype,
+            config=self.config.training,
+        )
+        self._generator_model.load_checkpoint(trial.user_attrs["model_path"])
+        return self._generator_model
 
     def train_fusion_backend(
         self,
-        sample_dataloader: Iterator[Tuple[np.ndarray, np.ndarray, str]],
+        sample_dataloader,
         *,
         epochs: int | None = None,
         lr: float | None = None,
         checkpoint_path: str | None = None,
         device=None,
     ):
-        """
-        Train the configured fusion backend if it exposes a training routine.
-
-        Inputs
-        ------
-        sample_dataloader:
-            Iterator yielding real anomalous samples (img, seg, basename). The
-            trainable backend uses these masks to create self-supervised fusion
-            training pairs.
-        epochs:
-            Optional override for the backend's configured training epochs.
-        lr:
-            Optional override for the backend's configured learning rate.
-        checkpoint_path:
-            Optional target path for the trained fusion backend checkpoint.
-            If omitted, a backend-specific file below trained_fusion_backends is used.
-        device:
-            Optional torch device string/object.
-
-        Outputs
-        -------
-        dict
-            Backend-specific training summary.
-        """
-        self._log_step("Step 5/9: Training fusion backend.")
-        fusion_spec = get_fusion_backend_spec(self._config.fusion_backend)
-
-        self.load_fusion_backend()
-        train_model = getattr(self._fusion_backend, "train_model", None)
-        if train_model is None:
-            raise ValueError(f"Fusion backend {self._config.fusion_backend!r} does not implement train_model().")
-
-        if fusion_spec.trainable and checkpoint_path is None:
-            checkpoint_dir = self._config.get_paths().trained_fusion_backends
-            os.makedirs(checkpoint_dir, exist_ok=True)
-            checkpoint_path = os.path.join(checkpoint_dir, f"{self._config.fusion_backend}.pth")
-
-        summary = train_model(
+        self._log_step("Training fusion backend.")
+        spec = get_fusion_backend_spec(self.config.fusion.backend)
+        if not spec.trainable:
+            raise ValueError(
+                f"Fusion backend {self.config.fusion.backend!r} is not trainable."
+            )
+        backend = self._ensure_fusion_backend()
+        if spec.trainable and checkpoint_path is None:
+            checkpoint_path = str(
+                Path(self.config.study.paths.trained_fusion_backends)
+                / f"{self.config.fusion.backend}.pth"
+            )
+        summary = backend.train_model(
             sample_dataloader,
             epochs=epochs,
             lr=lr,
             checkpoint_path=checkpoint_path,
             device=device,
-            config=self._config,
+            config=self.config.fusion,
         )
-
-        summary_checkpoint_path = checkpoint_path
-        if isinstance(summary, dict):
-            summary_checkpoint_path = summary.get("checkpoint_path", checkpoint_path)
-        if summary_checkpoint_path:
-            self._config.fusion_backend_checkpoint = summary_checkpoint_path
+        resolved_checkpoint = (
+            summary.get("checkpoint_path", checkpoint_path)
+            if isinstance(summary, dict)
+            else checkpoint_path
+        )
+        if resolved_checkpoint:
+            self.config.fusion.checkpoint = resolved_checkpoint
         return summary
 
-    def load_fusion_backend(self, fusion_backend_checkpoint=None):
-        """
-        Initialize the configured fusion backend from the current configuration.
+    def _ensure_fusion_backend(self) -> FusionBackend:
+        if self._fusion_backend is not None:
+            return self._fusion_backend
+        self._fusion_backend = get_fusion_backend_spec(self.config.fusion.backend).build(
+            {"fusion_params": self.config.fusion.parameters}
+        )
+        checkpoint = self.config.fusion.checkpoint
+        if checkpoint:
+            self._fusion_backend.load_checkpoint(checkpoint)
+        return self._fusion_backend
 
-        Outputs
-        -------
-        None
-            Side effect: sets self._fusion_backend and optionally loads its checkpoint.
-        """
-        self._log_step("Step 5/9: Loading fusion backend.")
-        backend_params = {"fusion_params": self._config.fusion_params}
-        self._fusion_backend = get_fusion_backend_spec(self._config.fusion_backend).build(backend_params)
+    def generate_synthetic_anomalies(self) -> list[SyntheticAnomaly]:
+        """Generate the configured number of variants for every real anomaly."""
+        self._log_step("Generating synthetic anomaly variants.")
+        generator_model = self._generator_model
+        if generator_model is None:
+            raise ValueError("No generator model loaded.")
+        source_dataset = self.datasets.real_anomalies(
+            return_artifacts=("img", "fname", "ori_mask", "real_anomaly_id"),
+            load_to_ram=False,
+            numpy_mode=True,
+        )
+        if not len(source_dataset):
+            raise ValueError("No real anomalies found. Run extract_anomalies first.")
+        self.repository.clear_synthetic_and_downstream()
+        generated: list[SyntheticAnomaly] = []
+        generation = self.config.generation
 
-        checkpoint_path = fusion_backend_checkpoint or self._config.fusion_backend_checkpoint
-        if checkpoint_path:
-            self._fusion_backend.load_checkpoint(checkpoint_path)
-            if fusion_backend_checkpoint:
-                self._config.fusion_backend_checkpoint = fusion_backend_checkpoint
-
-    def generate_synth_anomalies(self):
-        """
-        Generate synthetic anomalies for each anomaly in the loaded anomaly dataset.
-
-        For each anomaly sample:
-          - run model.generate(sample, mode="prior"|"posterior")
-          - save output as .npy under sample["fname"]
-
-        Outputs
-        -------
-        None
-            Side effects: writes synthetic .npy files and sets self._synth_anomaly_dataset via load_synth_anomalies().
-        """
-        self._log_step("Step 5/9: Generating synthetic anomalies.")
-        if self._anomaly_dataset is None:
-            raise ValueError(f"No Anomalies Loaded: Run extract_anomalies or load_anomalies first")
-        if self._model is None:
-            raise ValueError(f"No Model Loaded: Run train_generator or load_generator first")
-        paths = self._config.get_paths()
-        synth_anomaly_folder = paths.synth_anomaly_data
-        tgt_mask_folder = paths.anomaly_tgt_mask_data
-        paths.confirm_and_clear_artifact_dirs(synth_anomaly_folder, tgt_mask_folder)
-        os.makedirs(tgt_mask_folder, exist_ok=True)
-        self._anomaly_dataset.numpy_mode = True
-        target_mask_generator = TransformGenerator.from_config(self._config)
-        generation_mode = "prior" if self._config.prior_sampling else "posterior"
-
-
-        # use feedback system to generate similar anomalies
-        if self._config.use_feedback:
-            bad_anomalies = []
-
-            for sample in tqdm(self._anomaly_dataset):
-                img = sample["img"]
-                basename = sample["fname"]
-
-                best = -1
-                best_image = None
-                best_mask = None
-                syn_anomaly_sample = None
-                syn_anomaly_mask = None
-                i = 0
-                while best < self._config.feedback_threshold:
-                    syn_anomaly_sample, syn_anomaly_mask = self._model.generate(
-                        sample,
-                        mode=generation_mode,
-                        variation_strength=self._config.variation_strength,
-                        clamp_01=self._config.clamp01_output,
-                        target_mask_generator=target_mask_generator,
-                    )
-
-                    if best_image is None:
-                        best_image = syn_anomaly_sample
-                        best_mask = syn_anomaly_mask
-
-                    if syn_anomaly_sample.shape != img.shape:
-                        raise ValueError(str(syn_anomaly_sample.shape)+"vs"+str(img.shape))
-
-                    similarity_score = ssim_01(img, syn_anomaly_sample)
-
-                    if similarity_score > best:
-                        best = similarity_score
-                        best_image = syn_anomaly_sample
-                        best_mask = syn_anomaly_mask
-                        print("New best Score: "+str(best))
-
-                    if i % 100 == 0:
-                        self._config.feedback_threshold = self._config.feedback_threshold * self._config.threshold_relaxation_factor
-                    i = i + 1
-                if(best < 0.25):
-                    bad_anomalies.append(basename)
-                print("Generated "+str(i)+" anomalies and save at threshold: "+str(best))
-                save_numpy_as_npy(best_image, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
-                save_numpy_as_npy(best_mask, str(os.path.join(tgt_mask_folder, basename)), overwrite=True)
-            print("Summary")
-            print("No-of bad Anomalies:"+ str(len(bad_anomalies)))
-            for name in bad_anomalies:
-                print(name)
-
-        # standard generation without feedback
-        else:
-            for sample in tqdm(self._anomaly_dataset):
-                basename = sample["fname"]
-                syn_anomaly_sample, syn_anomaly_mask = self._model.generate(
-                    sample,
-                    mode=generation_mode,
-                    variation_strength=self._config.variation_strength,
-                    clamp_01=self._config.clamp01_output,
-                    target_mask_generator=target_mask_generator,
+        for sample in tqdm(source_dataset):
+            real_id = sample["real_anomaly_id"]
+            real_image = sample["img"]
+            for variant_index in range(int(generation.variants_per_real_anomaly)):
+                seed = stable_seed(self.config.study.seed, real_id, variant_index)
+                target_mask_generator = TransformGenerator.from_config(
+                    self.config.augmentation,
+                    anomaly_size=self.config.extraction.anomaly_size,
+                    background_threshold=generation.background_threshold,
+                    seed=seed,
                 )
-                save_numpy_as_npy(syn_anomaly_sample, str(os.path.join(synth_anomaly_folder, basename)), overwrite=True)
-                save_numpy_as_npy(syn_anomaly_mask, str(os.path.join(tgt_mask_folder, basename)), overwrite=True)
+                with _seeded_random(seed):
+                    image, mask = self._generate_variant(
+                        generator_model,
+                        sample,
+                        real_image,
+                        target_mask_generator,
+                    )
+                image, mask = _validate_generated_variant(image, mask, real_image)
+                synthetic_id = stable_id("synthetic", real_id, variant_index)
+                image_path = self.artifact_store.save_entity_array(
+                    "synthetic_anomalies", synthetic_id, "image", image
+                )
+                segmentation_path = self.artifact_store.save_entity_array(
+                    "synthetic_anomalies", synthetic_id, "segmentation", mask
+                )
+                record = SyntheticAnomaly(
+                    id=synthetic_id,
+                    real_anomaly_id=real_id,
+                    variant_index=variant_index,
+                    image_path=image_path,
+                    segmentation_path=segmentation_path,
+                    seed=seed,
+                )
+                self.repository.upsert_synthetic_anomaly(record)
+                generated.append(record)
 
-        self.load_synth_anomalies()
+        return generated
 
+    def _generate_variant(
+        self,
+        generator_model: GenerativeBackend,
+        sample,
+        real_image,
+        target_mask_generator,
+    ):
+        generation = self.config.generation
+        kwargs = {
+            "mode": generation.sampling_mode,
+            "variation_strength": generation.variation_strength,
+            "clamp_01": generation.clamp_output,
+            "target_mask_generator": target_mask_generator,
+        }
+        if not generation.feedback.enabled:
+            image, mask = generator_model.generate(sample, **kwargs)
+            return _as_numpy(image), _as_numpy(mask)
 
+        best_score = -np.inf
+        best = None
+        threshold = float(generation.feedback.similarity_threshold)
+        for attempt in range(int(generation.feedback.max_attempts)):
+            image, mask = generator_model.generate(sample, **kwargs)
+            image, mask = _as_numpy(image), _as_numpy(mask)
+            if image.shape != real_image.shape:
+                raise ValueError(f"Generated shape {image.shape} differs from {real_image.shape}.")
+            score = ssim_01(real_image, image)
+            if score > best_score:
+                best_score = score
+                best = image, mask
+            if score >= threshold:
+                break
+            if (attempt + 1) % 100 == 0:
+                threshold *= float(generation.feedback.threshold_relaxation_factor)
+        if best is None:
+            raise RuntimeError("Generator produced no variant.")
+        return best
 
-    def load_synth_anomalies(self, transformation_file=None):
-        """
-        Load the aligned anomaly artifacts used for fusion and their transformations.
+    def plan_hybrid_samples(self, control_samples) -> list[HybridSample]:
+        self._log_step("Planning hybrid samples and placements.")
+        planned = build_hybrid_plan(
+            control_samples,
+            self.repository,
+            self.artifact_store,
+            self.config.matching,
+        )
+        if not planned:
+            raise ValueError("Matching produced no hybrid sample plans.")
+        return planned
 
-        Inputs
-        ------
-        transformation_file:
-            Path to anomaly transformations file.
-            If None: "<study_folder>/anomaly_transformations.json"
-
-        Outputs
-        -------
-        None
-            Side effects: sets self._synth_anomaly_dataset and loads transformation
-            metadata into config. Each dataset sample contains synth_anomaly,
-            tgt_mask, anomaly_roi, anomaly_roi_mask, anomaly_meta, and fname.
-        """
-        self._log_step("Step 6/9: Loading synthetic anomalies and transformation metadata.")
-        paths = self._config.get_paths()
-        if transformation_file is None:
-            transformation_file = paths.anomaly_transformations_file
-
-        self._synth_anomaly_dataset = AnomalyDataset(
-            paths,
-            return_artifacts=(
-                "synth_anomaly",
-                "tgt_mask",
-                "anomaly_roi",
-                "anomaly_roi_mask",
-                "anomaly_meta",
-                "fname",
-            ),
-            index_artifact="synth_anomaly",
-            anomaly_meta_file=transformation_file,
-            load_to_ram=True,
+    def materialize_hybrid_samples(self, *, raise_on_error: bool = True) -> list[HybridSample]:
+        """Fuse all planned placements and update hybrid/placement artifact records."""
+        self._log_step("Materializing planned hybrid samples.")
+        hybrids = self.repository.list_hybrid_samples()
+        if not hybrids:
+            raise ValueError("No hybrid plan found. Run plan_hybrid_samples first.")
+        synthetic_dataset = self.datasets.synthetic_anomalies(
+            load_to_ram=False,
             dtype=torch.float32,
             numpy_mode=True,
         )
-        self._config.syn_anomaly_transformations = (
-            self._synth_anomaly_dataset.anomaly_metadata
-        )
+        if not len(synthetic_dataset):
+            raise ValueError("No synthetic anomalies found.")
+        fusion_backend = self._ensure_fusion_backend()
+        generated: list[HybridSample] = []
+        failures = []
 
-    def create_matching_dict(self, control_samples_dataloader:Iterator[Tuple[np.ndarray, np.ndarray, str]]):
-        """
-        Create a matching dictionary between control samples and anomaly ROI samples.
-
-        The matching result is written to a CSV with columns:
-          - control
-          - anomaly
-          - position_factor
-
-        Then `load_matching_dict(...)` is called to load it into `self._config.matching_dict`.
-
-        Inputs
-        ------
-        control_samples_dataloader:
-            Iterator yielding (img, seg, basename) for control samples.
-            (seg can be present even for controls; matching function decides how to use it.)
-        matching_routine:
-            One of: "local", "global", "batchwise", "fixed_from_extraction"
-              - "local": match ith control with ith ROI (sequential) and compute best template position (resource middle - O(n)!)
-              - "global": for each control, search all m ROI candidates and pick the best similarity (resource heavy - O(n*m)!)
-              - "batchwise": use the same matching logic as "global", but sample at most matching_batchwise_batch_size candidates per search.
-                (resource middle-heavy - O(n*b)!)
-              - "fixed_from_extraction": sequential mapping, take centroid from extraction metadata (resource lite)
-        Outputs
-        -------
-        None
-            Side effects: writes CSV and populates self._config.matching_dict.
-        """
-        self._log_step("Step 7/9: Creating matching dictionary between controls and anomalies.")
-        if self._synth_anomaly_dataset is None:
-            raise ValueError(f"No Synth Anomalies Loaded: Run generate_synth_anomalies or load_synth_anomalies first")
-        paths = self._config.get_paths()
-        csv_file_path = paths.matching_dict_file
-        _roi_dataset = AnomalyDataset(
-            paths,
-            return_artifacts=("anomaly_roi", "fname"),
-            index_artifact="anomaly_roi",
-            load_to_ram=True,
-            dtype=torch.float32,
-            numpy_mode=True
-        )
-        img = _roi_dataset[0]["anomaly_roi"]
-        if img.ndim in [3, 4]:
-            _data = create_matching_dictionary(control_samples_dataloader, _roi_dataset, self._config, matching_routine=self._config.matching_routine, anomaly_duplicates=self._config.anomaly_duplicates)
-        else:
-            raise ValueError(f"Unexpected shape: {img.shape}, Supported: (C, H, W) or (C, D, H, W)")
-
-        df_detection = pd.DataFrame(_data, columns=["control", "anomaly_list"])
-        os.makedirs(os.path.dirname(csv_file_path), exist_ok=True)
-        df_detection.to_csv(csv_file_path, sep=',', encoding='utf-8', index=False)
-
-        self.load_matching_dict(csv_file_path)
-
-    def load_matching_dict(self, csv_file_path=None):
-        """
-        Load a matching CSV into `self._config.matching_dict`.
-
-        Inputs
-        ------
-        csv_file_path:
-            Path to the matching CSV file.
-            If None: "<study_folder>/matching_dict.csv"
-
-        Outputs
-        -------
-        None
-            Side effects: updates self._config.matching_dict.
-        """
-        self._log_step("Step 8/9: Loading matching dictionary.")
-        if csv_file_path is None:
-            csv_file_path = self._config.get_paths().matching_dict_file
-        self._config.load_matching_csv(csv_file_path)
-
-
-    def fusion_synth_anomalies(self, control_samples_array, basename_of_control_sample, base_mask=None, save_npy=True) -> Tuple[np.ndarray, np.ndarray]:
-        self._log_step("Step 9/9: Fusing synthetic anomalies.")
-        """
-        Fuse a synthetic anomaly into a control sample according to the loaded matching dict.
-
-        The method:
-          - finds the matched anomaly basename + position factor for the control sample
-          - loads the complete aligned anomaly sample from AnomalyDataset
-          - reads the anomaly metadata from that dataset sample
-          - passes the sample, control image, and position to the fusion backend
-
-        Inputs
-        ------
-        control_samples_array:
-            The control image/volume as a numpy array (shape must match what fusion3d or fusion2d expects).
-        basename_of_control_sample:
-            Key used to look up the matched anomaly and fusion position in `self._config.matching_dict`.
-        save_npy
-            if True: saves generated hybrid images and segmentations as .npy -> for visualizer / debugging
-        Outputs
-        -------
-        img:
-            np.ndarray, the fused image/volume.
-        seg:
-            np.ndarray, the produced segmentation mask of the inserted anomaly (same spatial shape as img).
-        """
-        if self._synth_anomaly_dataset is None:
-            raise ValueError(f"No Synth Anomalies Loaded: Run generate_synth_anomalies or load_synth_anomalies first")
-        if len(self._config.matching_dict) < 1:
-            raise ValueError(f"No Matching Dict Loaded: Run create_matching_dict or load_matching_dict first")
-
-        if base_mask is not None:
-            if base_mask.shape != control_samples_array.shape:
-                raise ValueError(f"base_mask shape {base_mask.shape} does not match control_samples_array shape {control_samples_array.shape}")
-            else:
-                seg_final = base_mask.copy()
-        else:
-            seg_final = np.zeros_like(control_samples_array, dtype=np.uint8)
-
-        anomalies = self._config.matching_dict[basename_of_control_sample]
-        img = control_samples_array.copy()
-        if self._fusion_backend is None:
-            self.load_fusion_backend()
-        self._fusion_backend.warmup(img.shape, config=self._config)
-
-        if anomalies is None or len(anomalies) == 0:
-            print(f"No matched anomaly found for control sample {basename_of_control_sample} in matching dict.")
-
-        for anomaly_basename, fusion_position in anomalies:
-            fusion_sample = self._synth_anomaly_dataset.load_sample_by_basename(
-                anomaly_basename
-            )
-
-            fusion_output = self._fusion_backend.fuse(
-                fusion_sample,
-                img,
-                fusion_position,
-                config=self._config,
-            )
-            img = fusion_output.image
-            seg = fusion_output.segmentation
-            roi = fusion_output.roi
-            roi_mask = fusion_output.roi_mask
-            
-            if seg_final is None:
-                seg_final = seg
-            else:
-                seg_final = combine_label_masks(seg_final, seg, overwrite=True)
-
-            if roi is None:
-                print(f"Warning: roi is None for {anomaly_basename} in {basename_of_control_sample}. (Empty synthetic segmentation) => skip fusion")
-            else:
-                roi = np.array(roi, dtype=np.float32)
-                roi_path = os.path.join(
-                    self._config.get_paths().synth_roi_data,
-                    basename_of_control_sample,
-                    anomaly_basename,
+        for hybrid in hybrids:
+            try:
+                result = self._materialize_hybrid(
+                    hybrid, synthetic_dataset, fusion_backend
                 )
-                os.makedirs(os.path.dirname(roi_path), exist_ok=True)
-                save_numpy_as_npy(roi, roi_path, overwrite=True)
+                generated.append(result)
+            except Exception as exc:
+                failed = replace(
+                    hybrid,
+                    image_path=None,
+                    segmentation_path=None,
+                    status="failed",
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+                self.repository.upsert_hybrid_sample(failed)
+                failures.append(failed)
 
-                if roi_mask is not None:
-                    roi_mask_path = os.path.join(
-                        self._config.get_paths().synth_roi_mask_data,
-                        basename_of_control_sample,
-                        anomaly_basename,
-                    )
-                    os.makedirs(os.path.dirname(roi_mask_path), exist_ok=True)
-                    save_numpy_as_npy(roi_mask, roi_mask_path, overwrite=True)
+        if failures and raise_on_error:
+            details = "; ".join(f"{item.id}: {item.error}" for item in failures)
+            raise RuntimeError(f"Failed to materialize {len(failures)} hybrid samples: {details}")
+        return generated
 
-        if save_npy:
-            paths = self._config.get_paths()
-            img_folder = paths.generated_images_npy
-            seg_folder = paths.generated_segmentations_npy
-            os.makedirs(img_folder, exist_ok=True)
-            os.makedirs(seg_folder, exist_ok=True)
+    def _materialize_hybrid(
+        self,
+        hybrid: HybridSample,
+        synthetic_dataset,
+        fusion_backend: FusionBackend,
+    ) -> HybridSample:
+        original = self.repository.get_original_sample(hybrid.original_sample_id)
+        image = self.artifact_store.load_array(original.image_path).copy()
+        if original.segmentation_path:
+            segmentation = self.artifact_store.load_array(original.segmentation_path)
+            segmentation = _mask_like_image(segmentation, image)
+        else:
+            segmentation = np.zeros_like(image, dtype=np.uint8)
+        fusion_backend.warmup(image.shape, config=self.config.fusion)
 
-            img_path = os.path.join(img_folder, basename_of_control_sample)
-            seg_path = os.path.join(seg_folder, basename_of_control_sample)
-            save_numpy_as_npy(img, img_path, overwrite=True)
-            save_numpy_as_npy(seg_final, seg_path, overwrite=True)
+        placements = self.repository.list_placements(hybrid.id)
+        if not placements:
+            raise ValueError("A hybrid sample must have at least one placement.")
+        for placement in placements:
+            sample = synthetic_dataset.load_sample_by_id(
+                placement.synthetic_anomaly_id
+            )
+            with _seeded_random(
+                stable_seed(self.config.study.seed, placement.id, "fusion")
+            ):
+                output = fusion_backend.fuse(
+                    sample,
+                    image,
+                    placement.position,
+                    extraction_config=self.config.extraction,
+                )
+            image = output.image
+            segmentation = combine_label_masks(
+                segmentation, _mask_like_image(output.segmentation, image), overwrite=True
+            )
+            roi_image_path = None
+            roi_segmentation_path = None
+            if output.roi is not None:
+                roi_image_path = self.artifact_store.save_entity_array(
+                    "placements", placement.id, "roi_image", output.roi
+                )
+            if output.roi_mask is not None:
+                roi_segmentation_path = self.artifact_store.save_entity_array(
+                    "placements", placement.id, "roi_segmentation", output.roi_mask
+                )
+            self.repository.upsert_placement(
+                replace(
+                    placement,
+                    roi_image_path=roi_image_path,
+                    roi_segmentation_path=roi_segmentation_path,
+                )
+            )
 
-        return img, seg_final
-    
-    def run_evaluation_pipeline(self, sample_dataloader: Iterator[Tuple[np.ndarray, np.ndarray, str]]):
-        self._log_step("Evaluation 1/2: Starting evaluation pipeline.")
-        evaluation_pipeline(sample_dataloader, self._config)
+        image_path = self.artifact_store.save_entity_array(
+            "hybrid_samples", hybrid.id, "image", image
+        )
+        segmentation_path = self.artifact_store.save_entity_array(
+            "hybrid_samples", hybrid.id, "segmentation", segmentation
+        )
+        generated = replace(
+            hybrid,
+            image_path=image_path,
+            segmentation_path=segmentation_path,
+            status="generated",
+            error=None,
+        )
+        self.repository.upsert_hybrid_sample(generated)
+        return generated
 
-    def visualize_evaluation_results(self):
-        self._log_step("Evaluation 2/2: Starting visualization of evaluation results.")
-        run_hybrid_visualizer(self._config)
+
+def _position_columns(position):
+    if len(position) == 2:
+        return None, position[0], position[1]
+    if len(position) == 3:
+        return position[0], position[1], position[2]
+    raise ValueError(f"Expected a 2D or 3D normalized position, got {position!r}.")
+
+
+def _mask_like_image(mask, image):
+    mask = np.asarray(mask)
+    if mask.shape == image.shape:
+        return mask.copy()
+    if mask.ndim == image.ndim and mask.shape[1:] == image.shape[1:] and mask.shape[0] == 1:
+        return np.repeat(mask, image.shape[0], axis=0)
+    if mask.ndim == image.ndim - 1 and mask.shape == image.shape[1:]:
+        return np.repeat(mask[None, ...], image.shape[0], axis=0)
+    raise ValueError(f"Mask shape {mask.shape} is incompatible with image shape {image.shape}.")
+
+
+def _as_numpy(value) -> np.ndarray:
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().numpy()
+    return np.asarray(value)
+
+
+def _validate_generated_variant(image, mask, expected_image):
+    image = _as_numpy(image)
+    mask = _as_numpy(mask)
+    expected_shape = np.asarray(expected_image).shape
+    if image.shape != expected_shape:
+        raise ValueError(
+            f"Generated image shape {image.shape} differs from expected {expected_shape}."
+        )
+    if (
+        mask.ndim != image.ndim
+        or mask.shape[1:] != expected_shape[1:]
+        or mask.shape[0] not in (1, expected_shape[0])
+    ):
+        raise ValueError(
+            "Generated mask must share the image's spatial shape and have one or "
+            f"{expected_shape[0]} channels, got {mask.shape}."
+        )
+    return image, mask
+
+
+@contextmanager
+def _seeded_random(seed: int):
+    python_state = random.getstate()
+    numpy_state = np.random.get_state()
+    torch_state = torch.random.get_rng_state()
+    cuda_state = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    try:
+        yield
+    finally:
+        random.setstate(python_state)
+        np.random.set_state(numpy_state)
+        torch.random.set_rng_state(torch_state)
+        if cuda_state is not None:
+            torch.cuda.set_rng_state_all(cuda_state)

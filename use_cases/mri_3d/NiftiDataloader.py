@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import nibabel as nib
 import numpy as np
 
+from synthesizer.InputSample import InputSample
+
 
 # -------------------------
 # Data structures
@@ -222,6 +224,32 @@ class NiftiDataloader:
                 yield img_arr, seg_arr, sid, img_aff, seg_aff
             else:
                 yield img_arr, seg_arr, sid
+
+    def iter_input_samples(self) -> Iterator[InputSample]:
+        """Yield typed channel-first volumes including their source paths."""
+        image_channels = int(getattr(self.sample_infos, "channels", 1))
+        for seg_path, img_path in self.union_paths:
+            if not img_path or not seg_path:
+                continue
+            if not (os.path.exists(img_path) and os.path.exists(seg_path)):
+                continue
+            image, _ = _load_nifti_array_affine(img_path)
+            segmentation, _ = _load_nifti_array_affine(seg_path)
+            image = ensure_cdhw(image, channels_hint=image_channels).astype(
+                np.float32, copy=False
+            )
+            segmentation = ensure_cdhw(segmentation, channels_hint=1).astype(
+                np.float32, copy=False
+            )
+            source_name = Path(Path(img_path).name).stem
+            source_name = Path(source_name).stem
+            yield InputSample(
+                image=image,
+                segmentation=segmentation,
+                source_name=source_name,
+                source_image_path=img_path,
+                source_segmentation_path=seg_path,
+            )
 
     def discover_dataset(self) -> SampleInfo:
         """

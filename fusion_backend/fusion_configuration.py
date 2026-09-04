@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 
 
 class FusionConfiguration:
@@ -51,3 +51,43 @@ class FusionConfiguration:
         if isinstance(config, Mapping):
             return dict(config)
         raise TypeError("Fusion config must be a dataclass instance or mapping.")
+
+
+@dataclass
+class FusionSettings:
+    """Selected fusion backend, its parameters and optional checkpoint."""
+
+    backend: str
+    parameters: FusionConfiguration
+    checkpoint: str | None = None
+
+    @classmethod
+    def for_backend(cls, backend: str) -> "FusionSettings":
+        from fusion_backend.fusion_registry import get_fusion_backend_spec
+
+        spec = get_fusion_backend_spec(backend)
+        return cls(backend=backend, parameters=spec.build_configuration())
+
+    def set_backend(self, backend: str, *, reset_parameters: bool = True) -> None:
+        from fusion_backend.fusion_registry import get_fusion_backend_spec
+
+        spec = get_fusion_backend_spec(backend)
+        self.backend = backend
+        self.checkpoint = None
+        if reset_parameters:
+            self.parameters = spec.build_configuration()
+
+    def to_dict(self):
+        return {
+            "backend": self.backend,
+            "checkpoint": self.checkpoint,
+            "parameters": self.parameters.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, values):
+        return cls(
+            backend=values["backend"],
+            checkpoint=values.get("checkpoint"),
+            parameters=FusionConfiguration.from_value(values["parameters"]),
+        )

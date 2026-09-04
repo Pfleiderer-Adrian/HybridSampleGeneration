@@ -654,8 +654,16 @@ class TransformGenerator:
     """Central orchestration object for mask augmentation."""
 
     @classmethod
-    def from_config(cls, config):
-        transform_config = getattr(config, "transform_config", None)
+    def from_config(
+        cls,
+        config,
+        *,
+        anomaly_size,
+        background_threshold,
+        seed: int | None = None,
+    ):
+        """Build from an AugmentationConfiguration and explicit shared inputs."""
+        transform_config = config.mask_transforms
         return cls(
             getattr(transform_config, "mask_transform_probs", None),
             use_mask_transform=getattr(transform_config, "use_mask_transform", True),
@@ -666,9 +674,9 @@ class TransformGenerator:
                 "priorities",
                 getattr(transform_config, "mask_transform_priorities", None),
             ),
-            rng=getattr(transform_config, "rng", None) or getattr(config, "rng", None),
-            anomaly_size=getattr(config, "anomaly_size", None),
-            background_threshold=getattr(config, "background_threshold", 0.01),
+            rng=np.random.default_rng(seed),
+            anomaly_size=anomaly_size,
+            background_threshold=background_threshold,
             mask_transform_local_as_global=getattr(
                 transform_config,
                 "local_as_global",
@@ -682,7 +690,6 @@ class TransformGenerator:
         mask_transform_probs: Dict[int | str, Any] = field(default_factory=dict)
         mask_transform_params: Dict[int | str, Dict[str, Any]] = field(default_factory=dict)
         priorities: list[int] | tuple[int, ...] | None = None
-        rng: np.random.Generator | None = None
         local_as_global: bool = False
         padding_factor: int = 2
 

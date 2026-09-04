@@ -44,6 +44,9 @@ class TrainableModule(Protocol):
 class GenerativeBackend(Protocol):
     """Capability interface consumed by HybridDataGenerator."""
 
+    def to(self, device):
+        ...
+
     def warmup(self, shape, device=None, dtype=None, config=None):
         ...
 

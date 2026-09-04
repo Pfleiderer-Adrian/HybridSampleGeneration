@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +13,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from synthesizer.Configuration import Configuration, load_config_file
+from synthesizer.Evaluation import evaluate_study
 from synthesizer.HybridDataGenerator import HybridDataGenerator
+from synthesizer.InputSample import InputSample
+from data_handler.Visualizer import run_hybrid_visualizer
 from use_cases.image_2d.ImageDataloader import ensure_chw, save_image
 from use_cases.image_2d.ImageDataloader import _load_image_array as load_image_array
 from use_cases.MVTecAD2.MVTecAD2_configuration import (
@@ -27,7 +29,7 @@ MVTECAD2_ROOT = Path(
     os.environ.get("MVTECAD2_ROOT", r"/mnt/results/mvtec2/mvtec_ad_2")
 )
 MVTECAD2_SAVE = Path(
-    os.environ.get("MVTECAD2_SAVE", r"/mnt/results/mvtec2/experiments")
+    os.environ.get("MVTECAD2_SAVE", r"/mnt/results/mvtec2/experiments/test_datarepo")
 )
 
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp")
@@ -47,23 +49,18 @@ DEFAULT_GENERATION_STEPS = (
     "extract_anomalies",
     "train_generator",
     "generate_synthetic_anomalies",
-    "create_matching",
-    "load_fusion_backend",
-    "generate_hybrid_samples",
+    "plan_hybrid_samples",
+    "materialize_hybrid_samples",
     "save_config",
 )
 GENERATION_STEP_ORDER = (
     "extract_anomalies",
-    "load_anomalies",
     "train_generator",
     "load_generator",
     "generate_synthetic_anomalies",
-    "load_synthetic_anomalies",
-    "create_matching",
-    "load_matching",
+    "plan_hybrid_samples",
     "train_fusion_backend",
-    "load_fusion_backend",
-    "generate_hybrid_samples",
+    "materialize_hybrid_samples",
     "save_config",
 )
 GENERATION_STEP_ALIASES = {
@@ -71,8 +68,6 @@ GENERATION_STEP_ALIASES = {
     "default": "all",
     "extract": "extract_anomalies",
     "extract_anomalies": "extract_anomalies",
-    "load_anomalies": "load_anomalies",
-    "load_anomaly_data": "load_anomalies",
     "train": "train_generator",
     "train_generator": "train_generator",
     "load_generator": "load_generator",
@@ -80,34 +75,17 @@ GENERATION_STEP_ALIASES = {
     "generate_synth": "generate_synthetic_anomalies",
     "generate_synthetic_anomalies": "generate_synthetic_anomalies",
     "synth": "generate_synthetic_anomalies",
-    "load_synth": "load_synthetic_anomalies",
-    "load_synthetic_anomalies": "load_synthetic_anomalies",
-    "load_synth_anomalies": "load_synthetic_anomalies",
-    "matching": "create_matching",
-    "create_matching": "create_matching",
-    "create_matching_dict": "create_matching",
-    "load_matching": "load_matching",
-    "load_matching_dict": "load_matching",
+    "plan": "plan_hybrid_samples",
+    "plan_hybrid_samples": "plan_hybrid_samples",
     "train_fusion": "train_fusion_backend",
     "train_fusion_backend": "train_fusion_backend",
-    "train_fusion_model": "train_fusion_backend",
-    "load_fusion": "load_fusion_backend",
-    "load_fusion_backend": "load_fusion_backend",
-    "load_fusion_model": "load_fusion_backend",
-    "fusion_backend": "load_fusion_backend",
-    "fusion": "generate_hybrid_samples",
-    "hybrid": "generate_hybrid_samples",
-    "generate_hybrid": "generate_hybrid_samples",
-    "generate_hybrid_samples": "generate_hybrid_samples",
-    "generate_samples": "generate_hybrid_samples",
+    "materialize": "materialize_hybrid_samples",
+    "materialize_hybrid_samples": "materialize_hybrid_samples",
     "save": "save_config",
     "save_config": "save_config",
 }
 GENERATION_STEP_CONFLICTS = (
-    ("extract_anomalies", "load_anomalies"),
     ("train_generator", "load_generator"),
-    ("generate_synthetic_anomalies", "load_synthetic_anomalies"),
-    ("create_matching", "load_matching"),
 )
 
 
@@ -161,6 +139,29 @@ class MVTecAD2Dataloader:
                 seg = np.where(seg > 0, 1.0, 0.0).astype(np.float32, copy=False)
 
             yield img, seg, sample.sample_id
+
+    def iter_input_samples(self) -> Iterator[InputSample]:
+        for sample in self.samples:
+            img = ensure_chw(load_image_array(str(sample.image_path))).astype(
+                np.float32, copy=False
+            )
+            if sample.mask_path is None:
+                seg = np.zeros((1, img.shape[1], img.shape[2]), dtype=np.float32)
+            else:
+                seg = ensure_chw(load_image_array(str(sample.mask_path))).astype(
+                    np.float32, copy=False
+                )
+                seg = np.where(seg[:1] > 0, 1.0, 0.0).astype(np.float32, copy=False)
+            yield InputSample(
+                image=img,
+                segmentation=seg,
+                source_name=sample.sample_id,
+                source_image_path=str(sample.image_path),
+                source_segmentation_path=(
+                    None if sample.mask_path is None else str(sample.mask_path)
+                ),
+                metadata={"split": sample.split, "label": sample.label},
+            )
 
 
 def prepare_mvtecad2_usecases(
@@ -247,9 +248,7 @@ def run_hybrid_sample_generation_for_usecase(
     train_generator: bool = True,
     load_existing_generator: bool = False,
     generate_synthetic_anomalies: bool = True,
-    load_existing_synthetic_anomalies: bool = False,
-    create_matching: bool = True,
-    load_existing_matching: bool = False,
+    plan_hybrids: bool = True,
     generator_db_path: Path | str | None = None,
     generator_trial_id: int = -1,
     fusion_backend_epochs: int | None = None,
@@ -263,7 +262,8 @@ def run_hybrid_sample_generation_for_usecase(
     intentionally separate downstream calls.
 
     steps can be used to run only selected generation steps. Examples:
-    ("extract", "train", "generate_synth"), ("load_synth", "matching", "fusion").
+    ("extract", "train", "generate_synth"),
+    ("plan", "materialize") for already persisted synthetic anomalies.
     generator_trial_id selects the model to load: -1 best model, -2 newest model,
     otherwise the concrete Optuna trial/model number.
     """
@@ -277,18 +277,11 @@ def run_hybrid_sample_generation_for_usecase(
         train_generator=train_generator,
         load_existing_generator=load_existing_generator,
         generate_synthetic_anomalies=generate_synthetic_anomalies,
-        load_existing_synthetic_anomalies=load_existing_synthetic_anomalies,
-        create_matching=create_matching,
-        load_existing_matching=load_existing_matching,
+        plan_hybrids=plan_hybrids,
     )
 
     if "extract_anomalies" in selected_steps:
         generator.extract_anomalies(use_case.anomaly_dataloader)
-    elif _needs_anomalies_loaded(selected_steps):
-        generator.load_anomalies()
-
-    if "load_anomalies" in selected_steps:
-        generator.load_anomalies()
 
     if "train_generator" in selected_steps:
         generator.train_generator(no_of_trials=no_of_trials)
@@ -299,14 +292,10 @@ def run_hybrid_sample_generation_for_usecase(
         )
 
     if "generate_synthetic_anomalies" in selected_steps:
-        generator.generate_synth_anomalies()
-    elif "load_synthetic_anomalies" in selected_steps or _needs_synthetic_anomalies_loaded(selected_steps):
-        generator.load_synth_anomalies()
+        generator.generate_synthetic_anomalies()
 
-    if "create_matching" in selected_steps:
-        generator.create_matching_dict(use_case.control_dataloader)
-    elif "load_matching" in selected_steps or _needs_matching_loaded(selected_steps):
-        generator.load_matching_dict()
+    if "plan_hybrid_samples" in selected_steps:
+        generator.plan_hybrid_samples(use_case.control_dataloader)
 
     if "train_fusion_backend" in selected_steps:
         generator.train_fusion_backend(
@@ -316,10 +305,7 @@ def run_hybrid_sample_generation_for_usecase(
             checkpoint_path=None if fusion_backend_checkpoint is None else str(fusion_backend_checkpoint),
         )
 
-    if "load_fusion_backend" in selected_steps or "generate_hybrid_samples" in selected_steps:
-        generator.load_fusion_backend()
-
-    if "generate_hybrid_samples" in selected_steps:
+    if "materialize_hybrid_samples" in selected_steps:
         _generate_and_save_hybrid_samples(generator, use_case)
 
     if "save_config" in selected_steps:
@@ -364,8 +350,7 @@ def run_evaluation_for_usecase(
 
     print(f"\n========== MVTec AD 2 evaluation: {use_case.category} ==========")
     config = _downstream_config_for_usecase(use_case, load_saved_config=load_saved_config)
-    generator = HybridDataGenerator(config)
-    generator.run_evaluation_pipeline(use_case.anomaly_dataloader)
+    evaluate_study(config)
     return config
 
 
@@ -407,8 +392,7 @@ def visualize_evaluation_for_usecase(
 
     print(f"\n========== MVTec AD 2 visualization: {use_case.category} ==========")
     config = _downstream_config_for_usecase(use_case, load_saved_config=load_saved_config)
-    generator = HybridDataGenerator(config)
-    generator.visualize_evaluation_results()
+    run_hybrid_visualizer(config)
     return config
 
 
@@ -451,9 +435,8 @@ def run_evaluation_and_visualization_for_usecase(
 
     print(f"\n========== MVTec AD 2 evaluation + visualization: {use_case.category} ==========")
     config = _downstream_config_for_usecase(use_case, load_saved_config=load_saved_config)
-    generator = HybridDataGenerator(config)
-    generator.run_evaluation_pipeline(use_case.anomaly_dataloader)
-    generator.visualize_evaluation_results()
+    evaluate_study(config)
+    run_hybrid_visualizer(config)
     return config
 
 
@@ -548,7 +531,7 @@ def _downstream_config_for_usecase(
     load_saved_config: bool,
 ) -> Configuration:
     if load_saved_config:
-        config_path = Path(use_case.config.study_folder) / "configuration.json"
+        config_path = Path(use_case.config.study.folder) / "configuration.json"
         if config_path.is_file():
             return load_config_file(str(config_path))
         print(f"Warning: No saved configuration found at {config_path}. Using prepared config.")
@@ -583,18 +566,14 @@ def _normalize_generation_steps(
     train_generator: bool,
     load_existing_generator: bool,
     generate_synthetic_anomalies: bool,
-    load_existing_synthetic_anomalies: bool,
-    create_matching: bool,
-    load_existing_matching: bool,
+    plan_hybrids: bool,
 ) -> tuple[str, ...]:
     if steps is None:
-        selected_steps = _legacy_generation_steps(
+        selected_steps = _default_generation_steps(
             train_generator=train_generator,
             load_existing_generator=load_existing_generator,
             generate_synthetic_anomalies=generate_synthetic_anomalies,
-            load_existing_synthetic_anomalies=load_existing_synthetic_anomalies,
-            create_matching=create_matching,
-            load_existing_matching=load_existing_matching,
+            plan_hybrids=plan_hybrids,
         )
     else:
         selected_steps = _canonical_generation_steps(steps)
@@ -603,18 +582,19 @@ def _normalize_generation_steps(
     return selected_steps
 
 
-def _legacy_generation_steps(
+def _default_generation_steps(
     *,
     train_generator: bool,
     load_existing_generator: bool,
     generate_synthetic_anomalies: bool,
-    load_existing_synthetic_anomalies: bool,
-    create_matching: bool,
-    load_existing_matching: bool,
+    plan_hybrids: bool,
 ) -> tuple[str, ...]:
-    steps = ["extract_anomalies"]
+    steps = []
 
     if generate_synthetic_anomalies:
+        if train_generator and load_existing_generator:
+            raise ValueError("Training and loading a generator are mutually exclusive.")
+        steps.append("extract_anomalies")
         if train_generator:
             steps.append("train_generator")
         elif load_existing_generator:
@@ -622,21 +602,11 @@ def _legacy_generation_steps(
         else:
             raise ValueError("Either train_generator or load_existing_generator must be True.")
         steps.append("generate_synthetic_anomalies")
-    elif load_existing_synthetic_anomalies:
-        steps.append("load_synthetic_anomalies")
-    else:
-        raise ValueError(
-            "Either generate_synthetic_anomalies or load_existing_synthetic_anomalies must be True."
-        )
 
-    if create_matching:
-        steps.append("create_matching")
-    elif load_existing_matching:
-        steps.append("load_matching")
-    else:
-        raise ValueError("Either create_matching or load_existing_matching must be True.")
+    if plan_hybrids:
+        steps.append("plan_hybrid_samples")
 
-    steps.extend(["load_fusion_backend", "generate_hybrid_samples", "save_config"])
+    steps.extend(["materialize_hybrid_samples", "save_config"])
     return tuple(steps)
 
 
@@ -669,15 +639,6 @@ def _validate_generation_step_conflicts(steps: Sequence[str]) -> None:
             raise ValueError(f"Pipeline steps {left!r} and {right!r} cannot be used together.")
 
 
-def _needs_anomalies_loaded(steps: Sequence[str]) -> bool:
-    step_set = set(steps)
-    return (
-        bool({"train_generator", "generate_synthetic_anomalies"} & step_set)
-        and "extract_anomalies" not in step_set
-        and "load_anomalies" not in step_set
-    )
-
-
 def _needs_generator_loaded(steps: Sequence[str]) -> bool:
     step_set = set(steps)
     return (
@@ -687,72 +648,24 @@ def _needs_generator_loaded(steps: Sequence[str]) -> bool:
     )
 
 
-def _needs_synthetic_anomalies_loaded(steps: Sequence[str]) -> bool:
-    step_set = set(steps)
-    return (
-        bool({"create_matching", "generate_hybrid_samples"} & step_set)
-        and "generate_synthetic_anomalies" not in step_set
-        and "load_synthetic_anomalies" not in step_set
-    )
-
-
-def _needs_matching_loaded(steps: Sequence[str]) -> bool:
-    step_set = set(steps)
-    return (
-        "generate_hybrid_samples" in step_set
-        and "create_matching" not in step_set
-        and "load_matching" not in step_set
-    )
-
-
 def _generate_and_save_hybrid_samples(
     generator: HybridDataGenerator,
     use_case: MVTecAD2UseCase,
 ) -> None:
     config = use_case.config
-    study_folder = Path(config.study_folder)
-    save_folder = study_folder / "generated_hybrid_samples"
-    synth_roi_folder = study_folder / "synth_roi_data"
-
-    _reset_fusion_output_folder(save_folder, study_folder)
-    _reset_fusion_output_folder(synth_roi_folder, study_folder)
-
-    img_folder = save_folder / "images"
-    seg_folder = save_folder / "segmentations"
+    img_folder = Path(config.study.paths.generated_images)
+    seg_folder = Path(config.study.paths.generated_segmentations)
     img_folder.mkdir(parents=True, exist_ok=True)
     seg_folder.mkdir(parents=True, exist_ok=True)
-
-    for control_image, control_seg, basename in use_case.control_dataloader:
-        if basename not in config.matching_dict:
-            print(f"{basename} not found in matching dict")
-            continue
-
-        base_mask = _mask_like_image(control_seg, control_image) if use_case.positive_only else None
-        img, seg = generator.fusion_synth_anomalies(
-            control_image,
-            basename,
-            base_mask=base_mask,
-            save_npy=True,
-        )
-
-        save_image(img, img_folder / basename)
-        save_image(_segmentation_for_png(seg), seg_folder / basename)
-
-
-def _reset_fusion_output_folder(folder: Path, study_folder: Path) -> None:
-    folder = folder.resolve()
-    study_folder = study_folder.resolve()
-    _ensure_child_path(folder, study_folder)
-
-    if folder.exists():
-        shutil.rmtree(folder)
-
-
-def _ensure_child_path(path: Path, parent: Path) -> None:
-    try:
-        path.relative_to(parent)
-    except ValueError as exc:
-        raise ValueError(f"Refusing to delete fusion output outside study folder: {path}") from exc
+    for hybrid in generator.materialize_hybrid_samples():
+        original = generator.repository.get_original_sample(hybrid.original_sample_id)
+        image = generator.artifact_store.load_array(hybrid.image_path)
+        segmentation = generator.artifact_store.load_array(hybrid.segmentation_path)
+        source = Path(original.source_name)
+        suffix = source.suffix or ".png"
+        export_name = f"{source.stem}__hybrid_{hybrid.variant_index}{suffix}"
+        save_image(image, img_folder / export_name)
+        save_image(_segmentation_for_png(segmentation), seg_folder / export_name)
 
 
 def _collect_public_anomaly_samples(category_root: Path) -> list[MVTecAD2Sample]:
@@ -854,16 +767,6 @@ def _segmentation_for_png(seg: np.ndarray) -> np.ndarray:
     return np.where(mask[:1] > 0, 255, 0).astype(np.uint8)
 
 
-def _mask_like_image(mask: np.ndarray, image: np.ndarray) -> np.ndarray:
-    mask = np.asarray(mask)
-    image = np.asarray(image)
-    if mask.shape == image.shape:
-        return mask
-    if mask.ndim == 3 and image.ndim == 3 and mask.shape[0] == 1 and mask.shape[1:] == image.shape[1:]:
-        return np.repeat(mask, image.shape[0], axis=0)
-    raise ValueError(f"Mask shape {mask.shape} does not match image shape {image.shape}")
-
-
 def _make_sample_id(split: str, label: str, image_path: Path) -> str:
     filename = _safe_name(image_path.stem) + image_path.suffix.lower()
     return f"{_safe_name(split)}_{_safe_name(label)}_{filename}"
@@ -893,7 +796,7 @@ def _validate_dataset_root(root: Path) -> None:
 
 
 if __name__ == "__main__":
-    categories = ("rice")
+    categories = ("can")
     run_hybrid_sample_generation_for_all_usecases(
         root=MVTECAD2_ROOT,
         categories=categories,
@@ -902,9 +805,8 @@ if __name__ == "__main__":
             "extract",
             "train",
             "generate_synth",
-            "matching",
-            "train_fusion",
-            "fusion",
+            "plan",
+            "materialize",
             "save"
         ),
         generator_trial_id=-2,  # -1: best Model, -2: newest Model, else Trial-/Modely number

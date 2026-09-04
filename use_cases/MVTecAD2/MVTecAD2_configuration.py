@@ -58,9 +58,8 @@ def create_mvtecad2_configuration(
     """
     Create one Configuration instance for a single MVTec AD 2 category.
 
-    model_name and anomaly_size are fixed at instantiation time by the
-    Configuration class. Use the configure_<category>() hooks below only for
-    mutable pipeline settings and model-parameter search spaces.
+    The constructor selects the model and anomaly size. Category hooks below
+    customize the domain-specific configuration sections.
 
     save_path is forwarded to Configuration. The resulting study folder is
     <save_path>/results/<study_name>. results_root is kept as a legacy alias.
@@ -123,38 +122,42 @@ def configure_mvtecad2_defaults(config: Configuration):
     """
     Shared MVTec AD 2 defaults for all categories.
     """
-    image_channels = int(config.anomaly_size[0])
+    image_channels = int(config.extraction.anomaly_size[0])
 
     # extraction settings
-    config.extraction_add_background_noise = False
-    config.extraction_min_anomaly_coverage_ratio = 0.01
-    config.extraction_fixed_roi_size = None
-    config.extraction_min_roi_padding = (20, 20, 20)
-    config.extraction_roi_padding_ratio = (0.5, 0.5, 0.5)
+    config.extraction.add_background_noise = False
+    config.extraction.min_coverage_ratio = 0.01
+    config.extraction.roi.fixed_size = None
+    config.extraction.roi.min_padding = (20, 20, 20)
+    config.extraction.roi.padding_ratio = (0.5, 0.5, 0.5)
 
     # generation settings
-    config.random_offset = True
-    config.random_offset_max_fraction = 0.8
-    config.random_offset_foreground_threshold_rel = 0.01
-    config.clamp01_output = False
-    config.normalization = "z-score"
-    config.normalization_eps = 1e-6
-    config.background_threshold = 0.18
-    config.prior_sampling = False
-    config.use_feedback = False
-    config.feedback_threshold = 0.01
-    config.threshold_relaxation_factor = 0.9
-    config.variation_strength = 1.25
+    config.augmentation.random_offset_enabled = True
+    config.augmentation.random_offset_max_fraction = 0.8
+    config.augmentation.random_offset_foreground_threshold = 0.01
+    config.generation.clamp_output = False
+    config.extraction.normalization = "z-score"
+    config.extraction.normalization_eps = 1e-6
+    config.generation.background_threshold = 0.18
+    config.evaluation.foreground_threshold = 0.18
+    config.generation.sampling_mode = "posterior"
+    config.generation.feedback.enabled = False
+    config.generation.feedback.similarity_threshold = 0.01
+    config.generation.feedback.threshold_relaxation_factor = 0.9
+    config.generation.variation_strength = 1.25
+    config.generation.variants_per_real_anomaly = 3
 
     # matching settings
-    config.matching_routine = "local"
-    config.anomaly_duplicates = True
-    config.fusions_per_control = 2
-    config.max_fusions_per_control_deviation = 1
+    config.matching.routine = "local"
+    config.matching.hybrids_per_original = 3
+    config.matching.reuse_synthetic_across_hybrids = True
+    config.matching.allow_sibling_variants_in_same_hybrid = False
+    config.matching.anomalies_per_hybrid = 2
+    config.matching.max_anomalies_per_hybrid_deviation = 1
 
     # Fusion settings
-    config.set_fusion_backend("classical")
-    config.fusion_params.set_fusion_params(
+    config.fusion.set_backend("classical")
+    config.fusion.parameters.set_fusion_params(
         max_alpha=1.0,
         sq=0.1,
         steepness_factor=5.0,
@@ -170,8 +173,8 @@ def configure_mvtecad2_defaults(config: Configuration):
         selected_confidence="90%",
     )
     """
-    config.set_fusion_backend("learned_residual_alpha")
-    config.fusion_params.set_fusion_params(
+    config.fusion.set_backend("learned_residual_alpha")
+    config.fusion.parameters.set_fusion_params(
     base_alpha=0.70,
     base_alpha_blur_sigma=2.0,
     alpha_delta_scale=0.35,
@@ -193,26 +196,26 @@ def configure_mvtecad2_defaults(config: Configuration):
     )
     """
     # Training settings
-    config.val_ratio = 0.1
-    config.batch_size = 8
-    config.epochs = 1000
-    config.lr = 1e-4
-    config.grad_clip_norm = 1.0
-    config.log_every = None
-    config.early_stopping = True
-    config.early_stopping_params = {
+    config.training.validation_ratio = 0.1
+    config.training.batch_size = 8
+    config.training.epochs = 1000
+    config.training.learning_rate = 1e-4
+    config.training.gradient_clip_norm = 1.0
+    config.training.log_every = None
+    config.training.early_stopping_enabled = True
+    config.training.early_stopping = {
         "patience": 400,
         "delta": 0.0001,
     }
-    config.lr_scheduler = True
-    config.lr_scheduler_params = {
+    config.training.lr_scheduler_enabled = True
+    config.training.lr_scheduler = {
         "patience": 200,
         "factor": 0.1,
         "threshold": 1e-5,
     }
 
     # Model hyperparameter search space for Optuna. The min and max dicts together define the search space.
-    config.model_params.set_hyperparameter_space(
+    config.model.parameters.set_hyperparameter_space(
         # min_config
         {
             "in_channels": image_channels,
@@ -268,16 +271,16 @@ def configure_mvtecad2_defaults(config: Configuration):
 
 
 def configure_can(config: Configuration) -> Configuration:
-    config.variation_strength = 1.5
-    config.fusion_params.set_fusion_params(max_alpha=0.9, sobel_threshold=0.05)
-    config.min_roi_size = (256, 256)
+    config.generation.variation_strength = 1.5
+    config.fusion.parameters.set_fusion_params(max_alpha=0.9, sobel_threshold=0.05)
+    config.extraction.roi.min_size = (256, 256)
 
 
 
     """
     # Prototype diffusion model settings for can category. These parameters are not tuned.
     # Diffusion model settings. num_anomaly_classes is filled after masks are loaded.
-    config.model_params.set_model_params(
+    config.model.parameters.set_model_params(
         prompt="a realistic close-up photo of a damaged can surface, industrial anomaly texture, high detail",
         negative_prompt="blur, low quality, text, watermark",
         resolution=512,
@@ -295,7 +298,7 @@ def configure_can(config: Configuration) -> Configuration:
 
 
 def configure_fabric(config: Configuration) -> Configuration:
-    config.min_roi_size = (128, 128)
+    config.extraction.roi.min_size = (128, 128)
     return config
 
 

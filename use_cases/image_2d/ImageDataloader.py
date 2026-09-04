@@ -7,6 +7,8 @@ from typing import Union, Optional
 import numpy as np
 from PIL import Image
 
+from synthesizer.InputSample import InputSample
+
 
 # -------------------------
 # Data structures
@@ -255,6 +257,27 @@ class ImageDataloader:
                 yield img_arr, seg_arr, sid, img_path, seg_path
             else:
                 yield img_arr, seg_arr, sid
+
+    def iter_input_samples(self) -> Iterator[InputSample]:
+        """Yield the typed pipeline boundary including stable source paths."""
+        for seg_path, img_path in self.union_paths:
+            if not img_path or not seg_path:
+                continue
+            if not (os.path.exists(img_path) and os.path.exists(seg_path)):
+                continue
+            img_arr = ensure_chw(_load_image_array(img_path)).astype(np.float32, copy=False)
+            seg_arr = ensure_chw(_load_image_array(seg_path)).astype(np.float32, copy=False)
+            if (not self.keep_mask_channels) and seg_arr.shape[0] > 1:
+                seg_arr = seg_arr[:1]
+            if self.normalize:
+                img_arr = minmax01_chw(img_arr)
+            yield InputSample(
+                image=img_arr,
+                segmentation=seg_arr,
+                source_name=os.path.basename(img_path),
+                source_image_path=img_path,
+                source_segmentation_path=seg_path,
+            )
 
     def discover_dataset(self) -> SampleInfo:
         """
