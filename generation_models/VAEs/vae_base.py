@@ -225,7 +225,19 @@ class HybridVAEBase(nn.Module, ABC):
 
         recon_weighted = self.cfg.recon_weight * recon_loss
         kl_weighted = self.cfg.beta_kl * kl_used
-        total = recon_weighted + kl_weighted
+        latent_recon_weight = float(getattr(self.cfg, "latent_recon_weight", 0.0) or 0.0)
+        if latent_recon_weight < 0.0:
+            raise ValueError(f"cfg.latent_recon_weight must be >= 0, got {latent_recon_weight}")
+        if latent_recon_weight > 0.0:
+            if "latent_recon" not in out or "latent_target" not in out:
+                raise KeyError("latent_recon_weight > 0 requires latent cycle outputs")
+            latent_recon_loss = F.smooth_l1_loss(
+                out["latent_recon"], out["latent_target"], reduction="mean", beta=1.0
+            )
+        else:
+            latent_recon_loss = recon_loss.new_zeros(())
+        latent_recon_weighted = latent_recon_weight * latent_recon_loss
+        total = recon_weighted + kl_weighted + latent_recon_weighted
 
         return {
             "total": total,
@@ -234,6 +246,8 @@ class HybridVAEBase(nn.Module, ABC):
             "kl_raw": kl_raw,
             "recon_weighted": recon_weighted,
             "kl_weighted": kl_weighted,
+            "latent_recon": latent_recon_loss,
+            "latent_recon_weighted": latent_recon_weighted,
         }
 
     @abstractmethod

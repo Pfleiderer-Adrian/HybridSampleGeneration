@@ -429,6 +429,12 @@ class Config:
     beta_kl_warmup_start: float = 0
     beta_kl_warmup_epochs: int = 100
     free_bits: float = 0.0
+    latent_recon_weight: float = 0.0
+    latent_recon_noise_scale: float = 1.0
+    # Additive Gaussian noise applied to the decoded image before re-encoding
+    # it in the latent cycle. This discourages fragile, pixel-level latent
+    # shortcuts. Noise is only added during training; set to 0 to disable it.
+    latent_recon_image_noise_std: float = 0.03
     recon_loss: str = "smoothl1"  # 'smoothl1' or 'mse'
     recon_smoothl1_beta: float = 1.0
     use_transpose_conv: bool = True
@@ -550,11 +556,37 @@ class ConvNeXtcVAE3D(HybridVAEBase):
         
         recon = self.decoder(h_dec, tgt_mask_pad)
 
+        result = {"mu": mu, "logvar": logvar}
+        latent_recon_weight = float(self.cfg.latent_recon_weight or 0.0)
+        if latent_recon_weight > 0.0:
+            noise_scale = float(self.cfg.latent_recon_noise_scale)
+            if noise_scale <= 0.0:
+                raise ValueError("latent_recon_noise_scale must be > 0")
+            latent_target = mu.detach() + noise_scale * torch.randn_like(mu)
+            cycle_h_dec = self.fc_decode(latent_target).reshape(B, self.cfg.z_channels, *latent_dhw)
+            self.decoder.set_skips(skips)
+            cycle_recon = self.decoder(cycle_h_dec, tgt_mask_pad)
+
+            image_noise_std = float(self.cfg.latent_recon_image_noise_std or 0.0)
+            if image_noise_std < 0.0:
+                raise ValueError(
+                    f"latent_recon_image_noise_std must be >= 0, got {image_noise_std}"
+                )
+            if self.training and image_noise_std > 0.0:
+                cycle_encoder_input = cycle_recon + image_noise_std * torch.randn_like(cycle_recon)
+            else:
+                cycle_encoder_input = cycle_recon
+
+            cycle_h, _ = self.encoder(torch.cat([cycle_encoder_input, tgt_mask_pad], dim=1))
+            cycle_mu = self.fc_mu(cycle_h.reshape(B, -1))
+            result.update({"latent_recon": cycle_mu, "latent_target": latent_target})
+
         # Crop recon back to original spatial size
         recon = self._crop_like(recon, ref_dhw)
         x_ref = self._crop_like(x_pad, ref_dhw) if sum(pad) else x
 
-        return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
+        result.update({"recon": recon, "x_ref": x_ref})
+        return result
 
     def _extract_inputs(self, batch) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """Extract x and ori_mask from batch; tgt_mask is optional for generation-only use."""

@@ -77,6 +77,9 @@ def get_convnext_cvae_2d_configuration(in_channels):
         "beta_kl_warmup_start": 0,
         "beta_kl_warmup_epochs": 1000,
         "free_bits": 0.001,
+        "latent_recon_weight": 0.1,
+        "latent_recon_noise_scale": 1.0,
+        "latent_recon_image_noise_std": 0.03,
         "fg_weight": 1.0,
         "fg_threshold": 0.0,
     }
