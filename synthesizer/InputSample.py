@@ -9,10 +9,10 @@ import numpy as np
 
 @dataclass(frozen=True)
 class InputSample:
-    """Typed boundary record accepted by extraction and hybrid planning."""
+    """Typed boundary record accepted by the one-time study ingest."""
 
     image: np.ndarray
-    segmentation: np.ndarray
+    segmentation: np.ndarray | None
     source_name: str
     source_image_path: str | None = None
     source_segmentation_path: str | None = None
@@ -36,7 +36,7 @@ def coerce_input_sample(value) -> InputSample:
 
     return InputSample(
         image=np.asarray(image),
-        segmentation=np.asarray(segmentation),
+        segmentation=None if segmentation is None else np.asarray(segmentation),
         source_name=str(source_name),
         source_image_path=source_image_path,
         source_segmentation_path=source_segmentation_path,

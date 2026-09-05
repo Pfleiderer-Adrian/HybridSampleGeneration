@@ -1,16 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from time import perf_counter
 
 import numpy as np
 from skimage.feature import match_template
+from tqdm import tqdm
 
 from synthesizer.ArtifactStore import ArtifactStore
-from synthesizer.InputSample import InputSample, iter_input_samples
-from synthesizer.StudyRecords import HybridSample, OriginalSample, Placement, RealAnomaly
+from synthesizer.StudyRecords import (
+    HybridSample,
+    MatchCandidate,
+    OriginalSample,
+    Placement,
+    RealAnomaly,
+)
 from synthesizer.StudyRepository import StudyRepository, stable_id, stable_seed
 from synthesizer.configuration.matching import MatchingConfiguration
+
+
+MATCHER_ALGORITHM_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -22,77 +31,40 @@ class _Candidate:
     roi_shape: tuple[int, ...]
 
 
-def persist_original_sample(
-    sample: InputSample,
-    repository: StudyRepository,
-    artifact_store: ArtifactStore,
-) -> OriginalSample:
-    image = np.asarray(sample.image)
-    segmentation = np.asarray(sample.segmentation)
-    if image.ndim not in (3, 4):
-        raise ValueError(
-            f"Input image must be (C,H,W) or (C,D,H,W), got {image.shape}."
+@dataclass(frozen=True)
+class _PreparedArray:
+    intensity: np.ndarray
+    gradient: np.ndarray | None
+    gradient_is_variable: bool
+
+
+@dataclass
+class _MatchingStats:
+    controls: int = 0
+    computed_pairs: int = 0
+    cache_hits: int = 0
+    preparation_seconds: float = 0.0
+    matching_seconds: float = 0.0
+    persistence_seconds: float = 0.0
+
+    def log(self, total_seconds: float) -> None:
+        print(
+            "Matching summary: "
+            f"originals={self.controls}, computed_pairs={self.computed_pairs}, "
+            f"cache_hits={self.cache_hits}, "
+            f"prepare={self.preparation_seconds:.3f}s, "
+            f"match={self.matching_seconds:.3f}s, "
+            f"persist={self.persistence_seconds:.3f}s, total={total_seconds:.3f}s"
         )
-    if (
-        segmentation.ndim != image.ndim
-        or segmentation.shape[1:] != image.shape[1:]
-        or segmentation.shape[0] not in (1, image.shape[0])
-    ):
-        raise ValueError(
-            "Image and segmentation must share their spatial shape, and the "
-            f"segmentation needs one or {image.shape[0]} channels: "
-            f"{image.shape} vs {segmentation.shape}."
-        )
-
-    source_identity = (
-        str(Path(sample.source_image_path).expanduser().resolve())
-        if sample.source_image_path
-        else sample.source_name
-    )
-    record_id = stable_id("original", source_identity)
-    existing = repository.find_original_sample(record_id)
-    if existing is not None:
-        stored_image = artifact_store.load_array(existing.image_path, mmap_mode="r")
-        if existing.spatial_dimensions != image.ndim - 1 or not np.array_equal(
-            stored_image, image
-        ):
-            raise ValueError(
-                f"Source identity {source_identity!r} refers to different image data. "
-                "Use a unique source path or source_name for every original sample."
-            )
-        return existing
-
-    image_path = artifact_store.save_entity_array(
-        "original_samples", record_id, "image", image
-    )
-    segmentation_path = artifact_store.save_entity_array(
-        "original_samples", record_id, "segmentation", segmentation
-    )
-    metadata = dict(sample.metadata)
-    if sample.source_image_path:
-        metadata["source_image_path"] = str(sample.source_image_path)
-    if sample.source_segmentation_path:
-        metadata["source_segmentation_path"] = str(sample.source_segmentation_path)
-
-    record = OriginalSample(
-        id=record_id,
-        source_name=sample.source_name,
-        image_path=image_path,
-        segmentation_path=segmentation_path,
-        spatial_dimensions=image.ndim - 1,
-        metadata=metadata,
-    )
-    repository.upsert_original_sample(record)
-    return record
 
 
 def plan_hybrid_samples(
-    control_samples,
     repository: StudyRepository,
     artifact_store: ArtifactStore,
     config: MatchingConfiguration,
 ) -> list[HybridSample]:
     """Create normalized hybrid and placement records without performing fusion."""
+    started_at = perf_counter()
     config.validate()
     real_anomalies = repository.list_real_anomalies()
     synthetic_anomalies = repository.list_synthetic_anomalies()
@@ -110,28 +82,41 @@ def plan_hybrid_samples(
     if not real_anomalies:
         raise ValueError("No real anomaly has a generated synthetic variant.")
 
-    repository.clear_hybrid_plans()
-    used_synthetic_ids: set[str] = set()
-    planned_original_ids: set[str] = set()
-    planned: list[HybridSample] = []
+    originals = _matching_originals(repository, config.routine)
+    if not originals:
+        target_kind = (
+            "anomalous"
+            if config.routine == "fixed_from_extraction_anomaly_fusion"
+            else "control"
+        )
+        raise ValueError(
+            f"No {target_kind} original samples found. Run ingest_dataset first."
+        )
 
-    for sample_index, sample in enumerate(iter_input_samples(control_samples)):
-        original = persist_original_sample(sample, repository, artifact_store)
-        if original.id in planned_original_ids:
-            raise ValueError(
-                f"Control source {sample.source_name!r} occurs more than once. "
-                "Each original may be planned only once per call."
-            )
-        planned_original_ids.add(original.id)
+    stats = _MatchingStats()
+    prepared_rois: dict[str, _PreparedArray] = {}
+    roi_shapes = _real_anomaly_roi_shapes(real_anomalies, artifact_store, stats)
+
+    used_synthetic_ids: set[str] = set()
+    planned: list[HybridSample] = []
+    placements: list[Placement] = []
+
+    for sample_index, original in enumerate(
+        tqdm(originals, desc="Planning hybrid samples", unit="sample")
+    ):
+        stats.controls += 1
         candidates = _match_real_anomalies(
-            sample,
             original,
             real_anomalies,
+            prepared_rois,
+            roi_shapes,
+            repository,
             artifact_store,
             config,
+            stats,
         )
         if not candidates:
-            print(f"Warning: no matching real anomaly found for {sample.source_name}.")
+            print(f"Warning: no matching real anomaly found for {original.source_name}.")
             continue
 
         for hybrid_index in range(int(config.hybrids_per_original)):
@@ -181,7 +166,7 @@ def plan_hybrid_samples(
 
             if not selected:
                 print(
-                    f"Warning: no unused synthetic variant available for {sample.source_name} "
+                    f"Warning: no unused synthetic variant available for {original.source_name} "
                     f"hybrid variant {hybrid_index}."
                 )
                 continue
@@ -191,52 +176,62 @@ def plan_hybrid_samples(
                 original_sample_id=original.id,
                 variant_index=hybrid_index,
             )
-            repository.upsert_hybrid_sample(hybrid)
             planned.append(hybrid)
 
             for order_index, (candidate, synthetic) in enumerate(selected):
                 position_z, position_y, position_x = _position_columns(candidate.position)
-                placement = Placement(
-                    id=stable_id("placement", hybrid.id, order_index),
-                    hybrid_sample_id=hybrid.id,
-                    synthetic_anomaly_id=synthetic.id,
-                    order_index=order_index,
-                    spatial_dimensions=len(candidate.position),
-                    position_z=position_z,
-                    position_y=position_y,
-                    position_x=position_x,
-                    score=candidate.score,
-                    method=config.routine,
+                placements.append(
+                    Placement(
+                        id=stable_id("placement", hybrid.id, order_index),
+                        hybrid_sample_id=hybrid.id,
+                        synthetic_anomaly_id=synthetic.id,
+                        order_index=order_index,
+                        spatial_dimensions=len(candidate.position),
+                        position_z=position_z,
+                        position_y=position_y,
+                        position_x=position_x,
+                        score=candidate.score,
+                        method=config.routine,
+                    )
                 )
-                repository.upsert_placement(placement)
                 used_synthetic_ids.add(synthetic.id)
 
             if len(selected) < desired_count:
                 print(
                     f"Warning: planned {len(selected)} of {desired_count} requested placements "
-                    f"for {sample.source_name}, hybrid variant {hybrid_index}."
+                    f"for {original.source_name}, hybrid variant {hybrid_index}."
                 )
 
+    persistence_started = perf_counter()
+    repository.replace_hybrid_plan(planned, placements)
+    stats.persistence_seconds += perf_counter() - persistence_started
+    stats.log(perf_counter() - started_at)
     return planned
 
 
 def _match_real_anomalies(
-    sample: InputSample,
     original: OriginalSample,
     real_anomalies: list[RealAnomaly],
+    prepared_rois: dict[str, _PreparedArray],
+    roi_shapes: dict[str, tuple[int, ...]],
+    repository: StudyRepository,
     artifact_store: ArtifactStore,
     config: MatchingConfiguration,
+    stats: _MatchingStats,
 ) -> list[_Candidate]:
-    control = np.asarray(sample.image)
-    spatial_shape = np.asarray(control.shape[1:], dtype=float)
     routine = config.routine
 
     if routine == "fixed_from_extraction_anomaly_fusion":
+        preparation_started = perf_counter()
+        control = artifact_store.load_array(original.image_path, mmap_mode="r")
+        spatial_shape = np.asarray(control.shape[1:], dtype=float)
+        stats.preparation_seconds += perf_counter() - preparation_started
         source_reals = [
             record for record in real_anomalies if record.original_sample_id == original.id
         ]
         return [
-            _fixed_candidate(record, spatial_shape, artifact_store) for record in source_reals
+            _fixed_candidate(record, spatial_shape, roi_shapes[record.id])
+            for record in source_reals
         ]
 
     pool = list(real_anomalies)
@@ -248,46 +243,161 @@ def _match_real_anomalies(
         pool = [pool[index] for index in indices]
 
     if routine == "fixed_from_extraction_control_fusion":
-        return [_fixed_candidate(record, spatial_shape, artifact_store) for record in pool]
+        preparation_started = perf_counter()
+        control = artifact_store.load_array(original.image_path, mmap_mode="r")
+        spatial_shape = np.asarray(control.shape[1:], dtype=float)
+        stats.preparation_seconds += perf_counter() - preparation_started
+        return [
+            _fixed_candidate(record, spatial_shape, roi_shapes[record.id])
+            for record in pool
+        ]
+
+    matcher_signature = _matcher_signature(config)
+    cached_by_real_id = {
+        candidate.real_anomaly_id: candidate
+        for candidate in repository.list_match_candidates(
+            original.id, matcher_signature
+        )
+    }
+    missing_records = [record for record in pool if record.id not in cached_by_real_id]
+    control_prepared = None
+    spatial_shape = None
+    if missing_records:
+        preparation_started = perf_counter()
+        control = artifact_store.load_array(original.image_path)
+        spatial_shape = np.asarray(control.shape[1:], dtype=float)
+        control_prepared = _prepare_matching_array(
+            control,
+            with_gradient=float(config.gradient_weight) > 0,
+        )
+        stats.preparation_seconds += perf_counter() - preparation_started
 
     candidates = []
+    new_cache_records: list[MatchCandidate] = []
     for record in pool:
-        roi = artifact_store.load_array(record.roi_image_path)
-        score, center = template_matching(roi, control, config)
-        if center is None or not np.isfinite(score) or score < -1:
+        cached = cached_by_real_id.get(record.id)
+        if cached is None:
+            if control_prepared is None or spatial_shape is None:
+                raise RuntimeError("Missing prepared control for an uncached match pair.")
+            preparation_started = perf_counter()
+            prepared_roi = prepared_rois.get(record.id)
+            if prepared_roi is None:
+                roi = artifact_store.load_array(record.roi_image_path)
+                prepared_roi = _prepare_matching_array(
+                    roi,
+                    with_gradient=float(config.gradient_weight) > 0,
+                )
+                prepared_rois[record.id] = prepared_roi
+            stats.preparation_seconds += perf_counter() - preparation_started
+            matching_started = perf_counter()
+            score, center = _template_matching_prepared(
+                prepared_roi, control_prepared, config
+            )
+            stats.matching_seconds += perf_counter() - matching_started
+            stats.computed_pairs += 1
+            is_valid = center is not None and np.isfinite(score) and score >= -1
+            position = (
+                tuple(
+                    float(value)
+                    for value in (np.asarray(center, dtype=float) / spatial_shape)
+                )
+                if is_valid
+                else None
+            )
+            cached = MatchCandidate(
+                original_sample_id=original.id,
+                real_anomaly_id=record.id,
+                matcher_signature=matcher_signature,
+                is_valid=is_valid,
+                score=float(score) if np.isfinite(score) else None,
+                position=position,
+                center=(
+                    tuple(float(value) for value in center)
+                    if center is not None
+                    else None
+                ),
+                roi_shape=roi_shapes[record.id],
+            )
+            new_cache_records.append(cached)
+        else:
+            stats.cache_hits += 1
+
+        if not cached.is_valid or cached.position is None or cached.center is None:
             continue
-        position = tuple(
-            float(value) for value in (np.asarray(center, dtype=float) / spatial_shape)
-        )
         candidates.append(
             _Candidate(
                 real_anomaly=record,
-                score=float(score),
-                position=position,
-                center=tuple(float(value) for value in center),
-                roi_shape=tuple(int(value) for value in roi.shape[1:]),
+                score=cached.score,
+                position=cached.position,
+                center=cached.center,
+                roi_shape=cached.roi_shape,
             )
         )
 
+    if new_cache_records:
+        persistence_started = perf_counter()
+        repository.upsert_match_candidates(new_cache_records)
+        stats.persistence_seconds += perf_counter() - persistence_started
+
     if routine in {"global", "batchwise"}:
-        candidates.sort(key=lambda candidate: (-candidate.score, candidate.real_anomaly.id))
+        candidates.sort(
+            key=lambda candidate: (
+                -float(candidate.score),
+                candidate.real_anomaly.id,
+            )
+        )
     return candidates
 
 
 def _fixed_candidate(
     record: RealAnomaly,
     spatial_shape: np.ndarray,
-    artifact_store: ArtifactStore,
+    roi_shape: tuple[int, ...],
 ) -> _Candidate:
     position = tuple(float(value) for value in record.source_position)
     center = tuple(float(value) for value in (np.asarray(position) * spatial_shape))
-    roi = artifact_store.load_array(record.roi_image_path, mmap_mode="r")
     return _Candidate(
         real_anomaly=record,
         score=None,
         position=position,
         center=center,
-        roi_shape=tuple(int(value) for value in roi.shape[1:]),
+        roi_shape=roi_shape,
+    )
+
+
+def _matching_originals(
+    repository: StudyRepository,
+    routine: str,
+) -> list[OriginalSample]:
+    return repository.list_original_samples(
+        has_anomaly=routine == "fixed_from_extraction_anomaly_fusion"
+    )
+
+
+def _real_anomaly_roi_shapes(
+    real_anomalies: list[RealAnomaly],
+    artifact_store: ArtifactStore,
+    stats: _MatchingStats,
+) -> dict[str, tuple[int, ...]]:
+    roi_shapes = {}
+    for record in real_anomalies:
+        stored_shape = record.metadata.get("roi_shape")
+        if stored_shape is not None:
+            roi_shapes[record.id] = tuple(int(value) for value in stored_shape)
+            continue
+        preparation_started = perf_counter()
+        roi = artifact_store.load_array(record.roi_image_path, mmap_mode="r")
+        roi_shapes[record.id] = tuple(int(value) for value in roi.shape[1:])
+        stats.preparation_seconds += perf_counter() - preparation_started
+    return roi_shapes
+
+
+def _matcher_signature(config: MatchingConfiguration) -> str:
+    return stable_id(
+        "matcher",
+        MATCHER_ALGORITHM_VERSION,
+        float(config.intensity_weight),
+        float(config.gradient_weight),
     )
 
 
@@ -339,32 +449,64 @@ def _gradient_magnitude(array: np.ndarray) -> np.ndarray:
     return np.sqrt(magnitude)
 
 
+def _prepare_matching_array(array, *, with_gradient: bool) -> _PreparedArray:
+    intensity = _to_spatial(array)
+    gradient = _gradient_magnitude(intensity) if with_gradient else None
+    return _PreparedArray(
+        intensity=intensity,
+        gradient=gradient,
+        gradient_is_variable=bool(
+            gradient is not None and np.std(gradient) > 1e-8
+        ),
+    )
+
+
 def template_matching(template, control, config: MatchingConfiguration):
-    template = _to_spatial(template)
-    control = _to_spatial(control)
-    if any(template_size > control_size for template_size, control_size in zip(template.shape, control.shape)):
+    """Match full images while preparing each input once for this call."""
+    with_gradient = float(config.gradient_weight) > 0
+    return _template_matching_prepared(
+        _prepare_matching_array(template, with_gradient=with_gradient),
+        _prepare_matching_array(control, with_gradient=with_gradient),
+        config,
+    )
+
+
+def _template_matching_prepared(
+    template: _PreparedArray,
+    control: _PreparedArray,
+    config: MatchingConfiguration,
+):
+    if any(
+        template_size > control_size
+        for template_size, control_size in zip(
+            template.intensity.shape, control.intensity.shape
+        )
+    ):
         return -2.0, None
 
     score_maps = []
     weights = []
     if float(config.intensity_weight) > 0:
-        score_maps.append(match_template(control, template))
+        score_maps.append(match_template(control.intensity, template.intensity))
         weights.append(float(config.intensity_weight))
-    if float(config.gradient_weight) > 0:
-        template_gradient = _gradient_magnitude(template)
-        control_gradient = _gradient_magnitude(control)
-        if np.std(template_gradient) > 1e-8 and np.std(control_gradient) > 1e-8:
-            score_maps.append(match_template(control_gradient, template_gradient))
-            weights.append(float(config.gradient_weight))
+    if (
+        float(config.gradient_weight) > 0
+        and template.gradient_is_variable
+        and control.gradient_is_variable
+    ):
+        score_maps.append(match_template(control.gradient, template.gradient))
+        weights.append(float(config.gradient_weight))
     if not score_maps:
         return -2.0, None
 
     result = np.zeros_like(score_maps[0], dtype=np.float32)
+    weight_sum = sum(weights)
     for score_map, weight in zip(score_maps, weights):
-        result += score_map * (weight / sum(weights))
+        result += score_map * (weight / weight_sum)
     top_left = np.unravel_index(np.argmax(result), result.shape)
     center = tuple(
-        float(offset + size / 2.0) for offset, size in zip(top_left, template.shape)
+        float(offset + size / 2.0)
+        for offset, size in zip(top_left, template.intensity.shape)
     )
     return float(np.max(result)), center
 

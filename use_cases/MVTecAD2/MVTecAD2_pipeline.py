@@ -39,13 +39,13 @@ ANOMALY_LABEL = "bad"
 NORMAL_LABEL = "good"
 
 PREPARE_USECASE_KEYS = {
-    "load_negative_controls",
     "include_public_good_controls",
     "save_path",
     "results_root",
 }
 DEPRECATED_GENERATION_FLAGS = ("run_evaluation", "visualize_evaluation")
 DEFAULT_GENERATION_STEPS = (
+    "ingest_dataset",
     "extract_anomalies",
     "train_generator",
     "generate_synthetic_anomalies",
@@ -54,6 +54,7 @@ DEFAULT_GENERATION_STEPS = (
     "save_config",
 )
 GENERATION_STEP_ORDER = (
+    "ingest_dataset",
     "extract_anomalies",
     "train_generator",
     "load_generator",
@@ -66,6 +67,8 @@ GENERATION_STEP_ORDER = (
 GENERATION_STEP_ALIASES = {
     "all": "all",
     "default": "all",
+    "ingest": "ingest_dataset",
+    "ingest_dataset": "ingest_dataset",
     "extract": "extract_anomalies",
     "extract_anomalies": "extract_anomalies",
     "train": "train_generator",
@@ -103,9 +106,7 @@ class MVTecAD2UseCase:
     category: str
     category_root: Path
     config: Configuration
-    anomaly_dataloader: "MVTecAD2Dataloader"
-    control_dataloader: "MVTecAD2Dataloader"
-    positive_only: bool = True
+    sample_dataloader: "MVTecAD2Dataloader"
 
 
 class MVTecAD2Dataloader:
@@ -168,7 +169,6 @@ def prepare_mvtecad2_usecases(
     root: Path | str = MVTECAD2_ROOT,
     categories: str | Iterable[str] | None = None,
     *,
-    load_negative_controls: bool = True,
     include_public_good_controls: bool = False,
     save_path: Path | str | None = None,
     results_root: Path | str | None = None,
@@ -178,7 +178,7 @@ def prepare_mvtecad2_usecases(
 
     Default behavior uses test_public/bad samples with masks for anomaly
     extraction and train/validation good samples as controls for matching and
-    fusion. Set load_negative_controls=False only for a positive-only debug run.
+    fusion. Both groups are exposed through one mixed sample dataloader.
     Category-specific HybridDataGenerator settings are defined in
     MVTecAD2_configuration.py.
 
@@ -207,15 +207,10 @@ def prepare_mvtecad2_usecases(
         if not positive_samples:
             raise ValueError(f"No public positive samples with masks found for category {category!r}.")
 
-        if load_negative_controls:
-            control_samples = _collect_control_samples(
-                category_root,
-                include_public_good_controls=include_public_good_controls,
-            )
-            positive_only = False
-        else:
-            control_samples = positive_samples
-            positive_only = True
+        control_samples = _collect_control_samples(
+            category_root,
+            include_public_good_controls=include_public_good_controls,
+        )
 
         if not control_samples:
             raise ValueError(f"No control samples found for category {category!r}.")
@@ -226,14 +221,16 @@ def prepare_mvtecad2_usecases(
             results_root=results_root,
         )
 
+        samples_by_path = {
+            sample.image_path.resolve(): sample
+            for sample in [*positive_samples, *control_samples]
+        }
         use_cases.append(
             MVTecAD2UseCase(
                 category=category,
                 category_root=category_root,
                 config=config,
-                anomaly_dataloader=MVTecAD2Dataloader(positive_samples),
-                control_dataloader=MVTecAD2Dataloader(control_samples),
-                positive_only=positive_only,
+                sample_dataloader=MVTecAD2Dataloader(list(samples_by_path.values())),
             )
         )
 
@@ -262,7 +259,7 @@ def run_hybrid_sample_generation_for_usecase(
     intentionally separate downstream calls.
 
     steps can be used to run only selected generation steps. Examples:
-    ("extract", "train", "generate_synth"),
+    ("ingest", "extract", "train", "generate_synth"),
     ("plan", "materialize") for already persisted synthetic anomalies.
     generator_trial_id selects the model to load: -1 best model, -2 newest model,
     otherwise the concrete Optuna trial/model number.
@@ -280,8 +277,11 @@ def run_hybrid_sample_generation_for_usecase(
         plan_hybrids=plan_hybrids,
     )
 
+    if "ingest_dataset" in selected_steps:
+        generator.ingest_dataset(use_case.sample_dataloader)
+
     if "extract_anomalies" in selected_steps:
-        generator.extract_anomalies(use_case.anomaly_dataloader)
+        generator.extract_anomalies()
 
     if "train_generator" in selected_steps:
         generator.train_generator(no_of_trials=no_of_trials)
@@ -295,11 +295,10 @@ def run_hybrid_sample_generation_for_usecase(
         generator.generate_synthetic_anomalies()
 
     if "plan_hybrid_samples" in selected_steps:
-        generator.plan_hybrid_samples(use_case.control_dataloader)
+        generator.plan_hybrid_samples()
 
     if "train_fusion_backend" in selected_steps:
         generator.train_fusion_backend(
-            use_case.anomaly_dataloader,
             epochs=fusion_backend_epochs,
             lr=fusion_backend_lr,
             checkpoint_path=None if fusion_backend_checkpoint is None else str(fusion_backend_checkpoint),
@@ -594,7 +593,7 @@ def _default_generation_steps(
     if generate_synthetic_anomalies:
         if train_generator and load_existing_generator:
             raise ValueError("Training and loading a generator are mutually exclusive.")
-        steps.append("extract_anomalies")
+        steps.extend(["ingest_dataset", "extract_anomalies"])
         if train_generator:
             steps.append("train_generator")
         elif load_existing_generator:
@@ -797,11 +796,13 @@ def _validate_dataset_root(root: Path) -> None:
 
 if __name__ == "__main__":
     categories = ("can")
+    """
     run_hybrid_sample_generation_for_all_usecases(
         root=MVTECAD2_ROOT,
         categories=categories,
         no_of_trials=1,
         steps=(
+            "ingest",
             "extract",
             "train",
             "generate_synth",
@@ -812,7 +813,7 @@ if __name__ == "__main__":
         generator_trial_id=-2,  # -1: best Model, -2: newest Model, else Trial-/Modely number
         save_path=MVTECAD2_SAVE,
     )
-
+    """
     # Downstream call after generation:
     run_evaluation_and_visualization_for_all_usecases(
         root=MVTECAD2_ROOT,

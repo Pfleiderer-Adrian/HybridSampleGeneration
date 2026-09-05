@@ -8,7 +8,12 @@ import torch
 from torch.utils.data import Dataset
 
 from synthesizer.ArtifactStore import ArtifactStore
-from synthesizer.StudyRecords import HybridSample, RealAnomaly, SyntheticAnomaly
+from synthesizer.StudyRecords import (
+    HybridSample,
+    OriginalSample,
+    RealAnomaly,
+    SyntheticAnomaly,
+)
 from synthesizer.StudyRepository import StudyRepository
 
 
@@ -92,6 +97,76 @@ class _RecordDataset(Dataset):
         contiguous = np.asarray(value, dtype=_numpy_dtype(self.dtype), order="C")
         tensor = torch.from_numpy(contiguous)
         return tensor.to(self.dtype) if tensor.dtype != self.dtype else tensor
+
+
+class OriginalSampleDataset(_RecordDataset):
+    ALLOWED_ARTIFACTS = {
+        "img",
+        "ori_mask",
+        "fname",
+        "original_sample_id",
+        "has_anomaly",
+        "is_annotated",
+        "metadata",
+        "record",
+    }
+
+    def __init__(
+        self,
+        repository: StudyRepository,
+        artifact_store: ArtifactStore,
+        *,
+        return_artifacts: Sequence[str] = (
+            "img",
+            "ori_mask",
+            "fname",
+            "original_sample_id",
+        ),
+        has_anomaly: bool | None = None,
+        is_annotated: bool | None = None,
+        **kwargs,
+    ) -> None:
+        unknown = set(return_artifacts) - self.ALLOWED_ARTIFACTS
+        if unknown:
+            raise ValueError(f"Unknown original sample artifacts: {sorted(unknown)}")
+        self.has_anomaly = has_anomaly
+        self.is_annotated = is_annotated
+        super().__init__(
+            repository, artifact_store, return_artifacts=return_artifacts, **kwargs
+        )
+
+    def _load_records(self) -> list[OriginalSample]:
+        return self.repository.list_original_samples(
+            has_anomaly=self.has_anomaly,
+            is_annotated=self.is_annotated,
+        )
+
+    def _array_paths(self, record: OriginalSample) -> tuple[str, ...]:
+        paths = []
+        if "img" in self.return_artifacts:
+            paths.append(record.image_path)
+        if "ori_mask" in self.return_artifacts and record.segmentation_path is not None:
+            paths.append(record.segmentation_path)
+        return tuple(paths)
+
+    def _sample(self, record: OriginalSample) -> dict:
+        sample = {
+            "fname": record.source_name,
+            "original_sample_id": record.id,
+            "has_anomaly": record.has_anomaly,
+            "is_annotated": record.is_annotated,
+            "metadata": dict(record.metadata),
+            "record": record,
+        }
+        if "img" in self.return_artifacts:
+            sample["img"] = self._array(record.image_path)
+        if "ori_mask" in self.return_artifacts:
+            sample["ori_mask"] = (
+                None
+                if record.segmentation_path is None
+                else self._array(record.segmentation_path)
+            )
+        return sample
 
 
 class RealAnomalyDataset(_RecordDataset):

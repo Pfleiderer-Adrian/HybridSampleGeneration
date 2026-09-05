@@ -11,7 +11,24 @@ class OriginalSample:
     image_path: str
     segmentation_path: str | None
     spatial_dimensions: int
+    has_anomaly: bool
+    is_annotated: bool
+    source_index: int
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class MatchCandidate:
+    """Cached result for one original/real-anomaly matching pair."""
+
+    original_sample_id: str
+    real_anomaly_id: str
+    matcher_signature: str
+    is_valid: bool
+    score: float | None
+    position: tuple[float, ...] | None
+    center: tuple[float, ...] | None
+    roi_shape: tuple[int, ...]
 
 
 @dataclass(frozen=True)

@@ -147,19 +147,17 @@ class ImageDataloader:
         normalize: bool = False,
         return_paths: bool = False,
         keep_mask_channels: bool = False,
-        controls_only: bool = False,
-
     ):
         """
         Iterable over 2D image + segmentation pairs on disk.
 
         Yields:
-          - (img_arr, seg_arr, sid)                                if return_paths == False
-          - (img_arr, seg_arr, sid, img_path, seg_path)            if return_paths == True
+          - (img_arr, seg_arr_or_none, sid)                         if return_paths == False
+          - (img_arr, seg_arr_or_none, sid, img_path, seg_path)     if return_paths == True
 
         Shapes:
           - img_arr: (C, H, W), float32, optionally min-max normalized to [0, 1]
-          - seg_arr: (1, H, W), float32 (by default)
+          - seg_arr_or_none: (1, H, W), float32 (by default)
         """
         self.img_dir = img_dir
         self.seg_dir = seg_dir
@@ -167,7 +165,6 @@ class ImageDataloader:
         self.normalize = normalize
         self.return_paths = return_paths
         self.keep_mask_channels = keep_mask_channels
-        self.controls_only = controls_only
 
 
         img_paths = [p for p in glob.iglob(os.path.join(img_dir, "*")) if _is_image_file(p)]
@@ -202,51 +199,21 @@ class ImageDataloader:
                 union.append((None, ip))
 
         self.union_paths = union
-        if self.controls_only:
-            self.union_paths = self._filter_controls(self.union_paths)
-            print("No. of control samples found: ", len(self.union_paths))
         self.sample_infos = self.discover_dataset()
-
-    def _mask_has_anomaly(self, seg_path: str) -> bool:
-        seg_raw = _load_image_array(seg_path)
-
-        # Falls RGB-Masken vorkommen: genauso behandeln wie in __iter__
-        seg_arr = ensure_chw(seg_raw)
-        if (not self.keep_mask_channels) and seg_arr.shape[0] > 1:
-            seg_arr = seg_arr[:1]
-
-        # "Anomalie" = irgendein Pixel > 0
-        return np.any(seg_arr > 0)
-
-    def _filter_controls(self, pairs):
-        out = []
-        for seg_path, img_path in pairs:
-            if not img_path or not seg_path:
-                continue
-            if not (os.path.exists(img_path) and os.path.exists(seg_path)):
-                continue
-
-            if not self._mask_has_anomaly(seg_path):
-                out.append((seg_path, img_path))
-        return out
 
     def __iter__(self) -> Iterator:
         for seg_path, img_path in self.union_paths:
-            # yield only complete pairs (same behavior as before)
             if not img_path or not os.path.exists(img_path):
-                continue
-            if not seg_path or not os.path.exists(seg_path):
                 continue
 
             img_raw = _load_image_array(img_path)
-            seg_raw = _load_image_array(seg_path)
-
             img_arr = ensure_chw(img_raw).astype(np.float32, copy=False)
-            seg_arr = ensure_chw(seg_raw).astype(np.float32, copy=False)
-
-            # optional: if mask is RGB, reduce to 1 channel (common for label PNGs that are saved as RGB)
-            if (not self.keep_mask_channels) and seg_arr.shape[0] > 1:
-                seg_arr = seg_arr[:1]
+            seg_arr = None
+            if seg_path and os.path.exists(seg_path):
+                seg_raw = _load_image_array(seg_path)
+                seg_arr = ensure_chw(seg_raw).astype(np.float32, copy=False)
+                if (not self.keep_mask_channels) and seg_arr.shape[0] > 1:
+                    seg_arr = seg_arr[:1]
 
             if self.normalize:
                 img_arr = minmax01_chw(img_arr)
@@ -261,14 +228,16 @@ class ImageDataloader:
     def iter_input_samples(self) -> Iterator[InputSample]:
         """Yield the typed pipeline boundary including stable source paths."""
         for seg_path, img_path in self.union_paths:
-            if not img_path or not seg_path:
-                continue
-            if not (os.path.exists(img_path) and os.path.exists(seg_path)):
+            if not img_path or not os.path.exists(img_path):
                 continue
             img_arr = ensure_chw(_load_image_array(img_path)).astype(np.float32, copy=False)
-            seg_arr = ensure_chw(_load_image_array(seg_path)).astype(np.float32, copy=False)
-            if (not self.keep_mask_channels) and seg_arr.shape[0] > 1:
-                seg_arr = seg_arr[:1]
+            seg_arr = None
+            if seg_path and os.path.exists(seg_path):
+                seg_arr = ensure_chw(_load_image_array(seg_path)).astype(
+                    np.float32, copy=False
+                )
+                if (not self.keep_mask_channels) and seg_arr.shape[0] > 1:
+                    seg_arr = seg_arr[:1]
             if self.normalize:
                 img_arr = minmax01_chw(img_arr)
             yield InputSample(

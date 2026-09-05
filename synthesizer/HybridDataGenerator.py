@@ -17,10 +17,12 @@ from generation_models.interfaces import GenerativeBackend
 from generation_models.model_registry import get_model_spec
 from synthesizer.ArtifactStore import ArtifactStore
 from synthesizer.Configuration import Configuration
-from synthesizer.InputSample import iter_input_samples
+from synthesizer.DatasetIngestion import (
+    DatasetSummary,
+    ingest_dataset as ingest_study_dataset,
+)
 from synthesizer.Matching import (
     combine_label_masks,
-    persist_original_sample,
     plan_hybrid_samples as build_hybrid_plan,
     ssim_01,
 )
@@ -58,27 +60,60 @@ class HybridDataGenerator:
     def _log_step(self, message: str) -> None:
         print(f"[HybridDataGenerator] {message}")
 
-    def extract_anomalies(self, sample_dataloader) -> list[RealAnomaly]:
-        """Extract and register real anomalies and their owning original samples."""
+    def ingest_dataset(self, sample_dataloader) -> DatasetSummary:
+        """Persist and classify every original sample exactly once."""
+        self._log_step("Ingesting and exploring original samples.")
+        summary = ingest_study_dataset(
+            sample_dataloader,
+            self.repository,
+            self.artifact_store,
+            expected_spatial_dimensions=len(self.config.extraction.anomaly_size) - 1,
+            expected_channels=int(self.config.extraction.anomaly_size[0]),
+        )
+        self._log_step(
+            f"Ingested {summary.total_samples} originals: "
+            f"{summary.anomalous_samples} anomalous, "
+            f"{summary.control_samples} controls."
+        )
+        return summary
+
+    def extract_anomalies(self) -> list[RealAnomaly]:
+        """Extract real anomalies from the persisted anomalous originals."""
         self._log_step("Extracting real anomalies into normalized study records.")
-        self.repository.clear_all_records()
+        source_dataset = self.datasets.original_samples(
+            return_artifacts=("img", "ori_mask", "record"),
+            has_anomaly=True,
+            is_annotated=True,
+            load_to_ram=False,
+            numpy_mode=True,
+        )
+        if not len(source_dataset):
+            raise ValueError(
+                "No anomalous originals found. Run ingest_dataset with annotated "
+                "anomaly samples first."
+            )
+        self.repository.clear_real_anomalies_and_downstream()
         extracted: list[RealAnomaly] = []
 
-        for sample in iter_input_samples(sample_dataloader):
-            if not np.any(sample.segmentation):
-                continue
-            original = persist_original_sample(sample, self.repository, self.artifact_store)
-            if sample.image.ndim == 3:
-                result = crop_and_center_anomaly_2d(
-                    sample.image, sample.segmentation, self.config.extraction
+        for sample in source_dataset:
+            original = sample["record"]
+            image = sample["img"]
+            segmentation = sample["ori_mask"]
+            if segmentation is None:
+                raise RuntimeError(
+                    f"Anomalous original {original.id} has no segmentation artifact."
                 )
-            elif sample.image.ndim == 4:
+            if image.ndim == 3:
+                result = crop_and_center_anomaly_2d(
+                    image, segmentation, self.config.extraction
+                )
+            elif image.ndim == 4:
                 result = crop_and_center_anomaly_3d(
-                    sample.image, sample.segmentation, self.config.extraction
+                    image, segmentation, self.config.extraction
                 )
             else:
                 raise ValueError(
-                    f"Unexpected shape {sample.image.shape}; expected (C,H,W) or (C,D,H,W)."
+                    f"Unexpected shape {image.shape}; expected (C,H,W) or (C,D,H,W)."
                 )
             if not result or result[0] is None:
                 continue
@@ -104,6 +139,10 @@ class HybridDataGenerator:
                 )
                 position = tuple(float(value) for value in metadata["centroid_norm"])
                 position_z, position_y, position_x = _position_columns(position)
+                record_metadata = dict(metadata)
+                record_metadata["roi_shape"] = tuple(
+                    int(value) for value in roi.shape[1:]
+                )
                 record = RealAnomaly(
                     id=record_id,
                     original_sample_id=original.id,
@@ -112,11 +151,11 @@ class HybridDataGenerator:
                     segmentation_path=segmentation_path,
                     roi_image_path=roi_image_path,
                     roi_segmentation_path=roi_segmentation_path,
-                    spatial_dimensions=sample.image.ndim - 1,
+                    spatial_dimensions=image.ndim - 1,
                     position_z=position_z,
                     position_y=position_y,
                     position_x=position_x,
-                    metadata=dict(metadata),
+                    metadata=record_metadata,
                 )
                 self.repository.upsert_real_anomaly(record)
                 extracted.append(record)
@@ -183,7 +222,6 @@ class HybridDataGenerator:
 
     def train_fusion_backend(
         self,
-        sample_dataloader,
         *,
         epochs: int | None = None,
         lr: float | None = None,
@@ -197,13 +235,24 @@ class HybridDataGenerator:
                 f"Fusion backend {self.config.fusion.backend!r} is not trainable."
             )
         backend = self._ensure_fusion_backend()
+        training_dataset = self.datasets.original_samples(
+            return_artifacts=("img", "ori_mask", "fname"),
+            has_anomaly=True,
+            is_annotated=True,
+            load_to_ram=False,
+            numpy_mode=True,
+        )
+        if not len(training_dataset):
+            raise ValueError(
+                "No anomalous originals found for fusion training. Run ingest_dataset first."
+            )
         if spec.trainable and checkpoint_path is None:
             checkpoint_path = str(
                 Path(self.config.study.paths.trained_fusion_backends)
                 / f"{self.config.fusion.backend}.pth"
             )
         summary = backend.train_model(
-            sample_dataloader,
+            training_dataset,
             epochs=epochs,
             lr=lr,
             checkpoint_path=checkpoint_path,
@@ -324,10 +373,9 @@ class HybridDataGenerator:
             raise RuntimeError("Generator produced no variant.")
         return best
 
-    def plan_hybrid_samples(self, control_samples) -> list[HybridSample]:
+    def plan_hybrid_samples(self) -> list[HybridSample]:
         self._log_step("Planning hybrid samples and placements.")
         planned = build_hybrid_plan(
-            control_samples,
             self.repository,
             self.artifact_store,
             self.config.matching,

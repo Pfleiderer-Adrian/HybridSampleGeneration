@@ -4,6 +4,16 @@ from use_cases.MVTecAD2.MVTecAD2_pipeline import _default_generation_steps
 
 
 class MVTecPipelineStepTests(unittest.TestCase):
+    def test_fresh_generation_starts_with_dataset_ingest(self):
+        steps = _default_generation_steps(
+            train_generator=True,
+            load_existing_generator=False,
+            generate_synthetic_anomalies=True,
+            plan_hybrids=True,
+        )
+
+        self.assertEqual(steps[0:2], ("ingest_dataset", "extract_anomalies"))
+
     def test_existing_synthetic_anomalies_need_no_load_step(self):
         steps = _default_generation_steps(
             train_generator=False,

@@ -2,8 +2,10 @@ import csv
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
+from skimage.feature import match_template as skimage_match_template
 
 from fusion_backend.interfaces import FusionOutput
 from synthesizer.Configuration import Configuration
@@ -69,6 +71,112 @@ def _control_samples():
 
 
 class StudyPipelineTests(unittest.TestCase):
+    def test_ingest_classifies_unannotated_controls(self):
+        with tempfile.TemporaryDirectory() as root:
+            config = Configuration(
+                "unannotated-control-study",
+                "VAE_ResNet_2D",
+                (1, 8, 8),
+                study_folder=str(Path(root) / "study"),
+            )
+            image = np.zeros((1, 16, 16), dtype=np.float32)
+            mask = np.zeros_like(image, dtype=np.uint8)
+            mask[:, 3:6, 3:6] = 1
+
+            generator = HybridDataGenerator(config)
+            summary = generator.ingest_dataset(
+                [
+                    InputSample(image, mask, "anomaly"),
+                    InputSample(image.copy(), None, "unannotated-control"),
+                ]
+            )
+
+            self.assertEqual(summary.annotated_samples, 1)
+            self.assertEqual(summary.unannotated_samples, 1)
+            controls = generator.datasets.original_samples(
+                return_artifacts=("record",),
+                has_anomaly=False,
+                is_annotated=False,
+                numpy_mode=True,
+            )
+            self.assertEqual(len(controls), 1)
+            self.assertFalse(controls[0]["record"].has_anomaly)
+
+    def test_local_matching_reuses_cached_full_image_results(self):
+        with tempfile.TemporaryDirectory() as root:
+            config = Configuration(
+                "local-cache-study",
+                "VAE_ResNet_2D",
+                (1, 8, 8),
+                study_folder=str(Path(root) / "study"),
+            )
+            config.extraction.min_coverage_ratio = 0.0
+            config.extraction.add_background_noise = False
+            config.extraction.normalization = None
+            config.extraction.roi.fixed_size = (8, 8)
+            config.generation.variants_per_real_anomaly = 1
+            config.matching.routine = "local"
+            config.matching.hybrids_per_original = 1
+            config.matching.anomalies_per_hybrid = 1
+
+            anomaly_image = np.zeros((1, 32, 32), dtype=np.float32)
+            anomaly_mask = np.zeros_like(anomaly_image, dtype=np.uint8)
+            anomaly_image[:, 4:8, 4:8] = 1.0
+            anomaly_mask[:, 4:8, 4:8] = 1
+            control_image = np.zeros_like(anomaly_image)
+            control_image[:, 23:27, 23:27] = 1.0
+
+            HybridDataGenerator(config).ingest_dataset(
+                [
+                    InputSample(anomaly_image, anomaly_mask, "anomaly"),
+                    InputSample(
+                        control_image,
+                        np.zeros_like(anomaly_mask),
+                        "control",
+                    ),
+                ]
+            )
+            HybridDataGenerator(config).extract_anomalies()
+            HybridDataGenerator(
+                config,
+                generator_model=_FakeGenerator(),
+            ).generate_synthetic_anomalies()
+
+            planner = HybridDataGenerator(config)
+            with patch(
+                "synthesizer.Matching.match_template",
+                wraps=skimage_match_template,
+            ) as matching_call:
+                first_plan = planner.plan_hybrid_samples()
+            self.assertGreater(matching_call.call_count, 0)
+            self.assertEqual(planner.repository.count_match_candidates(), 1)
+
+            first_placement = planner.repository.list_placements(first_plan[0].id)[0]
+            self.assertGreater(first_placement.position_y, 0.5)
+            self.assertGreater(first_placement.position_x, 0.5)
+
+            with patch(
+                "synthesizer.Matching.match_template",
+                side_effect=AssertionError("cached matches must not be recomputed"),
+            ):
+                second_plan = HybridDataGenerator(config).plan_hybrid_samples()
+            second_placement = planner.repository.list_placements(second_plan[0].id)[0]
+            self.assertEqual(first_placement.position, second_placement.position)
+
+            for routine in ("global", "batchwise"):
+                config.matching.routine = routine
+                with patch(
+                    "synthesizer.Matching.match_template",
+                    side_effect=AssertionError("compatible routines must reuse pair matches"),
+                ):
+                    cached_plan = HybridDataGenerator(config).plan_hybrid_samples()
+                cached_placement = planner.repository.list_placements(cached_plan[0].id)[0]
+                self.assertEqual(cached_placement.method, routine)
+                self.assertEqual(first_placement.position, cached_placement.position)
+
+            HybridDataGenerator(config).extract_anomalies()
+            self.assertEqual(planner.repository.count_match_candidates(), 0)
+
     def test_multiple_variants_and_normalized_placements_end_to_end(self):
         with tempfile.TemporaryDirectory() as root:
             config = Configuration(
@@ -90,8 +198,16 @@ class StudyPipelineTests(unittest.TestCase):
             config.matching.allow_sibling_variants_in_same_hybrid = False
             config.validate()
 
+            ingestor = HybridDataGenerator(config)
+            summary = ingestor.ingest_dataset(
+                [*_anomaly_samples(), *_control_samples()]
+            )
+            self.assertEqual(summary.total_samples, 4)
+            self.assertEqual(summary.anomalous_samples, 2)
+            self.assertEqual(summary.control_samples, 2)
+
             extractor = HybridDataGenerator(config)
-            real = extractor.extract_anomalies(_anomaly_samples())
+            real = extractor.extract_anomalies()
             self.assertEqual(len(real), 4)
 
             generator = HybridDataGenerator(config, generator_model=_FakeGenerator())
@@ -102,7 +218,7 @@ class StudyPipelineTests(unittest.TestCase):
             )
 
             planner = HybridDataGenerator(config)
-            planned = planner.plan_hybrid_samples(_control_samples())
+            planned = planner.plan_hybrid_samples()
             self.assertEqual(len(planned), 6)
             placements = planner.repository.list_placements()
             self.assertEqual(len(placements), 12)
@@ -204,23 +320,23 @@ class StudyPipelineTests(unittest.TestCase):
             mask = np.zeros_like(image, dtype=np.uint8)
             image[:, 3:6, 5:8, 9:12] = 1.0
             mask[:, 3:6, 5:8, 9:12] = 1
-            HybridDataGenerator(config).extract_anomalies(
-                [InputSample(image, mask, "volume")]
+            HybridDataGenerator(config).ingest_dataset(
+                [
+                    InputSample(image, mask, "volume"),
+                    InputSample(
+                        np.zeros_like(image),
+                        np.zeros_like(mask),
+                        "control-volume",
+                    ),
+                ]
             )
+            HybridDataGenerator(config).extract_anomalies()
             HybridDataGenerator(
                 config,
                 generator_model=_FakeGenerator(),
             ).generate_synthetic_anomalies()
             planner = HybridDataGenerator(config)
-            planner.plan_hybrid_samples(
-                [
-                    InputSample(
-                        np.zeros_like(image),
-                        np.zeros_like(mask),
-                        "control-volume",
-                    )
-                ]
-            )
+            planner.plan_hybrid_samples()
 
             placements = planner.repository.list_placements()
             self.assertEqual(len(placements), 2)
@@ -245,7 +361,7 @@ class StudyPipelineTests(unittest.TestCase):
             config.extraction.normalization = None
             config.extraction.roi.fixed_size = (8, 8)
             config.generation.variants_per_real_anomaly = 2
-            config.matching.routine = "fixed_from_extraction_control_fusion"
+            config.matching.routine = "fixed_from_extraction_anomaly_fusion"
             config.matching.hybrids_per_original = 1
             config.matching.anomalies_per_hybrid = 2
             config.matching.allow_sibling_variants_in_same_hybrid = True
@@ -255,23 +371,16 @@ class StudyPipelineTests(unittest.TestCase):
             image[:, 8:12, 10:14] = 0.8
             mask[:, 8:12, 10:14] = 1
 
-            HybridDataGenerator(config).extract_anomalies(
+            HybridDataGenerator(config).ingest_dataset(
                 [InputSample(image, mask, "anomaly")]
             )
+            HybridDataGenerator(config).extract_anomalies()
             synthetic = HybridDataGenerator(
                 config,
                 generator_model=_FakeGenerator(),
             ).generate_synthetic_anomalies()
             planner = HybridDataGenerator(config)
-            planned = planner.plan_hybrid_samples(
-                [
-                    InputSample(
-                        image.copy(),
-                        np.zeros_like(mask),
-                        "anomaly",
-                    )
-                ]
-            )
+            planned = planner.plan_hybrid_samples()
 
             self.assertEqual(len(synthetic), 2)
             self.assertEqual(len(planned), 1)

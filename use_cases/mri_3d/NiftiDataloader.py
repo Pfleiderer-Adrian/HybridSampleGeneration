@@ -153,15 +153,16 @@ class NiftiDataloader:
         - Images and segmentations are paired by identical filenames.
         - Union over:
           (seg, img) pairs + seg-only + img-only
-        - __iter__ yields only complete pairs (both exist).
+        - Image-only entries are yielded as unannotated controls.
 
         Iterator yields:
-          - (img_arr, seg_arr, sample_id)                         if return_affine == False
-          - (img_arr, seg_arr, sample_id, img_affine, seg_affine) if return_affine == True
+          - (img_arr, seg_arr_or_none, sample_id) if return_affine == False
+          - (img_arr, seg_arr_or_none, sample_id, img_affine,
+             seg_affine_or_none) if return_affine == True
 
         Shapes:
           - img_arr: (C, D, H, W), float32, min-max normalized to [0, 1]
-          - seg_arr: (1, D, H, W), float32, not normalized
+          - seg_arr_or_none: (1, D, H, W), float32, not normalized
         """
         self.img_dir = img_dir
         self.seg_dir = seg_dir
@@ -202,19 +203,26 @@ class NiftiDataloader:
         img_ch = int(getattr(self.sample_infos, "channels", 1))
 
         for seg_path, img_path in self.union_paths:
-            # yield only complete pairs (same as before)
+            # Segmentation-only entries cannot form an original sample.
             if not img_path or not os.path.exists(img_path):
                 continue
-            if not seg_path or not os.path.exists(seg_path):
-                continue
+            segmentation_available = bool(seg_path and os.path.exists(seg_path))
 
             img_raw, img_aff = _load_nifti_array_affine(img_path)
-            seg_raw, seg_aff = _load_nifti_array_affine(seg_path)
+            seg_raw = seg_aff = None
+            if segmentation_available:
+                seg_raw, seg_aff = _load_nifti_array_affine(seg_path)
 
             sample_id = os.path.basename(img_path) if img_path else os.path.basename(seg_path)
 
             img_arr = ensure_cdhw(img_raw, channels_hint=img_ch).astype(np.float32, copy=False)
-            seg_arr = ensure_cdhw(seg_raw, channels_hint=1).astype(np.float32, copy=False)
+            seg_arr = (
+                None
+                if seg_raw is None
+                else ensure_cdhw(seg_raw, channels_hint=1).astype(
+                    np.float32, copy=False
+                )
+            )
 
             #img_arr = minmax01(img_arr)
 
@@ -229,18 +237,18 @@ class NiftiDataloader:
         """Yield typed channel-first volumes including their source paths."""
         image_channels = int(getattr(self.sample_infos, "channels", 1))
         for seg_path, img_path in self.union_paths:
-            if not img_path or not seg_path:
-                continue
-            if not (os.path.exists(img_path) and os.path.exists(seg_path)):
+            if not img_path or not os.path.exists(img_path):
                 continue
             image, _ = _load_nifti_array_affine(img_path)
-            segmentation, _ = _load_nifti_array_affine(seg_path)
             image = ensure_cdhw(image, channels_hint=image_channels).astype(
                 np.float32, copy=False
             )
-            segmentation = ensure_cdhw(segmentation, channels_hint=1).astype(
-                np.float32, copy=False
-            )
+            segmentation = None
+            if seg_path and os.path.exists(seg_path):
+                segmentation, _ = _load_nifti_array_affine(seg_path)
+                segmentation = ensure_cdhw(segmentation, channels_hint=1).astype(
+                    np.float32, copy=False
+                )
             source_name = Path(Path(img_path).name).stem
             source_name = Path(source_name).stem
             yield InputSample(

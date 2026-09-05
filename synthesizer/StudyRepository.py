@@ -9,6 +9,7 @@ from typing import Iterator
 
 from synthesizer.StudyRecords import (
     HybridSample,
+    MatchCandidate,
     OriginalSample,
     Placement,
     RealAnomaly,
@@ -17,7 +18,7 @@ from synthesizer.StudyRecords import (
 )
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def stable_id(kind: str, *components) -> str:
@@ -56,6 +57,22 @@ class StudyRepository:
 
     def _initialize_schema(self) -> None:
         with self.connection() as connection:
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS schema_info (version INTEGER NOT NULL)"
+            )
+            existing_schema = connection.execute(
+                "SELECT version FROM schema_info LIMIT 1"
+            ).fetchone()
+            if (
+                existing_schema is not None
+                and int(existing_schema["version"]) != SCHEMA_VERSION
+            ):
+                raise ValueError(
+                    f"Unsupported artifact database schema {existing_schema['version']}; "
+                    f"expected {SCHEMA_VERSION}. Backward migration is intentionally "
+                    f"unsupported. Move or delete {self.database_path} and run "
+                    "ingest_dataset() again."
+                )
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS schema_info (
@@ -68,6 +85,9 @@ class StudyRepository:
                     image_path TEXT NOT NULL,
                     segmentation_path TEXT,
                     spatial_dimensions INTEGER NOT NULL CHECK (spatial_dimensions IN (2, 3)),
+                    has_anomaly INTEGER NOT NULL CHECK (has_anomaly IN (0, 1)),
+                    is_annotated INTEGER NOT NULL CHECK (is_annotated IN (0, 1)),
+                    source_index INTEGER NOT NULL UNIQUE,
                     metadata_json TEXT NOT NULL DEFAULT '{}'
                 );
 
@@ -134,28 +154,39 @@ class StudyRepository:
                     )
                 );
 
+                CREATE TABLE IF NOT EXISTS match_candidates (
+                    original_sample_id TEXT NOT NULL REFERENCES original_samples(id) ON DELETE CASCADE,
+                    real_anomaly_id TEXT NOT NULL REFERENCES real_anomalies(id) ON DELETE CASCADE,
+                    matcher_signature TEXT NOT NULL,
+                    is_valid INTEGER NOT NULL CHECK (is_valid IN (0, 1)),
+                    score REAL,
+                    position_json TEXT,
+                    center_json TEXT,
+                    roi_shape_json TEXT NOT NULL,
+                    PRIMARY KEY (original_sample_id, real_anomaly_id, matcher_signature)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_original_has_anomaly ON original_samples(has_anomaly);
                 CREATE INDEX IF NOT EXISTS idx_real_original ON real_anomalies(original_sample_id);
                 CREATE INDEX IF NOT EXISTS idx_synthetic_real ON synthetic_anomalies(real_anomaly_id);
                 CREATE INDEX IF NOT EXISTS idx_hybrid_original ON hybrid_samples(original_sample_id);
                 CREATE INDEX IF NOT EXISTS idx_placement_hybrid ON placements(hybrid_sample_id);
                 CREATE INDEX IF NOT EXISTS idx_placement_synthetic ON placements(synthetic_anomaly_id);
+                CREATE INDEX IF NOT EXISTS idx_match_original_signature
+                    ON match_candidates(original_sample_id, matcher_signature);
                 """
             )
-            row = connection.execute("SELECT version FROM schema_info LIMIT 1").fetchone()
-            if row is None:
+            if existing_schema is None:
                 connection.execute("INSERT INTO schema_info(version) VALUES (?)", (SCHEMA_VERSION,))
-            elif int(row["version"]) != SCHEMA_VERSION:
-                raise ValueError(
-                    f"Unsupported artifact database schema {row['version']}; expected {SCHEMA_VERSION}."
-                )
 
-    def clear_all_records(self) -> None:
+    def clear_real_anomalies_and_downstream(self) -> None:
+        """Invalidate derived records while preserving the ingested originals."""
         with self.connection() as connection:
             connection.execute("DELETE FROM placements")
             connection.execute("DELETE FROM hybrid_samples")
             connection.execute("DELETE FROM synthetic_anomalies")
+            connection.execute("DELETE FROM match_candidates")
             connection.execute("DELETE FROM real_anomalies")
-            connection.execute("DELETE FROM original_samples")
 
     def clear_synthetic_and_downstream(self) -> None:
         with self.connection() as connection:
@@ -163,34 +194,22 @@ class StudyRepository:
             connection.execute("DELETE FROM hybrid_samples")
             connection.execute("DELETE FROM synthetic_anomalies")
 
-    def clear_hybrid_plans(self) -> None:
+    def replace_original_samples(self, values: list[OriginalSample]) -> None:
+        """Replace the canonical input catalog and invalidate all derived data."""
         with self.connection() as connection:
             connection.execute("DELETE FROM placements")
             connection.execute("DELETE FROM hybrid_samples")
-            connection.execute(
-                """DELETE FROM original_samples
-                   WHERE NOT EXISTS (
-                       SELECT 1 FROM real_anomalies
-                       WHERE real_anomalies.original_sample_id = original_samples.id
-                   )"""
+            connection.execute("DELETE FROM synthetic_anomalies")
+            connection.execute("DELETE FROM match_candidates")
+            connection.execute("DELETE FROM real_anomalies")
+            connection.execute("DELETE FROM original_samples")
+            connection.executemany(
+                """INSERT INTO original_samples
+                   (id, source_name, image_path, segmentation_path, spatial_dimensions,
+                    has_anomaly, is_annotated, source_index, metadata_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [_original_values(value) for value in values],
             )
-
-    def upsert_original_sample(self, value: OriginalSample) -> None:
-        self._upsert(
-            """INSERT INTO original_samples
-               (id, source_name, image_path, segmentation_path, spatial_dimensions, metadata_json)
-               VALUES (?, ?, ?, ?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET
-                 source_name=excluded.source_name,
-                 image_path=excluded.image_path,
-                 segmentation_path=excluded.segmentation_path,
-                 spatial_dimensions=excluded.spatial_dimensions,
-                 metadata_json=excluded.metadata_json""",
-            (
-                value.id, value.source_name, value.image_path, value.segmentation_path,
-                value.spatial_dimensions, _json(value.metadata),
-            ),
-        )
 
     def upsert_real_anomaly(self, value: RealAnomaly) -> None:
         self._upsert(
@@ -282,16 +301,57 @@ class StudyRepository:
             ),
         )
 
+    def replace_hybrid_plan(
+        self,
+        hybrids: list[HybridSample],
+        placements: list[Placement],
+    ) -> None:
+        """Atomically replace all hybrid plans using one SQLite transaction."""
+        with self.connection() as connection:
+            connection.execute("DELETE FROM placements")
+            connection.execute("DELETE FROM hybrid_samples")
+            connection.executemany(
+                """INSERT INTO hybrid_samples
+                   (id, original_sample_id, variant_index, image_path,
+                    segmentation_path, status, error)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                [_hybrid_values(value) for value in hybrids],
+            )
+            connection.executemany(
+                """INSERT INTO placements
+                   (id, hybrid_sample_id, synthetic_anomaly_id, order_index,
+                    spatial_dimensions, position_z, position_y, position_x,
+                    coordinate_system, score, method, roi_image_path,
+                    roi_segmentation_path)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [_placement_values(value) for value in placements],
+            )
+
+    def upsert_match_candidates(self, values: list[MatchCandidate]) -> None:
+        if not values:
+            return
+        with self.connection() as connection:
+            connection.executemany(
+                """INSERT INTO match_candidates
+                   (original_sample_id, real_anomaly_id, matcher_signature,
+                    is_valid, score, position_json, center_json, roi_shape_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(original_sample_id, real_anomaly_id, matcher_signature)
+                   DO UPDATE SET
+                     is_valid=excluded.is_valid,
+                     score=excluded.score,
+                     position_json=excluded.position_json,
+                     center_json=excluded.center_json,
+                     roi_shape_json=excluded.roi_shape_json""",
+                [_match_candidate_values(value) for value in values],
+            )
+
     def _upsert(self, sql: str, parameters: tuple) -> None:
         with self.connection() as connection:
             connection.execute(sql, parameters)
 
     def get_original_sample(self, record_id: str) -> OriginalSample:
         return _original(self._one("SELECT * FROM original_samples WHERE id = ?", (record_id,)))
-
-    def find_original_sample(self, record_id: str) -> OriginalSample | None:
-        rows = self._all("SELECT * FROM original_samples WHERE id = ?", (record_id,))
-        return _original(rows[0]) if rows else None
 
     def get_real_anomaly(self, record_id: str) -> RealAnomaly:
         return _real(self._one("SELECT * FROM real_anomalies WHERE id = ?", (record_id,)))
@@ -305,8 +365,55 @@ class StudyRepository:
     def get_placement(self, record_id: str) -> Placement:
         return _placement(self._one("SELECT * FROM placements WHERE id = ?", (record_id,)))
 
-    def list_original_samples(self) -> list[OriginalSample]:
-        return [_original(row) for row in self._all("SELECT * FROM original_samples ORDER BY id")]
+    def list_original_samples(
+        self,
+        *,
+        has_anomaly: bool | None = None,
+        is_annotated: bool | None = None,
+    ) -> list[OriginalSample]:
+        clauses = []
+        values = []
+        if has_anomaly is not None:
+            clauses.append("has_anomaly = ?")
+            values.append(int(has_anomaly))
+        if is_annotated is not None:
+            clauses.append("is_annotated = ?")
+            values.append(int(is_annotated))
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        rows = self._all(
+            "SELECT * FROM original_samples"
+            + where
+            + " ORDER BY source_index, id",
+            tuple(values),
+        )
+        return [_original(row) for row in rows]
+
+    def list_match_candidates(
+        self,
+        original_sample_id: str,
+        matcher_signature: str | None = None,
+    ) -> list[MatchCandidate]:
+        if matcher_signature is None:
+            rows = self._all(
+                """SELECT * FROM match_candidates
+                   WHERE original_sample_id = ?
+                   ORDER BY matcher_signature, real_anomaly_id""",
+                (original_sample_id,),
+            )
+        else:
+            rows = self._all(
+                """SELECT * FROM match_candidates
+                   WHERE original_sample_id = ? AND matcher_signature = ?
+                   ORDER BY real_anomaly_id""",
+                (original_sample_id, matcher_signature),
+            )
+        return [_match_candidate(row) for row in rows]
+
+    def count_match_candidates(self) -> int:
+        with self.connection() as connection:
+            return int(
+                connection.execute("SELECT COUNT(*) FROM match_candidates").fetchone()[0]
+            )
 
     def list_real_anomalies(self, original_sample_id: str | None = None) -> list[RealAnomaly]:
         if original_sample_id is None:
@@ -363,7 +470,9 @@ class StudyRepository:
             """SELECT
                  o.id AS o_id, o.source_name AS o_source_name, o.image_path AS o_image_path,
                  o.segmentation_path AS o_segmentation_path,
-                 o.spatial_dimensions AS o_spatial_dimensions, o.metadata_json AS o_metadata_json,
+                 o.spatial_dimensions AS o_spatial_dimensions,
+                 o.has_anomaly AS o_has_anomaly, o.is_annotated AS o_is_annotated,
+                 o.source_index AS o_source_index, o.metadata_json AS o_metadata_json,
                  h.id AS h_id, h.variant_index AS h_variant_index, h.image_path AS h_image_path,
                  h.segmentation_path AS h_segmentation_path, h.status AS h_status, h.error AS h_error,
                  p.id AS p_id, p.order_index AS p_order_index,
@@ -394,9 +503,15 @@ class StudyRepository:
             result.append(
                 StudyHierarchyEntry(
                     original=OriginalSample(
-                        row["o_id"], row["o_source_name"], row["o_image_path"],
-                        row["o_segmentation_path"], row["o_spatial_dimensions"],
-                        _metadata(row["o_metadata_json"]),
+                        id=row["o_id"],
+                        source_name=row["o_source_name"],
+                        image_path=row["o_image_path"],
+                        segmentation_path=row["o_segmentation_path"],
+                        spatial_dimensions=row["o_spatial_dimensions"],
+                        has_anomaly=bool(row["o_has_anomaly"]),
+                        is_annotated=bool(row["o_is_annotated"]),
+                        source_index=row["o_source_index"],
+                        metadata=_metadata(row["o_metadata_json"]),
                     ),
                     hybrid=HybridSample(
                         row["h_id"], row["o_id"], row["h_variant_index"],
@@ -462,10 +577,95 @@ def _metadata(value: str) -> dict:
     return json.loads(value) if value else {}
 
 
+def _original_values(value: OriginalSample) -> tuple:
+    return (
+        value.id,
+        value.source_name,
+        value.image_path,
+        value.segmentation_path,
+        value.spatial_dimensions,
+        int(value.has_anomaly),
+        int(value.is_annotated),
+        value.source_index,
+        _json(value.metadata),
+    )
+
+
+def _hybrid_values(value: HybridSample) -> tuple:
+    return (
+        value.id,
+        value.original_sample_id,
+        value.variant_index,
+        value.image_path,
+        value.segmentation_path,
+        value.status,
+        value.error,
+    )
+
+
+def _placement_values(value: Placement) -> tuple:
+    return (
+        value.id,
+        value.hybrid_sample_id,
+        value.synthetic_anomaly_id,
+        value.order_index,
+        value.spatial_dimensions,
+        value.position_z,
+        value.position_y,
+        value.position_x,
+        value.coordinate_system,
+        value.score,
+        value.method,
+        value.roi_image_path,
+        value.roi_segmentation_path,
+    )
+
+
+def _match_candidate_values(value: MatchCandidate) -> tuple:
+    return (
+        value.original_sample_id,
+        value.real_anomaly_id,
+        value.matcher_signature,
+        int(value.is_valid),
+        value.score,
+        None if value.position is None else json.dumps(value.position),
+        None if value.center is None else json.dumps(value.center),
+        json.dumps(value.roi_shape),
+    )
+
+
 def _original(row: sqlite3.Row) -> OriginalSample:
     return OriginalSample(
-        row["id"], row["source_name"], row["image_path"], row["segmentation_path"],
-        row["spatial_dimensions"], _metadata(row["metadata_json"]),
+        id=row["id"],
+        source_name=row["source_name"],
+        image_path=row["image_path"],
+        segmentation_path=row["segmentation_path"],
+        spatial_dimensions=row["spatial_dimensions"],
+        has_anomaly=bool(row["has_anomaly"]),
+        is_annotated=bool(row["is_annotated"]),
+        source_index=row["source_index"],
+        metadata=_metadata(row["metadata_json"]),
+    )
+
+
+def _match_candidate(row: sqlite3.Row) -> MatchCandidate:
+    return MatchCandidate(
+        original_sample_id=row["original_sample_id"],
+        real_anomaly_id=row["real_anomaly_id"],
+        matcher_signature=row["matcher_signature"],
+        is_valid=bool(row["is_valid"]),
+        score=row["score"],
+        position=(
+            None
+            if row["position_json"] is None
+            else tuple(float(value) for value in json.loads(row["position_json"]))
+        ),
+        center=(
+            None
+            if row["center_json"] is None
+            else tuple(float(value) for value in json.loads(row["center_json"]))
+        ),
+        roi_shape=tuple(int(value) for value in json.loads(row["roi_shape_json"])),
     )
 
 

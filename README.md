@@ -50,7 +50,10 @@ The pipeline accepts channel-first arrays:
 - 2D: `(C, H, W)`
 - 3D: `(C, D, H, W)`
 
-A dataloader may yield the compact tuple `(image, segmentation, source_name)`.
+A single dataloader yields all originals: annotated anomaly sources and normal
+controls. Controls use an empty segmentation; unannotated samples may use
+`None`. A dataloader may yield the compact tuple
+`(image, segmentation, source_name)`.
 For unambiguous source identity and provenance, yield `InputSample` records or
 implement `iter_input_samples()`:
 
@@ -67,8 +70,9 @@ yield InputSample(
 ```
 
 The bundled image, NIfTI and MVTec AD 2 loaders expose this typed boundary.
-Input arrays are snapshotted into the study, so materialization does not depend
-on iterating the original dataloader again.
+`ingest_dataset()` validates, classifies and snapshots every input array once.
+All later phases select their inputs from the repository and never iterate the
+original dataloader again.
 
 ## Usage
 
@@ -93,12 +97,13 @@ config.matching.allow_sibling_variants_in_same_hybrid = False
 config.matching.routine = "global"
 
 generator = HybridDataGenerator(config)
-generator.extract_anomalies(anomaly_dataloader)
+summary = generator.ingest_dataset(all_samples_dataloader)
+generator.extract_anomalies()
 generator.train_generator(no_of_trials=5)
 generator.generate_synthetic_anomalies()
 
 # Planning only writes HybridSample and Placement records.
-generator.plan_hybrid_samples(control_dataloader)
+generator.plan_hybrid_samples()
 
 # Fusion consumes the stored plan and writes generated payloads.
 generator.materialize_hybrid_samples()
@@ -112,10 +117,12 @@ run_hybrid_visualizer(config)
 config.save_config_file()
 ```
 
-Repository-backed phases need no load step. A new `HybridDataGenerator(config)`
-can immediately plan from persisted synthetic anomalies or materialize a
-persisted hybrid plan. Only the generator model has to be loaded explicitly
-before producing new variants, because it is an in-memory runtime component.
+The ingest is the only phase that accepts the source dataloader. Extraction,
+fusion-backend training and planning select anomalous or normal originals by
+database fields. Repository-backed phases need no load step. A new
+`HybridDataGenerator(config)` can immediately continue from persisted records.
+Only the generator model has to be loaded explicitly before producing new
+variants, because it is an in-memory runtime component.
 
 ## Configuration
 
@@ -134,8 +141,9 @@ config.model        generator choice and model-specific parameters
 config.fusion       fusion backend and backend-specific parameters
 ```
 
-The current configuration schema is version 3. Older filename/CSV layouts are
-intentionally unsupported.
+The current configuration schema is version 3 and the artifact database schema
+is version 2. Older study databases and filename/CSV layouts are intentionally
+unsupported; recreate the study and run `ingest_dataset()` again.
 
 ### Synthetic variants
 
@@ -158,19 +166,24 @@ variant index, seed, image and target mask. Feedback generation is bounded by
 - `seed`: reproducibility seed owned by the matching phase.
 
 `local`, `global` and `batchwise` compute a placement candidate once per real
-anomaly ROI and original sample. A concrete synthetic child is chosen only
-after candidate ranking. `fixed_from_extraction_control_fusion` reuses source
-centers on arbitrary controls;
+anomaly ROI and control. Control and ROI gradients are prepared once per
+planning run. Pair results, including rejected pairs, are cached in SQLite by
+matcher signature; repeated planning with unchanged inputs and weights does
+not repeat template matching. `local` intentionally retains its full-image
+search and existing candidate order. A concrete synthetic child is chosen only
+after matching. `fixed_from_extraction_control_fusion` reuses source centers on
+arbitrary controls;
 `fixed_from_extraction_anomaly_fusion` joins originals and real anomalies by
 foreign key and places variants back at their extraction positions.
 
 ## Datasets, evaluation and visualization
 
-`StudyDatasets` creates short-lived `RealAnomalyDataset`,
-`SyntheticAnomalyDataset` and `HybridSampleDataset` views over repository
-records. They do not scan folders or align files by basename. Dataset objects
-are not persistent state of `HybridDataGenerator`; callers choose explicitly
-whether a view should load arrays into RAM.
+`StudyDatasets` creates short-lived `OriginalSampleDataset`,
+`RealAnomalyDataset`, `SyntheticAnomalyDataset` and `HybridSampleDataset` views
+over repository records. Original views can filter `has_anomaly` and
+`is_annotated`. They do not scan folders or align files by basename. Dataset
+objects are not persistent state of `HybridDataGenerator`; callers choose
+explicitly whether a view should load arrays into RAM.
 
 Evaluation joins each synthetic anomaly to its real parent through
 `real_anomaly_id`. Placement ROI comparisons use the full
@@ -178,9 +191,22 @@ Original → Hybrid → Placement → Synthetic → Real join. The CSV output co
 all relevant IDs, so multiple variants cannot overwrite or masquerade as one
 pair.
 
-`run_hybrid_visualizer(config)` opens the same relationship as a tree and
-resolves every displayed array through the repository. `evaluate_study(config)`
-does the same for evaluation, without constructing a generation orchestrator.
+`run_hybrid_visualizer(config)` opens a repository-backed study browser with
+five views: study overview, real/synthetic anomaly variants, hybrid samples and
+their placements, metric-based evaluation, and the complete normalized data
+structure. Images use automatic RGB display for three-channel arrays; channel,
+slice, contrast and mask overlays remain selectable for grayscale and 3D data.
+Artifacts are loaded lazily and cached only while they are inspected. The data
+structure view can preview dependent records before moving their files into a
+recoverable `.trash` folder and removing the corresponding database records.
+
+`evaluate_study(config)` reads the same normalized relations without
+constructing a generation orchestrator. The visualizer can also be started for
+an existing study folder:
+
+```bash
+python -m data_handler.Visualizer /path/to/study --channel auto
+```
 
 ## Tests
 
@@ -188,7 +214,7 @@ does the same for evaluation, without constructing a generation orchestrator.
 python -m unittest discover -s tests -v
 ```
 
-The integration tests cover multiple real components, multiple synthetic and
-hybrid variants, normalized multi-placement records, unique artifacts,
-foreign-key traversal, 2D/3D coordinates, materialization and FK-based
-evaluation.
+The integration tests cover the one-time mixed dataset ingest, multiple real
+components, multiple synthetic and hybrid variants, normalized multi-placement
+records, unique artifacts, foreign-key traversal, 2D/3D coordinates,
+materialization, FK-based evaluation and cached full-image `local` matching.
