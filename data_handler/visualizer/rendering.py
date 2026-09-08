@@ -36,6 +36,7 @@ class PanelSpec:
     reference: np.ndarray | None = None
     markers: tuple[Marker, ...] = ()
     detail: str = ""
+    reference_mask_path: str | None = None
 
 
 class ArrayCache:
@@ -118,15 +119,30 @@ def normalize_for_display(
     *,
     reference: np.ndarray | None = None,
     contrast: float = 1.0,
+    reference_mask: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Map arbitrary finite intensity ranges to [0, 1] using one shared window."""
+    """Map intensities to [0, 1] in the reference's intensity space.
+
+    A reference mask restricts window estimation to anomaly pixels, excluding
+    cutout padding. RGB channels share a single window to preserve colors.
+    Empty/mismatched masks and constant foreground fall back to the full range.
+    """
     image = np.asarray(image, dtype=np.float32)
     reference = image if reference is None else np.asarray(reference, dtype=np.float32)
     finite = reference[np.isfinite(reference)]
     if finite.size == 0:
         return np.zeros_like(image, dtype=np.float32)
 
-    low, high = np.percentile(finite, (0.5, 99.5))
+    window_values = finite
+    if reference_mask is not None:
+        mask = np.asarray(reference_mask)
+        if mask.shape == reference.shape[:2]:
+            foreground = reference[np.isfinite(mask) & (mask > 0)]
+            foreground = foreground[np.isfinite(foreground)]
+            if foreground.size:
+                window_values = foreground
+
+    low, high = np.percentile(window_values, (0.5, 99.5))
     if not np.isfinite(low) or not np.isfinite(high):
         low, high = float(np.min(finite)), float(np.max(finite))
     if high <= low:
@@ -180,9 +196,16 @@ def render_panel(
                 slice_index=plane.slice_index,
                 channel=channel,
             ).image
+        reference_mask_array = cache.get(spec.reference_mask_path)
+        reference_mask = None
+        if reference_mask_array is not None:
+            reference_mask = display_mask_plane(
+                reference_mask_array, slice_index=plane.slice_index
+            ).image
         display = normalize_for_display(
             plane.image,
             reference=reference_plane,
+            reference_mask=reference_mask,
             contrast=contrast,
         )
         if display.ndim == 3 and display.shape[-1] in (3, 4):

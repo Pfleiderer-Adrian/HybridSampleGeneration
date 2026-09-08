@@ -31,6 +31,8 @@ class EvaluationTab(EntityBrowserTab):
         self._item_group = {}
         self._items = []
         self._metric_vars = {}
+        self._placement_options = ()
+        self.preview_placement = None
         super().__init__(master, cache=cache, rows=2, columns=2)
 
         ttk.Label(
@@ -81,6 +83,10 @@ class EvaluationTab(EntityBrowserTab):
         self.tree.column("scope", width=70, stretch=False)
         self.tree.column("score", width=55, stretch=False)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
+        ttk.Label(self.side, text="Placement ROI preview").pack(anchor="w", pady=(8, 0))
+        self.placement_choice = ttk.Combobox(self.side, state="disabled")
+        self.placement_choice.pack(fill="x")
+        self.placement_choice.bind("<<ComboboxSelected>>", self._placement_changed)
         self.build_display_controls()
 
         self.content.rowconfigure(0, weight=3)
@@ -133,6 +139,11 @@ class EvaluationTab(EntityBrowserTab):
             self._on_select()
         else:
             self.group = None
+            self.preview_placement = None
+            self._placement_options = ()
+            self.placement_choice.configure(values=(), state="disabled")
+            self.placement_choice.set("")
+            self.selection.clear(source="evaluation")
             self.image_grid.set_specs(())
             self.set_details(
                 (
@@ -176,19 +187,54 @@ class EvaluationTab(EntityBrowserTab):
         if not selected:
             return
         group = self._item_group[selected[0]]
-        self.group = group
-        self.slice_var.set(0)
-        placement = (
-            self.model.placement_by_id.get(group.placement_id)
-            if group.placement_id
+        previous_id = (
+            self.preview_placement.id
+            if self.group and self.group.key == group.key and self.preview_placement
             else None
         )
+        self.group = group
+        self.slice_var.set(0)
+        self.image_grid.slice_index = 0
+        self._placement_options = self.model.evaluation_placements(group)
+        self.placement_choice.configure(
+            values=tuple(
+                f"{placement.id} · {placement.hybrid_sample_id}"
+                for placement in self._placement_options
+            ),
+            state="readonly" if len(self._placement_options) > 1 else "disabled",
+        )
+        index = next(
+            (i for i, placement in enumerate(self._placement_options) if placement.id == previous_id),
+            0,
+        )
+        self.preview_placement = self._placement_options[index] if self._placement_options else None
+        if self.preview_placement:
+            self.placement_choice.current(index)
+        else:
+            self.placement_choice.set("No linked placement")
+        self._show_group()
+
+    def _placement_changed(self, _event=None) -> None:
+        index = self.placement_choice.current()
+        if 0 <= index < len(self._placement_options):
+            self.preview_placement = self._placement_options[index]
+            self.slice_var.set(0)
+            self.image_grid.slice_index = 0
+            self._show_group()
+
+    def _show_group(self) -> None:
+        if self.group is None:
+            return
+        group = self.group
+        real = self.model.real_by_id.get(group.real_anomaly_id)
+        synthetic = self.model.synthetic_by_id.get(group.synthetic_anomaly_id)
+        placement = self.preview_placement
         hybrid_id = placement.hybrid_sample_id if placement else None
         self.selection.update(
             source="evaluation",
             real_anomaly_id=group.real_anomaly_id,
             synthetic_anomaly_id=group.synthetic_anomaly_id,
-            placement_id=group.placement_id,
+            placement_id=placement.id if placement else group.placement_id,
             hybrid_sample_id=hybrid_id,
             original_sample_id=(
                 self.model.hybrid_by_id[hybrid_id].original_sample_id
@@ -196,31 +242,31 @@ class EvaluationTab(EntityBrowserTab):
                 else None
             ),
         )
-        self._show_group()
-
-    def _show_group(self) -> None:
-        if self.group is None:
-            return
-        real = self.model.real_by_id.get(self.group.real_anomaly_id)
-        synthetic = self.model.synthetic_by_id.get(self.group.synthetic_anomaly_id)
-        placement = (
-            self.model.placement_by_id.get(self.group.placement_id)
-            if self.group.placement_id
-            else None
-        )
+        if placement is None:
+            roi_detail = (
+                "Evaluated placement is no longer available"
+                if group.placement_id
+                else "No placement registered for this synthetic anomaly"
+            )
+        elif not placement.roi_image_path:
+            roi_detail = "This placement has no saved fused ROI yet"
+        else:
+            roi_detail = "The saved fused ROI artifact is missing"
         self.image_grid.set_specs(
             (
                 PanelSpec(
                     "Real anomaly",
                     real.image_path if real else None,
                     real.segmentation_path if real else None,
-                    reference_path=(real.roi_image_path if real else None),
+                    reference_path=(real.image_path if real else None),
+                    reference_mask_path=(real.segmentation_path if real else None),
                 ),
                 PanelSpec(
                     "Synthetic anomaly",
                     synthetic.image_path if synthetic else None,
                     synthetic.segmentation_path if synthetic else None,
-                    reference_path=(real.roi_image_path if real else None),
+                    reference_path=(real.image_path if real else None),
+                    reference_mask_path=(real.segmentation_path if real else None),
                 ),
                 PanelSpec(
                     "Real source ROI",
@@ -228,10 +274,13 @@ class EvaluationTab(EntityBrowserTab):
                     real.roi_segmentation_path if real else None,
                 ),
                 PanelSpec(
-                    "Fused placement ROI",
+                    (
+                        f"Fused placement ROI · {placement.id}"
+                        if placement else "Fused placement ROI"
+                    ),
                     placement.roi_image_path if placement else None,
                     placement.roi_segmentation_path if placement else None,
-                    detail="Cutout evaluation has no placement ROI",
+                    detail=roi_detail,
                 ),
             )
         )
@@ -241,6 +290,8 @@ class EvaluationTab(EntityBrowserTab):
                 {
                     "pair_id": self.group.pair_id,
                     "scope": self.group.scope,
+                    "evaluated_placement_id": self.group.placement_id,
+                    "preview_placement_id": placement.id if placement else None,
                     "score": self.group.score,
                     "calculators": sorted(self.group.calculators),
                     "metric_differences": dict(sorted(self.group.metrics.items())),

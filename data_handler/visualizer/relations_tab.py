@@ -245,13 +245,22 @@ class RelationsTab(EntityBrowserTab):
         elif kind == "real":
             record = self.model.real_by_id[entity_id]
             specs = (
-                PanelSpec("Real anomaly", record.image_path, record.segmentation_path),
+                PanelSpec(
+                    "Real anomaly", record.image_path, record.segmentation_path,
+                    reference_path=record.image_path,
+                    reference_mask_path=record.segmentation_path,
+                ),
                 PanelSpec("Real source ROI", record.roi_image_path, record.roi_segmentation_path),
             )
         elif kind == "synthetic":
             record = self.model.synthetic_by_id[entity_id]
+            real = self.model.real_by_id[record.real_anomaly_id]
             specs = (
-                PanelSpec("Synthetic anomaly", record.image_path, record.segmentation_path),
+                PanelSpec(
+                    "Synthetic anomaly", record.image_path, record.segmentation_path,
+                    reference_path=real.image_path,
+                    reference_mask_path=real.segmentation_path,
+                ),
             )
         elif kind == "hybrid":
             record = self.model.hybrid_by_id[entity_id]
@@ -292,13 +301,18 @@ class RelationsTab(EntityBrowserTab):
         else:
             record = self.model.placement_by_id[entity_id]
             synthetic = self.model.synthetic_by_id[record.synthetic_anomaly_id]
+            real = self.model.real_by_id[synthetic.real_anomaly_id]
             specs = (
                 PanelSpec(
                     "Fused placement ROI",
                     record.roi_image_path,
                     record.roi_segmentation_path,
                 ),
-                PanelSpec("Synthetic anomaly", synthetic.image_path, synthetic.segmentation_path),
+                PanelSpec(
+                    "Synthetic anomaly", synthetic.image_path, synthetic.segmentation_path,
+                    reference_path=real.image_path,
+                    reference_mask_path=real.segmentation_path,
+                ),
             )
         return record, specs
 

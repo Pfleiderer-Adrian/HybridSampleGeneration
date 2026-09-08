@@ -141,6 +141,21 @@ class StudyBrowserModel:
             variants=variants,
         )
 
+    def evaluation_placements(self, group: EvaluationGroup) -> tuple[Placement, ...]:
+        """Resolve ROI previews without changing the scope of evaluated metrics."""
+        if group.placement_id:
+            placement = self.placement_by_id.get(group.placement_id)
+            return (placement,) if placement is not None else ()
+        return tuple(sorted(
+            self.placements_by_synthetic.get(group.synthetic_anomaly_id, ()),
+            key=lambda placement: (
+                not self.artifact_store.exists(placement.roi_image_path),
+                placement.hybrid_sample_id,
+                placement.order_index,
+                placement.id,
+            ),
+        ))
+
     def placement_context(self, placement_id: str) -> PlacementContext:
         placement = self.placement_by_id[placement_id]
         synthetic = self.synthetic_by_id[placement.synthetic_anomaly_id]

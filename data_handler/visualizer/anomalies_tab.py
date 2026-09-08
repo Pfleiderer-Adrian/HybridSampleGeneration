@@ -152,7 +152,8 @@ class AnomaliesTab(EntityBrowserTab):
                     "Extracted real anomaly",
                     real.image_path,
                     real.segmentation_path,
-                    reference_path=real.roi_image_path,
+                    reference_path=real.image_path,
+                    reference_mask_path=real.segmentation_path,
                 ),
                 PanelSpec(
                     "Real source ROI",
@@ -163,7 +164,8 @@ class AnomaliesTab(EntityBrowserTab):
                     "Synthetic variant",
                     synthetic.image_path if synthetic else None,
                     synthetic.segmentation_path if synthetic else None,
-                    reference_path=real.roi_image_path,
+                    reference_path=real.image_path,
+                    reference_mask_path=real.segmentation_path,
                     detail="No synthetic variant registered",
                 ),
             )

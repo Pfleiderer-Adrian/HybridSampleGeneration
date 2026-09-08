@@ -8,6 +8,7 @@ from tkinter import ttk
 import matplotlib.pyplot as plt
 
 from data_handler.visualizer.anomalies_tab import AnomaliesTab
+from data_handler.visualizer.datasource_tab import DatasourceTab
 from data_handler.visualizer.evaluation_tab import EvaluationTab
 from data_handler.visualizer.hybrids_tab import HybridsTab
 from data_handler.visualizer.maintenance import StudyMaintenance
@@ -26,6 +27,7 @@ class HybridDataGeneratorVisualizer:
 
     TAB_LABELS = (
         "Overview",
+        "Datasource",
         "Anomalies",
         "Hybrids & placements",
         "Evaluation",
@@ -131,10 +133,12 @@ class HybridDataGeneratorVisualizer:
                 configuration_path=self.configuration_path,
             )
         elif index == 1:
-            page = AnomaliesTab(holder, self.model, self.cache, self.selection)
+            page = DatasourceTab(holder, self.model, self.cache, self.selection)
         elif index == 2:
-            page = HybridsTab(holder, self.model, self.cache, self.selection)
+            page = AnomaliesTab(holder, self.model, self.cache, self.selection)
         elif index == 3:
+            page = HybridsTab(holder, self.model, self.cache, self.selection)
+        elif index == 4:
             page = EvaluationTab(holder, self.model, self.cache, self.selection)
         else:
             page = RelationsTab(

@@ -251,7 +251,8 @@ class HybridsTab(EntityBrowserTab):
                     "Synthetic anomaly",
                     selected.synthetic.image_path if selected else None,
                     selected.synthetic.segmentation_path if selected else None,
-                    reference_path=(selected.real.roi_image_path if selected else None),
+                    reference_path=(selected.real.image_path if selected else None),
+                    reference_mask_path=(selected.real.segmentation_path if selected else None),
                     detail="Select a placement",
                 ),
                 PanelSpec(
