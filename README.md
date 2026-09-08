@@ -5,6 +5,8 @@ trains a generative model, creates multiple synthetic variants and places them
 into original control samples. It is based on the IEEE paper
 [AMLDS63918.2025.11159383](https://doi.org/10.1109/AMLDS63918.2025.11159383).
 
+![High-level overview of hybrid sample generation](high_level.png)
+
 ## Data model
 
 Study metadata and relationships are stored in `artifacts.sqlite`. NumPy arrays
@@ -24,8 +26,11 @@ explicit normalized center position. Positions use `(y, x)` for 2D and
 relationship between anomalies and generated samples.
 
 Database constraints enforce unique component/variant/order combinations and
-foreign-key integrity. Entity IDs are deterministic hashes of stable source
-identity and variant indices; filenames do not carry identity.
+foreign-key integrity. Original IDs are deterministic hashes of the resolved
+absolute `source_image_path`, falling back to `source_name` when no path is
+provided. Derived IDs use parent IDs and component, variant or placement-order
+indices. Relationships are stored explicitly rather than inferred from artifact
+filenames. Changing the source path, or the fallback name, changes its ID.
 
 One study has this layout:
 
@@ -33,6 +38,9 @@ One study has this layout:
 study/
   configuration.json
   artifacts.sqlite
+  <study_name>.db                  # Optuna trials and model checkpoint references
+  trained_models/
+  trained_fusion_backends/         # When using a trained fusion backend
   artifacts/
     original_samples/<id>/{image,segmentation}.npy
     real_anomalies/<id>/{image,segmentation,roi_image,roi_segmentation}.npy
@@ -42,6 +50,11 @@ study/
   evaluation_results/
   exports/
 ```
+
+Files appear as their pipeline phases run. Unannotated originals have no
+segmentation artifact; hybrid images and masks are written during materialization.
+Placement ROI images and masks are optional backend outputs. Loading a trained
+generator requires its Optuna database and the referenced model checkpoint.
 
 ## Input
 
@@ -69,8 +82,14 @@ yield InputSample(
 )
 ```
 
+Each `source_name` must be unique within an import, even when samples have
+different `source_image_path` values. Resolved source identities must also be
+unique. A positive segmentation marks an anomalous original; an empty mask marks
+an annotated control, and `None` marks an unannotated control.
+
 The bundled image, NIfTI and MVTec AD 2 loaders expose this typed boundary.
-`ingest_dataset()` validates, classifies and snapshots every input array once.
+`ingest_dataset()` validates, classifies and snapshots the complete supplied
+dataset on each call, replacing the previous input catalog and derived records.
 All later phases select their inputs from the repository and never iterate the
 original dataloader again.
 
@@ -102,7 +121,7 @@ generator.extract_anomalies()
 generator.train_generator(no_of_trials=5)
 generator.generate_synthetic_anomalies()
 
-# Planning only writes HybridSample and Placement records.
+# Planning writes HybridSample/Placement records and updates the matching cache.
 generator.plan_hybrid_samples()
 
 # Fusion consumes the stored plan and writes generated payloads.
@@ -113,8 +132,8 @@ hybrid_dataset = generator.datasets.hybrid_samples(
     numpy_mode=True,
 )
 evaluation = evaluate_study(config)
-run_hybrid_visualizer(config)
 config.save_config_file()
+run_hybrid_visualizer(config)
 ```
 
 The ingest is the only phase that accepts the source dataloader. Extraction,
@@ -122,7 +141,45 @@ fusion-backend training and planning select anomalous or normal originals by
 database fields. Repository-backed phases need no load step. A new
 `HybridDataGenerator(config)` can immediately continue from persisted records.
 Only the generator model has to be loaded explicitly before producing new
-variants, because it is an in-memory runtime component.
+variants, because it is an in-memory runtime component. A fusion backend is
+created on demand and loads `config.fusion.checkpoint` when one is configured.
+Save the configuration before opening the visualizer: its configuration view
+reads the saved JSON, and the GUI call blocks until the window closes.
+
+### Continuing a study and repeating phases
+
+For a study with synthetic variants and a saved hybrid plan, continue directly
+with materialization:
+
+```python
+from synthesizer.Configuration import load_config_file
+from synthesizer.HybridDataGenerator import HybridDataGenerator
+
+config = load_config_file("results/study-01/configuration.json")
+generator = HybridDataGenerator(config)
+generator.materialize_hybrid_samples()
+```
+
+To build a new plan from existing synthetic variants, call
+`generator.plan_hybrid_samples()` before materialization. To regenerate synthetic
+variants with a saved generator, call `generator.load_generator(trial_id=-1)`
+followed by `generator.generate_synthetic_anomalies()`; `-1` selects the best
+Optuna trial, `-2` the newest trial, and a nonnegative number a specific trial.
+
+Repeating a phase has the following effects:
+
+| Phase | Effect on existing results |
+|---|---|
+| `ingest_dataset()` | Replaces all originals and removes real/synthetic anomalies, hybrids, placements and matching-cache entries. |
+| `extract_anomalies()` | Replaces real anomalies and removes synthetic anomalies, hybrids, placements and matching-cache entries. |
+| `generate_synthetic_anomalies()` | Replaces synthetic variants and removes hybrids and placements; the real-ROI matching cache remains available. |
+| `plan_hybrid_samples()` | Replaces all hybrid and placement records, including generated statuses and their artifact references; retains and updates the matching cache. |
+| `materialize_hybrid_samples()` | Processes every stored hybrid, including already generated or failed ones, and rewrites its generated outputs. |
+
+These resets remove database records; old array files can remain on disk without
+repository references. Repeating a phase is not an incremental append or an
+automatic skip of completed work. After changing generated data, rerun evaluation
+to replace its previous CSV results.
 
 ## Configuration
 
@@ -145,6 +202,15 @@ The current configuration schema is version 3 and the artifact database schema
 is version 2. Older study databases and filename/CSV layouts are intentionally
 unsupported; recreate the study and run `ingest_dataset()` again.
 
+`config.matching.seed` initially copies `config.study.seed`, but the two fields
+are independent afterward. Set both explicitly when changing the study and
+matching seeds together:
+
+```python
+config.study.seed = 123
+config.matching.seed = 123
+```
+
 ### Synthetic variants
 
 `config.generation.variants_per_real_anomaly` controls how many children are
@@ -154,7 +220,8 @@ variant index, seed, image and target mask. Feedback generation is bounded by
 
 ### Hybrid planning
 
-- `hybrids_per_original`: number of planned hybrid variants per input original.
+- `hybrids_per_original`: requested number of hybrid variants per eligible
+  target original.
 - `anomalies_per_hybrid`: target placement count in each hybrid.
 - `max_anomalies_per_hybrid_deviation`: deterministic random deviation around
   the placement count.
@@ -164,6 +231,12 @@ variant index, seed, image and target mask. Feedback generation is bounded by
   parent may occur together in one hybrid.
 - `intensity_weight` and `gradient_weight`: weights for template matching.
 - `seed`: reproducibility seed owned by the matching phase.
+
+`local`, `global`, `batchwise` and `fixed_from_extraction_control_fusion` target
+originals with `has_anomaly=False`. `fixed_from_extraction_anomaly_fusion` targets
+anomalous originals. Only real anomalies with synthetic variants are candidates.
+A hybrid can contain fewer placements than requested; if no eligible placement
+is found, that hybrid is omitted entirely.
 
 `local` assigns real anomaly ROIs sequentially across hybrids and controls.
 It searches the full control image only for the next ROI with an eligible
