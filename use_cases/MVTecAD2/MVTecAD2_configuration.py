@@ -157,43 +157,38 @@ def configure_mvtecad2_defaults(config: Configuration):
 
     # Fusion settings
     config.fusion.set_backend("classical")
-    config.fusion.parameters.set_fusion_params(
-        max_alpha=1.0,
-        sq=0.1,
-        steepness_factor=5.0,
-        upsampling_factor=2,
-        sobel_threshold=0.01,
-        dilation_size=1,
-        shave_pixels=0,
-        fusion_use_sobel_for_alpha_mask=False,
-        fusion_variation=True,
-        alpha_variation=0.05,
-        sq_variation=0.1,
-        steepness_variation=1.0,
-        selected_confidence="90%",
-    )
+    config.fusion.parameters.max_alpha = 1.0
+    config.fusion.parameters.sq = 0.1
+    config.fusion.parameters.steepness_factor = 5.0
+    config.fusion.parameters.upsampling_factor = 2
+    config.fusion.parameters.sobel_threshold = 0.01
+    config.fusion.parameters.dilation_size = 1
+    config.fusion.parameters.shave_pixels = 0
+    config.fusion.parameters.fusion_use_sobel_for_alpha_mask = False
+    config.fusion.parameters.fusion_variation = True
+    config.fusion.parameters.alpha_variation = 0.05
+    config.fusion.parameters.sq_variation = 0.1
+    config.fusion.parameters.steepness_variation = 1.0
+    config.fusion.parameters.selected_confidence = "90%"
     """
     config.fusion.set_backend("learned_residual_alpha")
-    config.fusion.parameters.set_fusion_params(
-    base_alpha=0.70,
-    base_alpha_blur_sigma=2.0,
-    alpha_delta_scale=0.35,
-    residual_scale=0.35,
-    residual_border_width=6,
-    fusion_normalization_border_width=None,
-    clamp_output=False,
-
-    train_epochs=50,
-    train_lr=1e-3,
-    train_weight_decay=1e-5,
-    train_crop_margin=32,
-    train_inpaint_blur_sigma=10.0,
-    foreground_loss_weight=3.0,
-    support_loss_weight=4.0,
-    alpha_delta_l1=1e-4,
-    residual_l1=5e-5,
-    grad_clip_norm=1.0,
-    )
+    config.fusion.parameters.base_alpha = 0.70
+    config.fusion.parameters.base_alpha_blur_sigma = 2.0
+    config.fusion.parameters.alpha_delta_scale = 0.35
+    config.fusion.parameters.residual_scale = 0.35
+    config.fusion.parameters.residual_border_width = 6
+    config.fusion.parameters.fusion_normalization_border_width = None
+    config.fusion.parameters.clamp_output = False
+    config.fusion.parameters.train_epochs = 50
+    config.fusion.parameters.train_lr = 1e-3
+    config.fusion.parameters.train_weight_decay = 1e-5
+    config.fusion.parameters.train_crop_margin = 32
+    config.fusion.parameters.train_inpaint_blur_sigma = 10.0
+    config.fusion.parameters.foreground_loss_weight = 3.0
+    config.fusion.parameters.support_loss_weight = 4.0
+    config.fusion.parameters.alpha_delta_l1 = 1e-4
+    config.fusion.parameters.residual_l1 = 5e-5
+    config.fusion.parameters.grad_clip_norm = 1.0
     """
     # Training settings
     config.training.validation_ratio = 0.1
@@ -272,7 +267,8 @@ def configure_mvtecad2_defaults(config: Configuration):
 
 def configure_can(config: Configuration) -> Configuration:
     config.generation.variation_strength = 1.5
-    config.fusion.parameters.set_fusion_params(max_alpha=0.9, sobel_threshold=0.05)
+    config.fusion.parameters.max_alpha = 0.9
+    config.fusion.parameters.sobel_threshold = 0.05
     config.extraction.roi.min_size = (256, 256)
 
 

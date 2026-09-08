@@ -1,9 +1,9 @@
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 
-from fusion_backend.fusion_configuration import FusionConfiguration
+from fusion_backend.config_validation import validate_parameters
 
 
-@dataclass
+@dataclass(slots=True)
 class Config:
     """
     Parameters for the trainable residual-alpha fusion backend.
@@ -40,6 +40,16 @@ class Config:
     grad_clip_norm: float | None = 1.0
     log_every: int | None = 10
 
-
-def get_learned_residual_alpha_fusion_configuration():
-    return FusionConfiguration(asdict(Config()))
+    def validate(self) -> None:
+        validate_parameters(
+            self,
+            positive=("base_channels", "depth", "train_epochs", "train_lr",
+                      "train_max_samples_per_epoch", "grad_clip_norm"),
+            nonnegative=("log_every", "alpha_delta_scale", "residual_scale", "base_alpha_blur_sigma",
+                         "residual_border_width", "fusion_relative_bg_threshold",
+                         "train_weight_decay", "train_crop_margin", "train_inpaint_blur_sigma",
+                         "foreground_loss_weight", "support_loss_weight", "alpha_delta_l1", "residual_l1"),
+            unit_interval=("base_alpha",),
+        )
+        if self.spatial_dims not in (None, 2, 3):
+            raise ValueError("fusion.parameters.spatial_dims must be None, 2 or 3.")

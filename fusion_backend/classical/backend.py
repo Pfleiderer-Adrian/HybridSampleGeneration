@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import scipy.ndimage
 from scipy.ndimage import binary_dilation, zoom
 
 from fusion_backend.classical.configuration import CONFIDENCE_LEVELS, Config
-from fusion_backend.fusion_configuration import FusionConfiguration
 from fusion_backend.interfaces import FusionOutput, control_background_mask, keep_control_background_after_fusion
 from synthesizer.functions_2D.Anomaly_Extraction2D import crop_square_clip, dynamic_roi_size as dynamic_roi_size_2d
 from synthesizer.functions_3D.Anomaly_Extraction3D import crop_cube_clip, dynamic_roi_size as dynamic_roi_size_3d
@@ -27,13 +28,17 @@ class ClassicalFusionBackend:
       8) Create the final segmentation and debug ROI outputs.
     """
 
-    def __init__(self, fusion_params=None, **kwargs) -> None:
+    def __init__(self, fusion_params: Config | None = None, **kwargs) -> None:
         if kwargs:
             unknown = ", ".join(sorted(kwargs))
             raise ValueError(f"Unknown ClassicalFusionBackend parameters: {unknown}")
-        self.params = _normalize_params(fusion_params)
+        if fusion_params is not None and not isinstance(fusion_params, Config):
+            raise TypeError(f"fusion_params must be {Config.__module__}.Config.")
+        self.params = Config() if fusion_params is None else replace(fusion_params)
+        self.params.validate()
 
     def warmup(self, shape, device=None, dtype=None, config=None):
+        self.params.validate()
         return self
 
     def load_checkpoint(self, path: str, **kwargs) -> None:
@@ -64,6 +69,7 @@ class ClassicalFusionBackend:
         *,
         extraction_config=None,
     ) -> FusionOutput:
+        self.params.validate()
         if extraction_config is None:
             raise ValueError("ClassicalFusionBackend requires extraction_config for ROI construction.")
 
@@ -254,12 +260,12 @@ class ClassicalFusionBackend:
         crop_shape = bg_slice.shape[1:]
         crop_to_bg = tuple(slice(0, int(size)) for size in crop_shape)
 
-        if self.params.get("fusion_keep_bg", False):
+        if self.params.fusion_keep_bg:
             control_bg_mask = control_background_mask(
                 ctrl,
-                self.params.get("fusion_bg_value", None),
-                self.params.get("fusion_relative_bg_threshold", None),
-                self.params.get("fusion_bg_exterior_only", True),
+                self.params.fusion_bg_value,
+                self.params.fusion_relative_bg_threshold,
+                self.params.fusion_bg_exterior_only,
             )
             bg_mask = control_bg_mask[insert_slices]
             target_mask = target_mask.copy()
@@ -326,7 +332,7 @@ class ClassicalFusionBackend:
         if channels != 1:
             segmentation = np.repeat(segmentation, channels, axis=0)
 
-        if self.params.get("fusion_keep_bg", False):
+        if self.params.fusion_keep_bg:
             fused_image, segmentation = keep_control_background_after_fusion(
                 fused_image,
                 segmentation,
@@ -390,7 +396,7 @@ class ClassicalFusionBackend:
     ):
         """Match anomaly intensity to local context, optionally restoring the original ROI relation."""
         binary_mask = valid_mask > 0
-        normalization_border_width = params.get("fusion_normalization_border_width", 2)
+        normalization_border_width = getattr(params, "fusion_normalization_border_width", 2)
         if normalization_border_width is None or not np.any(binary_mask):
             return anom
 
@@ -398,9 +404,9 @@ class ClassicalFusionBackend:
         original_relations = None
         eps = float(normalization_eps)
         output_intensity_bounds = _infer_output_intensity_bounds(ctrl)
-        min_context_size = int(params.get("fusion_relation_min_context_size", 8))
-        relation_mode = params.get("fusion_relation_mode", "delta")
-        norm_classes_separately = bool(params.get("fusion_relation_norm_classes_separately", False))
+        min_context_size = int(getattr(params, "fusion_relation_min_context_size", 8))
+        relation_mode = getattr(params, "fusion_relation_mode", "delta")
+        norm_classes_separately = bool(getattr(params, "fusion_relation_norm_classes_separately", False))
 
         if border_width == -1:
             context_slice = ctrl
@@ -416,7 +422,7 @@ class ClassicalFusionBackend:
             context_mask = dilated_mask & fallback_context_mask
             if np.count_nonzero(context_mask) < min_context_size:
                 context_mask = fallback_context_mask
-            if params.get("fusion_restore_anomaly_bg_relation", None):
+            if getattr(params, "fusion_restore_anomaly_bg_relation", None):
                 original_relations = _anomaly_context_relations(
                     anomaly_roi,
                     anomaly_roi_mask,
@@ -765,20 +771,20 @@ def _validate_position(position, spatial_ndim):
 
 
 def _sample_alpha_params(config):
-    max_alpha = config["max_alpha"]
-    sq = config["sq"]
-    steepness_factor = config["steepness_factor"]
+    max_alpha = config.max_alpha
+    sq = config.sq
+    steepness_factor = config.steepness_factor
 
-    if config["fusion_variation"]:
+    if config.fusion_variation:
         confidence_z_score = _confidence_z_score(config)
 
-        std_alpha = config["alpha_variation"] / confidence_z_score
+        std_alpha = config.alpha_variation / confidence_z_score
         max_alpha = float(np.clip(np.random.normal(max_alpha, std_alpha), 0.0, 1.0))
 
-        std_sq = config["sq_variation"] / confidence_z_score
+        std_sq = config.sq_variation / confidence_z_score
         sq = float(np.maximum(0.1, np.random.normal(sq, std_sq)))
 
-        std_steepness = config["steepness_variation"] / confidence_z_score
+        std_steepness = config.steepness_variation / confidence_z_score
         steepness_factor = float(np.maximum(0.1, np.random.normal(steepness_factor, std_steepness)))
 
     return max_alpha, sq, steepness_factor
@@ -801,7 +807,7 @@ def _get_alpha_mask_2d(anomaly_arr, config, valid_mask):
     if not np.any(valid_mask > 0):
         return alpha_mask
 
-    if config.get("fusion_use_sobel_for_alpha_mask", False):
+    if config.fusion_use_sobel_for_alpha_mask:
         final_clean_mask = _clean_edge_mask(anomaly_arr, valid_mask, config)
     else:
         final_clean_mask = valid_mask > 0
@@ -833,7 +839,7 @@ def _get_alpha_mask_3d(anomaly_arr, config, valid_mask):
         if not np.any(valid_slice > 0):
             continue
 
-        if config.get("fusion_use_sobel_for_alpha_mask", False):
+        if config.fusion_use_sobel_for_alpha_mask:
             final_clean_mask = _clean_edge_mask(anomaly_arr[depth, :, :], valid_slice, config)
         else:
             final_clean_mask = valid_slice > 0
@@ -858,7 +864,7 @@ def _clean_edge_mask(slice_img, valid_mask, config):
     # ------------------------------------------------------------
     # Build structuring elements for morphology operations.
     # ------------------------------------------------------------
-    dilation_size = config["dilation_size"]
+    dilation_size = config.dilation_size
 
     # Circular 2D structuring element ("round brush") used to close gaps.
     y, x = np.ogrid[-dilation_size: dilation_size + 1, -dilation_size: dilation_size + 1]
@@ -879,7 +885,7 @@ def _clean_edge_mask(slice_img, valid_mask, config):
         grad_mag /= grad_mag.max()
 
     # Edge mask = pixels with gradient magnitude above threshold.
-    edge_mask = grad_mag > config["sobel_threshold"]
+    edge_mask = grad_mag > config.sobel_threshold
 
     # ------------------------------------------------------------
     # 2) Close gaps and fill the interior.
@@ -893,7 +899,7 @@ def _clean_edge_mask(slice_img, valid_mask, config):
     # ------------------------------------------------------------
     # 3) Optional "shaving" to remove boundary pixels.
     # ------------------------------------------------------------
-    shave_pixels = config["shave_pixels"]
+    shave_pixels = config.shave_pixels
     if shave_pixels > 0:
         clean_mask = scipy.ndimage.binary_erosion(restored_mask, structure=struct_shave, iterations=shave_pixels)
     else:
@@ -910,7 +916,7 @@ def _distance_alpha(clean_mask, max_alpha, sq, steepness_factor, config):
     # ------------------------------------------------------------
     # 4) Distance transform to create smooth interior weights.
     # ------------------------------------------------------------
-    upsampling_factor = config["upsampling_factor"]
+    upsampling_factor = config.upsampling_factor
     if upsampling_factor > 1:
         # Upsample mask for smoother distance transform, then downsample.
         large_mask = scipy.ndimage.zoom(clean_mask, upsampling_factor, order=0)
@@ -936,16 +942,8 @@ def _distance_alpha(clean_mask, max_alpha, sq, steepness_factor, config):
     return dist_map.astype(np.float32, copy=False)
 
 
-def _normalize_params(fusion_params):
-    if fusion_params is None:
-        return FusionConfiguration(Config()).fixed_params()
-    if isinstance(fusion_params, FusionConfiguration):
-        return fusion_params.fixed_params()
-    return FusionConfiguration.from_value(fusion_params).fixed_params()
-
-
 def _confidence_z_score(params):
-    selected_confidence = params["selected_confidence"]
+    selected_confidence = params.selected_confidence
     try:
         return CONFIDENCE_LEVELS[selected_confidence]
     except KeyError as exc:

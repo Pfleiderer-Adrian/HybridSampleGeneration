@@ -211,6 +211,40 @@ config.study.seed = 123
 config.matching.seed = 123
 ```
 
+### Fusion parameters
+
+`config.fusion.parameters` is the selected backend's parameter dataclass.
+Configure its fields directly; the former `set_fusion_params(...)` wrapper is
+removed:
+
+```python
+config.fusion.parameters.max_alpha = 0.9  # default: classical backend
+config.fusion.parameters.fusion_variation = False
+
+config.fusion.set_backend("learned_residual_alpha")  # resets parameters/checkpoint
+config.fusion.parameters.base_channels = 32
+config.fusion.parameters.residual_scale = 0.15
+config.fusion.checkpoint = "/path/to/fusion.pt"
+config.validate()
+```
+
+The registry creates the matching dataclass and validates parameter types,
+ranges and backend compatibility. Validation also runs when saving/loading a
+configuration and creating a backend. JSON stores backend parameters directly
+under `fusion.parameters`; unknown parameter names are rejected.
+
+For standalone use, pass the backend's `Config` directly, for example
+`ClassicalFusionBackend(fusion_params=ClassicalFusionConfig(max_alpha=0.9))`,
+with both classes imported from `fusion_backend.classical` (`Config` aliased as
+`ClassicalFusionConfig`). Backends keep a copy of the parameters. The generator
+recreates its managed fusion backend when parameters, backend name or checkpoint
+path change; explicitly injected backend instances remain caller-managed.
+
+Learned checkpoints still store plain parameter dictionaries. Explicitly supplied
+parameters take precedence over checkpoint parameters, and architecture settings
+must match. A standalone learned backend constructed without parameters adopts
+the saved parameters when loading a checkpoint.
+
 ### Synthetic variants
 
 `config.generation.variants_per_real_anomaly` controls how many children are

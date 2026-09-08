@@ -1,6 +1,6 @@
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 
-from fusion_backend.fusion_configuration import FusionConfiguration
+from fusion_backend.config_validation import validate_parameters
 
 
 CONFIDENCE_LEVELS = {
@@ -12,7 +12,7 @@ CONFIDENCE_LEVELS = {
 }
 
 
-@dataclass
+@dataclass(slots=True)
 class Config:
     max_alpha: float = 0.8
     sq: float = 2
@@ -29,7 +29,8 @@ class Config:
     selected_confidence: str = "90%"
     # Border pixels used to normalize anomaly intensity to surrounding context:
     # None skips normalization, -1 uses the entire image, >0 uses a local
-    # dilation ring. If the ring is too small, normalization falls back to
+    # dilation ring; 0 uses the fallback context directly. If the ring is too
+    # small, normalization falls back to
     # all target-mask-outside context pixels in the local insertion patch.
     fusion_normalization_border_width: int | None = 2
     fusion_restore_anomaly_bg_relation: bool = True
@@ -41,6 +42,15 @@ class Config:
     fusion_relative_bg_threshold: float | None = 0.01
     fusion_bg_exterior_only: bool = True
 
-
-def get_classical_fusion_configuration():
-    return FusionConfiguration(asdict(Config()))
+    def validate(self) -> None:
+        validate_parameters(
+            self,
+            positive=("sq", "steepness_factor", "upsampling_factor", "fusion_relation_min_context_size"),
+            nonnegative=("sobel_threshold", "dilation_size", "shave_pixels", "alpha_variation",
+                         "sq_variation", "steepness_variation", "fusion_relative_bg_threshold"),
+            unit_interval=("max_alpha",),
+        )
+        if self.selected_confidence not in CONFIDENCE_LEVELS:
+            raise ValueError(f"Unknown fusion confidence level {self.selected_confidence!r}.")
+        if self.fusion_relation_mode not in {"delta", "ratio"}:
+            raise ValueError("fusion.parameters.fusion_relation_mode must be 'delta' or 'ratio'.")

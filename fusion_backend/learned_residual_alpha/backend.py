@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import asdict, replace
+
 import os
 from pathlib import Path
 
@@ -12,7 +14,6 @@ from tqdm import tqdm
 
 from fusion_backend.classical.backend import _denormalize_anomaly, _inverse_extraction_scale, _validate_position
 from fusion_backend.classical.backend import ClassicalFusionBackend
-from fusion_backend.fusion_configuration import FusionConfiguration
 from fusion_backend.interfaces import FusionOutput, control_background_mask, keep_control_background_after_fusion
 from fusion_backend.learned_residual_alpha.configuration import Config
 from fusion_backend.learned_residual_alpha.model import ResidualAlphaRefiner
@@ -33,21 +34,26 @@ class LearnedResidualAlphaFusionBackend:
     image is used as the reconstruction target.
     """
 
-    def __init__(self, fusion_params=None, **kwargs) -> None:
+    def __init__(self, fusion_params: Config | None = None, **kwargs) -> None:
         if kwargs:
             unknown = ", ".join(sorted(kwargs))
             raise ValueError(f"Unknown LearnedResidualAlphaFusionBackend parameters: {unknown}")
-        self.params = _normalize_params(fusion_params)
+        if fusion_params is not None and not isinstance(fusion_params, Config):
+            raise TypeError(f"fusion_params must be {Config.__module__}.Config.")
+        self.params = Config() if fusion_params is None else replace(fusion_params)
+        self.params.validate()
+        self._parameters_provided = fusion_params is not None
         self.model: ResidualAlphaRefiner | None = None
         self.image_channels: int | None = None
         self.spatial_dims: int | None = None
         self.device = torch.device("cpu")
 
     def warmup(self, shape, device=None, dtype=None, config=None):
+        self.params.validate()
         if len(shape) not in (3, 4):
             raise ValueError(f"Expected channel-first 2D/3D shape, got {shape!r}.")
         spatial_dims = len(shape) - 1
-        configured_dims = self.params.get("spatial_dims")
+        configured_dims = self.params.spatial_dims
         if configured_dims is not None and int(configured_dims) != spatial_dims:
             raise ValueError(
                 f"LearnedResidualAlphaFusionBackend configured for {configured_dims}D, "
@@ -66,8 +72,8 @@ class LearnedResidualAlphaFusionBackend:
                 input_channels=input_channels,
                 image_channels=image_channels,
                 spatial_dims=spatial_dims,
-                base_channels=int(self.params["base_channels"]),
-                depth=int(self.params["depth"]),
+                base_channels=int(self.params.base_channels),
+                depth=int(self.params.depth),
             )
             self.image_channels = image_channels
             self.spatial_dims = spatial_dims
@@ -86,7 +92,7 @@ class LearnedResidualAlphaFusionBackend:
         torch.save(
             {
                 "state_dict": self.model.state_dict(),
-                "params": self.params,
+                "params": asdict(self.params),
                 "image_channels": self.image_channels,
                 "spatial_dims": self.spatial_dims,
                 **extra_state,
@@ -99,10 +105,18 @@ class LearnedResidualAlphaFusionBackend:
         state_dict = state.get("state_dict", state)
         params = state.get("params")
         if params is not None:
-            self.params.update(params)
+            saved_params = Config(**params)
+            saved_params.validate()
+            if not self._parameters_provided:
+                self.params = saved_params
+            else:
+                for name in ("base_channels", "depth"):
+                    if getattr(self.params, name) != getattr(saved_params, name):
+                        raise ValueError(f"Fusion checkpoint architecture conflicts with configured {name}.")
 
         image_channels = int(state.get("image_channels", self.image_channels or 1))
-        spatial_dims = int(state.get("spatial_dims", self.params.get("spatial_dims") or 2))
+        spatial_dims = int(state.get("spatial_dims", self.params.spatial_dims or 2))
+        self.model = None
         self.warmup((image_channels, *((1,) * spatial_dims)), device=kwargs.get("device"))
         self.model.load_state_dict(state_dict)
         self.model.eval()
@@ -117,14 +131,14 @@ class LearnedResidualAlphaFusionBackend:
         device=None,
         config=None,
     ) -> dict:
-        epochs = int(epochs if epochs is not None else self.params["train_epochs"])
-        lr = float(lr if lr is not None else self.params["train_lr"])
+        epochs = int(epochs if epochs is not None else self.params.train_epochs)
+        lr = float(lr if lr is not None else self.params.train_lr)
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
 
         optimizer = None
         history: list[float] = []
-        max_samples = self.params.get("train_max_samples_per_epoch")
-        log_every = self.params.get("log_every")
+        max_samples = self.params.train_max_samples_per_epoch
+        log_every = self.params.log_every
 
         for epoch in range(epochs):
             losses = []
@@ -144,7 +158,7 @@ class LearnedResidualAlphaFusionBackend:
                     optimizer = torch.optim.AdamW(
                         self.model.parameters(),
                         lr=lr,
-                        weight_decay=float(self.params["train_weight_decay"]),
+                        weight_decay=float(self.params.train_weight_decay),
                     )
                     self.model.train()
 
@@ -160,7 +174,7 @@ class LearnedResidualAlphaFusionBackend:
                 )
                 loss = self._training_loss(fused, target, alpha_delta, residual, mask, support)
                 loss.backward()
-                grad_clip_norm = self.params.get("grad_clip_norm")
+                grad_clip_norm = self.params.grad_clip_norm
                 if grad_clip_norm is not None:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), float(grad_clip_norm))
                 optimizer.step()
@@ -188,6 +202,7 @@ class LearnedResidualAlphaFusionBackend:
         *,
         extraction_config=None,
     ) -> FusionOutput:
+        self.params.validate()
         if extraction_config is None:
             raise ValueError(
                 "LearnedResidualAlphaFusionBackend requires extraction_config for ROI construction."
@@ -197,12 +212,12 @@ class LearnedResidualAlphaFusionBackend:
         anomaly_meta = sample["anomaly_meta"]
         target_mask = sample["tgt_mask"]
         control_bg_mask = None
-        if self.params.get("fusion_keep_bg", False):
+        if self.params.fusion_keep_bg:
             control_bg_mask = control_background_mask(
                 control,
-                self.params.get("fusion_bg_value", None),
-                self.params.get("fusion_relative_bg_threshold", None),
-                self.params.get("fusion_bg_exterior_only", True),
+                self.params.fusion_bg_value,
+                self.params.fusion_relative_bg_threshold,
+                self.params.fusion_bg_exterior_only,
             )
         proposal = self._prepare_fusion_proposal(
             control,
@@ -237,7 +252,7 @@ class LearnedResidualAlphaFusionBackend:
         fused_region_np = fused_region.squeeze(0).detach().cpu().numpy().astype(np.float32, copy=False)
         fused_image = proposal["control"].copy()
         fused_image[(slice(None), *proposal["output_slices"])] = fused_region_np
-        if self.params.get("clamp_output"):
+        if self.params.clamp_output:
             fused_image = np.clip(fused_image, 0.0, 1.0)
 
         segmentation = np.zeros(tuple(proposal["control"].shape[1:]), dtype=np.uint8)
@@ -246,7 +261,7 @@ class LearnedResidualAlphaFusionBackend:
         if proposal["control"].shape[0] != 1:
             segmentation = np.repeat(segmentation, proposal["control"].shape[0], axis=0)
 
-        if self.params.get("fusion_keep_bg", False):
+        if self.params.fusion_keep_bg:
             fused_image, segmentation = keep_control_background_after_fusion(
                 fused_image,
                 segmentation,
@@ -297,8 +312,8 @@ class LearnedResidualAlphaFusionBackend:
 
     def _forward_components(self, features, control, anomaly, base_alpha, support, scale):
         alpha_delta, residual = self.model(features)
-        alpha_delta = torch.tanh(alpha_delta) * float(self.params["alpha_delta_scale"])
-        residual = torch.tanh(residual) * float(self.params["residual_scale"]) * scale
+        alpha_delta = torch.tanh(alpha_delta) * float(self.params.alpha_delta_scale)
+        residual = torch.tanh(residual) * float(self.params.residual_scale) * scale
         final_alpha = torch.clamp(base_alpha + alpha_delta * support, 0.0, 1.0)
         fused = final_alpha * anomaly + (1.0 - final_alpha) * control + residual * support
         return fused, alpha_delta, residual
@@ -307,12 +322,12 @@ class LearnedResidualAlphaFusionBackend:
         per_pixel = F.smooth_l1_loss(fused, target, reduction="none")
         weights = (
             1.0
-            + mask * float(self.params["foreground_loss_weight"])
-            + support * float(self.params["support_loss_weight"])
+            + mask * float(self.params.foreground_loss_weight)
+            + support * float(self.params.support_loss_weight)
         )
         recon_loss = torch.mean(per_pixel * weights)
-        alpha_reg = torch.mean(torch.abs(alpha_delta)) * float(self.params["alpha_delta_l1"])
-        residual_reg = torch.mean(torch.abs(residual)) * float(self.params["residual_l1"])
+        alpha_reg = torch.mean(torch.abs(alpha_delta)) * float(self.params.alpha_delta_l1)
+        residual_reg = torch.mean(torch.abs(residual)) * float(self.params.residual_l1)
         return recon_loss + alpha_reg + residual_reg
 
     def _prepare_training_sample(self, sample):
@@ -323,7 +338,7 @@ class LearnedResidualAlphaFusionBackend:
             raise ValueError(f"Expected channel-first 2D/3D sample, got {img.shape!r}.")
 
         spatial_dims = img.ndim - 1
-        configured_dims = self.params.get("spatial_dims")
+        configured_dims = self.params.spatial_dims
         if configured_dims is not None and int(configured_dims) != spatial_dims:
             return None
 
@@ -331,13 +346,13 @@ class LearnedResidualAlphaFusionBackend:
         if not np.any(mask):
             return None
 
-        crop_slices = _bbox_slices(mask, margin=int(self.params["train_crop_margin"]), shape=mask.shape)
+        crop_slices = _bbox_slices(mask, margin=int(self.params.train_crop_margin), shape=mask.shape)
         target = img[(slice(None), *crop_slices)].astype(np.float32, copy=False)
         mask_crop = mask[crop_slices].astype(np.float32, copy=False)
-        control = _pseudo_inpaint(target, mask_crop, sigma=float(self.params["train_inpaint_blur_sigma"]))
+        control = _pseudo_inpaint(target, mask_crop, sigma=float(self.params.train_inpaint_blur_sigma))
         anomaly = np.where(mask_crop[None, ...] > 0, target, _channel_min(target))
         base_alpha = _soft_alpha(mask_crop, self.params, spatial_dims)
-        support = _support_mask(mask_crop, self.params, spatial_dims)
+        support = _support_mask(mask_crop, self.params.residual_border_width, spatial_dims)
 
         features, scale = self._build_features(control, anomaly, base_alpha, support)
         return (
@@ -415,7 +430,7 @@ class LearnedResidualAlphaFusionBackend:
         crop_shape = bg_slice.shape[1:]
         crop_to_bg = tuple(slice(0, int(size)) for size in crop_shape)
 
-        if self.params.get("fusion_keep_bg", False):
+        if self.params.fusion_keep_bg:
             if control_bg_mask is None:
                 raise ValueError("control_bg_mask is required when fusion_keep_bg=True.")
             bg_mask = control_bg_mask[output_slices]
@@ -440,7 +455,7 @@ class LearnedResidualAlphaFusionBackend:
         )
 
         anomaly_crop = anom[(slice(None), *crop_to_bg)]
-        support_mask = _support_mask(mask_crop, self.params, spatial_dims)
+        support_mask = _support_mask(mask_crop, self.params.residual_border_width, spatial_dims)
 
         return {
             "control": ctrl,
@@ -477,14 +492,6 @@ class LearnedResidualAlphaFusionBackend:
             axis=0,
         )
         return _to_tensor(feature_np, self.device), np.float32(scale)
-
-
-def _normalize_params(fusion_params):
-    if fusion_params is None:
-        return FusionConfiguration(Config()).fixed_params()
-    if isinstance(fusion_params, FusionConfiguration):
-        return fusion_params.fixed_params()
-    return FusionConfiguration.from_value(fusion_params).fixed_params()
 
 
 def _to_tensor(array, device):
@@ -534,13 +541,13 @@ def _channel_min(image):
 def _pseudo_inpaint(target, mask, *, sigma):
     sigma_tuple = (0.0, *([max(float(sigma), 0.1)] * (target.ndim - 1)))
     blurred = scipy.ndimage.gaussian_filter(target, sigma=sigma_tuple)
-    support = _support_mask(mask.astype(np.float32), {"residual_border_width": 2}, mask.ndim) > 0
+    support = _support_mask(mask.astype(np.float32), 2, mask.ndim) > 0
     return np.where(support[None, ...], blurred, target).astype(np.float32, copy=False)
 
 
 def _soft_alpha(mask, params, spatial_dims):
     mask = mask.astype(np.float32, copy=False)
-    sigma = float(params.get("base_alpha_blur_sigma", 1.0))
+    sigma = float(params.base_alpha_blur_sigma)
     if sigma > 0:
         alpha = scipy.ndimage.gaussian_filter(mask, sigma=sigma)
     else:
@@ -549,14 +556,14 @@ def _soft_alpha(mask, params, spatial_dims):
     max_value = float(np.max(alpha))
     if max_value > 0:
         alpha = alpha / max_value
-    alpha = alpha * float(params.get("base_alpha", 0.85))
-    support = _support_mask(mask, params, spatial_dims)
+    alpha = alpha * float(params.base_alpha)
+    support = _support_mask(mask, params.residual_border_width, spatial_dims)
     alpha = np.where(support > 0, alpha, 0.0)
     return alpha.astype(np.float32, copy=False)
 
 
-def _support_mask(mask, params, spatial_dims):
-    iterations = int(params.get("residual_border_width", 0) or 0)
+def _support_mask(mask, border_width: int, spatial_dims):
+    iterations = int(border_width)
     support = mask > 0
     if iterations > 0 and np.any(support):
         structure = np.ones((3,) * spatial_dims, dtype=bool)

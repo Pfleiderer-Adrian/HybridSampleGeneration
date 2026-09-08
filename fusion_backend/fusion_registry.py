@@ -1,30 +1,37 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Type
+from typing import Type
 
 from fusion_backend.interfaces import FusionBackend
 from fusion_backend import ClassicalFusionBackend, LearnedResidualAlphaFusionBackend
 from fusion_backend.classical import Config as ClassicalFusionConfig
-from fusion_backend.classical import get_classical_fusion_configuration
+from fusion_backend.fusion_configuration import FusionParameters
 from fusion_backend.learned_residual_alpha import Config as LearnedResidualAlphaFusionConfig
-from fusion_backend.learned_residual_alpha import get_learned_residual_alpha_fusion_configuration
 
 
 @dataclass(frozen=True)
 class FusionBackendSpec:
     name: str
     backend_cls: Type[FusionBackend]
-    config_cls: Type
-    config_factory: Callable[[], object]
+    config_cls: Type[FusionParameters]
     spatial_dims: int | None = None
     trainable: bool = False
 
-    def build(self, params: dict | None = None) -> FusionBackend:
-        return self.backend_cls(**(params or {}))
+    def validate_configuration(self, parameters: FusionParameters) -> None:
+        if not isinstance(parameters, self.config_cls):
+            raise TypeError(f"Fusion backend {self.name!r} requires {self.config_cls.__module__}.Config.")
+        parameters.validate()
 
-    def build_configuration(self):
-        return self.config_factory()
+    def build(self, parameters: FusionParameters | None = None) -> FusionBackend:
+        parameters = self.build_configuration() if parameters is None else parameters
+        self.validate_configuration(parameters)
+        return self.backend_cls(fusion_params=parameters)
+
+    def build_configuration(self, values=None) -> FusionParameters:
+        parameters = self.config_cls(**({} if values is None else values))
+        self.validate_configuration(parameters)
+        return parameters
 
 
 FUSION_BACKEND_REGISTRY: dict[str, FusionBackendSpec] = {
@@ -32,13 +39,11 @@ FUSION_BACKEND_REGISTRY: dict[str, FusionBackendSpec] = {
         name="classical",
         backend_cls=ClassicalFusionBackend,
         config_cls=ClassicalFusionConfig,
-        config_factory=get_classical_fusion_configuration,
     ),
     "learned_residual_alpha": FusionBackendSpec(
         name="learned_residual_alpha",
         backend_cls=LearnedResidualAlphaFusionBackend,
         config_cls=LearnedResidualAlphaFusionConfig,
-        config_factory=get_learned_residual_alpha_fusion_configuration,
         trainable=True,
     ),
 }

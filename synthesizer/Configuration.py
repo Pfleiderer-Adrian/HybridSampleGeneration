@@ -9,7 +9,6 @@ from typing import Any
 import numpy as np
 
 from fusion_backend.fusion_configuration import FusionSettings
-from fusion_backend.fusion_registry import registered_fusion_backend_names
 from generation_models.model_configuration import GeneratorModelConfiguration
 from generation_models.model_registry import get_model_spec, registered_model_names
 from synthesizer.configuration.augmentation import AugmentationConfiguration
@@ -22,7 +21,6 @@ from synthesizer.configuration.training import TrainingConfiguration
 
 
 ALLOWED_MODELS = registered_model_names()
-ALLOWED_FUSION_BACKENDS = registered_fusion_backend_names()
 
 
 class Configuration:
@@ -74,8 +72,6 @@ class Configuration:
     def validate(self) -> None:
         if self.model.name not in ALLOWED_MODELS:
             raise ValueError(f"Unknown model {self.model.name!r}.")
-        if self.fusion.backend not in ALLOWED_FUSION_BACKENDS:
-            raise ValueError(f"Unknown fusion backend {self.fusion.backend!r}.")
         model_spec = get_model_spec(self.model.name)
         if self.model.uses_masks != model_spec.uses_masks:
             raise ValueError(
@@ -98,6 +94,7 @@ class Configuration:
         self.matching.validate()
         self.training.validate()
         self.evaluation.validate()
+        self.fusion.validate()
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()

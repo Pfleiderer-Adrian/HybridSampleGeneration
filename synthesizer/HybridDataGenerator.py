@@ -56,6 +56,8 @@ class HybridDataGenerator:
         self.datasets = StudyDatasets(self.repository, self.artifact_store)
         self._generator_model = generator_model
         self._fusion_backend = fusion_backend
+        self._fusion_backend_injected = fusion_backend is not None
+        self._fusion_backend_settings = None
 
     def _log_step(self, message: str) -> None:
         print(f"[HybridDataGenerator] {message}")
@@ -269,15 +271,20 @@ class HybridDataGenerator:
         return summary
 
     def _ensure_fusion_backend(self) -> FusionBackend:
-        if self._fusion_backend is not None:
+        if self._fusion_backend_injected:
             return self._fusion_backend
-        self._fusion_backend = get_fusion_backend_spec(self.config.fusion.backend).build(
-            {"fusion_params": self.config.fusion.parameters}
+        settings = self.config.fusion.to_dict()
+        if self._fusion_backend is not None and settings == self._fusion_backend_settings:
+            return self._fusion_backend
+        backend = get_fusion_backend_spec(self.config.fusion.backend).build(
+            self.config.fusion.parameters
         )
         checkpoint = self.config.fusion.checkpoint
         if checkpoint:
-            self._fusion_backend.load_checkpoint(checkpoint)
-        return self._fusion_backend
+            backend.load_checkpoint(checkpoint)
+        self._fusion_backend = backend
+        self._fusion_backend_settings = settings
+        return backend
 
     def generate_synthetic_anomalies(self) -> list[SyntheticAnomaly]:
         """Generate the configured number of variants for every real anomaly."""
