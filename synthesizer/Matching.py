@@ -95,7 +95,12 @@ def plan_hybrid_samples(
 
     stats = _MatchingStats()
     prepared_rois: dict[str, _PreparedArray] = {}
-    roi_shapes = _real_anomaly_roi_shapes(real_anomalies, artifact_store, stats)
+    roi_shapes = (
+        _real_anomaly_roi_shapes(real_anomalies, artifact_store, stats)
+        if config.routine.startswith("fixed_from_extraction_")
+        else {}
+    )
+    local_rois = _LocalROISelector(real_anomalies, variants_by_real)
 
     used_synthetic_ids: set[str] = set()
     planned: list[HybridSample] = []
@@ -105,19 +110,26 @@ def plan_hybrid_samples(
         tqdm(originals, desc="Planning hybrid samples", unit="sample")
     ):
         stats.controls += 1
-        candidates = _match_real_anomalies(
-            original,
-            real_anomalies,
-            prepared_rois,
-            roi_shapes,
-            repository,
-            artifact_store,
-            config,
-            stats,
-        )
-        if not candidates:
-            print(f"Warning: no matching real anomaly found for {original.source_name}.")
-            continue
+        local_matcher = None
+        if config.routine == "local":
+            local_matcher = _PairMatcher(
+                original, prepared_rois, roi_shapes, repository, artifact_store, config, stats
+            )
+            candidates = []
+        else:
+            candidates = _match_real_anomalies(
+                original,
+                real_anomalies,
+                prepared_rois,
+                roi_shapes,
+                repository,
+                artifact_store,
+                config,
+                stats,
+            )
+            if not candidates:
+                print(f"Warning: no matching real anomaly found for {original.source_name}.")
+                continue
 
         for hybrid_index in range(int(config.hybrids_per_original)):
             hybrid_id = stable_id("hybrid", original.id, hybrid_index)
@@ -125,25 +137,31 @@ def plan_hybrid_samples(
                 config,
                 stable_seed(config.seed, original.id, hybrid_index, "placement_count"),
             )
-            ordered_candidates = candidates
-            if config.routine in {"local", "fixed_from_extraction_control_fusion"}:
-                shift = (
-                    sample_index * int(config.hybrids_per_original) + hybrid_index
-                ) % len(candidates)
-                ordered_candidates = candidates[shift:] + candidates[:shift]
-            options = _variant_options(
-                ordered_candidates,
-                variants_by_real,
-                hybrid_index=hybrid_index,
-            )
+            if local_matcher is not None:
+                options = local_rois.options(
+                    local_matcher,
+                    hybrid_index=hybrid_index,
+                    used_synthetic_ids=used_synthetic_ids,
+                    reuse_synthetic=config.reuse_synthetic_across_hybrids,
+                )
+            else:
+                ordered_candidates = candidates
+                if config.routine == "fixed_from_extraction_control_fusion":
+                    shift = (
+                        sample_index * int(config.hybrids_per_original) + hybrid_index
+                    ) % len(candidates)
+                    ordered_candidates = candidates[shift:] + candidates[:shift]
+                options = _variant_options(
+                    ordered_candidates,
+                    variants_by_real,
+                    hybrid_index=hybrid_index,
+                )
 
             selected = []
             selected_synthetic_ids: set[str] = set()
             selected_real_ids: set[str] = set()
             used_positions: list[tuple[tuple[float, ...], tuple[int, ...], str]] = []
             for candidate, synthetic in options:
-                if len(selected) >= desired_count:
-                    break
                 if synthetic.id in selected_synthetic_ids:
                     continue
                 if not config.reuse_synthetic_across_hybrids and synthetic.id in used_synthetic_ids:
@@ -163,10 +181,13 @@ def plan_hybrid_samples(
                 used_positions.append(
                     (candidate.center, candidate.roi_shape, candidate.real_anomaly.id)
                 )
+                # Stop before requesting another item: local options perform matching lazily.
+                if len(selected) >= desired_count:
+                    break
 
             if not selected:
                 print(
-                    f"Warning: no unused synthetic variant available for {original.source_name} "
+                    f"Warning: no eligible placement found for {original.source_name} "
                     f"hybrid variant {hybrid_index}."
                 )
                 continue
@@ -201,6 +222,9 @@ def plan_hybrid_samples(
                     f"Warning: planned {len(selected)} of {desired_count} requested placements "
                     f"for {original.source_name}, hybrid variant {hybrid_index}."
                 )
+
+        if local_matcher is not None:
+            local_matcher.persist()
 
     persistence_started = perf_counter()
     repository.replace_hybrid_plan(planned, placements)
@@ -252,92 +276,15 @@ def _match_real_anomalies(
             for record in pool
         ]
 
-    matcher_signature = _matcher_signature(config)
-    cached_by_real_id = {
-        candidate.real_anomaly_id: candidate
-        for candidate in repository.list_match_candidates(
-            original.id, matcher_signature
-        )
-    }
-    missing_records = [record for record in pool if record.id not in cached_by_real_id]
-    control_prepared = None
-    spatial_shape = None
-    if missing_records:
-        preparation_started = perf_counter()
-        control = artifact_store.load_array(original.image_path)
-        spatial_shape = np.asarray(control.shape[1:], dtype=float)
-        control_prepared = _prepare_matching_array(
-            control,
-            with_gradient=float(config.gradient_weight) > 0,
-        )
-        stats.preparation_seconds += perf_counter() - preparation_started
-
+    matcher = _PairMatcher(
+        original, prepared_rois, roi_shapes, repository, artifact_store, config, stats
+    )
     candidates = []
-    new_cache_records: list[MatchCandidate] = []
     for record in pool:
-        cached = cached_by_real_id.get(record.id)
-        if cached is None:
-            if control_prepared is None or spatial_shape is None:
-                raise RuntimeError("Missing prepared control for an uncached match pair.")
-            preparation_started = perf_counter()
-            prepared_roi = prepared_rois.get(record.id)
-            if prepared_roi is None:
-                roi = artifact_store.load_array(record.roi_image_path)
-                prepared_roi = _prepare_matching_array(
-                    roi,
-                    with_gradient=float(config.gradient_weight) > 0,
-                )
-                prepared_rois[record.id] = prepared_roi
-            stats.preparation_seconds += perf_counter() - preparation_started
-            matching_started = perf_counter()
-            score, center = _template_matching_prepared(
-                prepared_roi, control_prepared, config
-            )
-            stats.matching_seconds += perf_counter() - matching_started
-            stats.computed_pairs += 1
-            is_valid = center is not None and np.isfinite(score) and score >= -1
-            position = (
-                tuple(
-                    float(value)
-                    for value in (np.asarray(center, dtype=float) / spatial_shape)
-                )
-                if is_valid
-                else None
-            )
-            cached = MatchCandidate(
-                original_sample_id=original.id,
-                real_anomaly_id=record.id,
-                matcher_signature=matcher_signature,
-                is_valid=is_valid,
-                score=float(score) if np.isfinite(score) else None,
-                position=position,
-                center=(
-                    tuple(float(value) for value in center)
-                    if center is not None
-                    else None
-                ),
-                roi_shape=roi_shapes[record.id],
-            )
-            new_cache_records.append(cached)
-        else:
-            stats.cache_hits += 1
-
-        if not cached.is_valid or cached.position is None or cached.center is None:
-            continue
-        candidates.append(
-            _Candidate(
-                real_anomaly=record,
-                score=cached.score,
-                position=cached.position,
-                center=cached.center,
-                roi_shape=cached.roi_shape,
-            )
-        )
-
-    if new_cache_records:
-        persistence_started = perf_counter()
-        repository.upsert_match_candidates(new_cache_records)
-        stats.persistence_seconds += perf_counter() - persistence_started
+        candidate = matcher.get(record)
+        if candidate is not None:
+            candidates.append(candidate)
+    matcher.persist()
 
     if routine in {"global", "batchwise"}:
         candidates.sort(
@@ -347,6 +294,125 @@ def _match_real_anomalies(
             )
         )
     return candidates
+
+
+class _PairMatcher:
+    """Prepare and match only requested ROI/control pairs; share the persistent cache."""
+
+    def __init__(
+        self,
+        original: OriginalSample,
+        prepared_rois: dict[str, _PreparedArray],
+        roi_shapes: dict[str, tuple[int, ...]],
+        repository: StudyRepository,
+        artifact_store: ArtifactStore,
+        config: MatchingConfiguration,
+        stats: _MatchingStats,
+    ) -> None:
+        self.original = original
+        self.prepared_rois = prepared_rois
+        self.roi_shapes = roi_shapes
+        self.repository = repository
+        self.artifact_store = artifact_store
+        self.config = config
+        self.stats = stats
+        self.signature = _matcher_signature(config)
+        self.cached = {
+            candidate.real_anomaly_id: candidate
+            for candidate in repository.list_match_candidates(original.id, self.signature)
+        }
+        self.control_prepared = None
+        self.spatial_shape = None
+        self.new_records: list[MatchCandidate] = []
+
+    def get(self, record: RealAnomaly) -> _Candidate | None:
+        cached = self.cached.get(record.id)
+        if cached is None:
+            preparation_started = perf_counter()
+            if self.control_prepared is None:
+                control = self.artifact_store.load_array(self.original.image_path)
+                self.spatial_shape = np.asarray(control.shape[1:], dtype=float)
+                self.control_prepared = _prepare_matching_array(
+                    control, with_gradient=float(self.config.gradient_weight) > 0
+                )
+            prepared_roi = self.prepared_rois.get(record.id)
+            if prepared_roi is None:
+                roi = self.artifact_store.load_array(record.roi_image_path)
+                prepared_roi = _prepare_matching_array(
+                    roi, with_gradient=float(self.config.gradient_weight) > 0
+                )
+                self.prepared_rois[record.id] = prepared_roi
+            self.roi_shapes[record.id] = tuple(int(size) for size in prepared_roi.intensity.shape)
+            self.stats.preparation_seconds += perf_counter() - preparation_started
+            matching_started = perf_counter()
+            score, center = _template_matching_prepared(
+                prepared_roi, self.control_prepared, self.config
+            )
+            self.stats.matching_seconds += perf_counter() - matching_started
+            self.stats.computed_pairs += 1
+            is_valid = center is not None and np.isfinite(score) and score >= -1
+            position = (
+                tuple(float(value) for value in (np.asarray(center) / self.spatial_shape))
+                if is_valid else None
+            )
+            cached = MatchCandidate(
+                original_sample_id=self.original.id,
+                real_anomaly_id=record.id,
+                matcher_signature=self.signature,
+                is_valid=is_valid,
+                score=float(score) if np.isfinite(score) else None,
+                position=position,
+                center=tuple(float(value) for value in center) if center is not None else None,
+                roi_shape=self.roi_shapes[record.id],
+            )
+            self.cached[record.id] = cached
+            self.new_records.append(cached)
+        else:
+            self.stats.cache_hits += 1
+        if not cached.is_valid or cached.position is None or cached.center is None:
+            return None
+        return _Candidate(
+            real_anomaly=record,
+            score=cached.score,
+            position=cached.position,
+            center=cached.center,
+            roi_shape=cached.roi_shape,
+        )
+
+    def persist(self) -> None:
+        if self.new_records:
+            started = perf_counter()
+            self.repository.upsert_match_candidates(self.new_records)
+            self.stats.persistence_seconds += perf_counter() - started
+            self.new_records.clear()
+
+
+class _LocalROISelector:
+    """Continue sequential ROI assignment across hybrids and controls, matching on demand."""
+
+    def __init__(self, records: list[RealAnomaly], variants_by_real) -> None:
+        self.records = records
+        self.variants_by_real = variants_by_real
+        self.index = 0
+
+    def options(self, matcher, *, hybrid_index, used_synthetic_ids, reuse_synthetic):
+        # A rejected ROI can be retried on a later control. Bound each hybrid's
+        # attempts so exhausted variants or overlapping ROIs cannot loop forever.
+        for _ in range(len(self.records)):
+            record = self.records[self.index]
+            self.index = (self.index + 1) % len(self.records)
+            variants = self.variants_by_real[record.id]
+            shift = hybrid_index % len(variants)
+            available = [
+                variant for variant in variants[shift:] + variants[:shift]
+                if reuse_synthetic or variant.id not in used_synthetic_ids
+            ]
+            if not available:
+                continue
+            candidate = matcher.get(record)
+            if candidate is not None:
+                for variant in available:
+                    yield candidate, variant
 
 
 def _fixed_candidate(

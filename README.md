@@ -165,13 +165,22 @@ variant index, seed, image and target mask. Feedback generation is bounded by
 - `intensity_weight` and `gradient_weight`: weights for template matching.
 - `seed`: reproducibility seed owned by the matching phase.
 
-`local`, `global` and `batchwise` compute a placement candidate once per real
-anomaly ROI and control. Control and ROI gradients are prepared once per
-planning run. Pair results, including rejected pairs, are cached in SQLite by
-matcher signature; repeated planning with unchanged inputs and weights does
-not repeat template matching. `local` intentionally retains its full-image
-search and existing candidate order. A concrete synthetic child is chosen only
-after matching. `fixed_from_extraction_control_fusion` reuses source centers on
+`local` assigns real anomaly ROIs sequentially across hybrids and controls.
+It searches the full control image only for the next ROI with an eligible
+synthetic variant, trying another ROI if the match is invalid or overlaps an
+existing placement. Matching stops as soon as the requested placement count is
+reached. Each hybrid tries at most one pass through the ROI pool; unused ROIs
+are not loaded or matched. The ROI sequence restarts on each planning run.
+
+`global` evaluates all real anomaly ROIs for each control and selects placements
+in descending match-score order. `batchwise` evaluates and ranks only a seeded
+subset of at most `batch_size` ROIs per control.
+
+All three modes prepare control and ROI gradients on demand and reuse them
+within the planning run. Pair results, including rejected pairs, are cached in
+SQLite by matcher signature. Repeated planning with unchanged inputs and weights
+reuses evaluated pairs, including when changing modes; new pairs are computed
+only as needed. `fixed_from_extraction_control_fusion` reuses source centers on
 arbitrary controls;
 `fixed_from_extraction_anomaly_fusion` joins originals and real anomalies by
 foreign key and places variants back at their extraction positions.
