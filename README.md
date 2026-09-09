@@ -42,7 +42,6 @@ study/
   artifacts.sqlite
   <study_name>.db                  # Optuna trials and model checkpoint references
   trained_models/
-  trained_fusion_backends/         # When using a trained fusion backend
   artifacts/
     original_samples/<id>/{image,segmentation}.npy
     real_anomalies/<id>/{image,segmentation,roi_image,roi_segmentation}.npy
@@ -270,13 +269,16 @@ Configure its fields directly; the former `set_fusion_params(...)` wrapper is
 removed:
 
 ```python
+config.fusion.set_backend("classical")  # default: classical backend / others are experimental
+
+config.fusion.parameters.sq = 0.1
+config.fusion.parameters.steepness_factor = 5.0
+config.fusion.parameters.upsampling_factor = 2
+config.fusion.parameters.dilation_size = 1
+config.fusion.parameters.shave_pixels = 0
 config.fusion.parameters.max_alpha = 0.9  # default: classical backend
 config.fusion.parameters.fusion_variation = False
 
-config.fusion.set_backend("learned_residual_alpha")  # resets parameters/checkpoint
-config.fusion.parameters.base_channels = 32
-config.fusion.parameters.residual_scale = 0.15
-config.fusion.checkpoint = "/path/to/fusion.pt"
 config.validate()
 ```
 
@@ -284,18 +286,6 @@ The registry creates the matching dataclass and validates parameter types,
 ranges and backend compatibility. Validation also runs when saving/loading a
 configuration and creating a backend. JSON stores backend parameters directly
 under `fusion.parameters`; unknown parameter names are rejected.
-
-For standalone use, pass the backend's `Config` directly, for example
-`ClassicalFusionBackend(fusion_params=ClassicalFusionConfig(max_alpha=0.9))`,
-with both classes imported from `fusion_backend.classical` (`Config` aliased as
-`ClassicalFusionConfig`). Backends keep a copy of the parameters. The generator
-recreates its managed fusion backend when parameters, backend name or checkpoint
-path change; explicitly injected backend instances remain caller-managed.
-
-Learned checkpoints still store plain parameter dictionaries. Explicitly supplied
-parameters take precedence over checkpoint parameters, and architecture settings
-must match. A standalone learned backend constructed without parameters adopts
-the saved parameters when loading a checkpoint.
 
 The classical backend crops the generated anomaly to its target mask, restores
 its saved extraction scale, matches its intensity to the target context and
