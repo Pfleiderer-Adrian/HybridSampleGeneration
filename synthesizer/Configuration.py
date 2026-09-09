@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 from fusion_backend.fusion_configuration import FusionSettings
-from generation_models.model_configuration import GeneratorModelConfiguration
+from generation_models.model_settings import GeneratorModelSettings
 from generation_models.model_registry import get_model_spec, registered_model_names
 from synthesizer.configuration.augmentation import AugmentationConfiguration
 from synthesizer.configuration.evaluation import EvaluationConfiguration
@@ -61,7 +61,7 @@ class Configuration:
         self.matching = MatchingConfiguration(seed=self.study.seed)
         self.training = TrainingConfiguration()
         self.evaluation = EvaluationConfiguration()
-        self.model = GeneratorModelConfiguration(
+        self.model = GeneratorModelSettings(
             name=model_name,
             parameters=model_spec.build_configuration(int(anomaly_size[0])),
         )
@@ -150,7 +150,7 @@ class Configuration:
         config.matching = MatchingConfiguration(**values["matching"])
         config.training = TrainingConfiguration.from_dict(values["training"])
         config.evaluation = EvaluationConfiguration.from_dict(values["evaluation"])
-        config.model = GeneratorModelConfiguration.from_dict(model_values)
+        config.model = GeneratorModelSettings.from_dict(model_values)
         config.fusion = FusionSettings.from_dict(values["fusion"])
         config.validate()
         return config

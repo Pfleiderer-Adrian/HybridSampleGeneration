@@ -7,7 +7,7 @@ from tqdm import tqdm
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from generation_models.interfaces import StepOutput
-from generation_models.model_configuration import ModelConfiguration
+from generation_models.model_settings import ModelHyperparameterSpace
 from generation_models.model_registry import get_model_spec
 from synthesizer.Configuration import Configuration
 from synthesizer.configuration.augmentation import AugmentationConfiguration
@@ -331,12 +331,12 @@ def _apply_training_offset_augmentation(dataset, config: AugmentationConfigurati
 
 def sample_model_params(trial: Trial, model_params):
     """
-    Build concrete model params from a ModelConfiguration search space.
+    Build concrete model params from a ModelHyperparameterSpace search space.
 
     Equal min/max values are treated as fixed constants. Strings and booleans
     become categorical choices when min/max differ.
     """
-    model_params = ModelConfiguration.from_value(model_params)
+    model_params = ModelHyperparameterSpace.from_value(model_params)
     min_params = model_params.min
     max_params = model_params.max
     params = {}

@@ -1,14 +1,14 @@
 from dataclasses import asdict
 
-from generation_models.model_configuration import ModelConfiguration
+from generation_models.model_settings import ModelHyperparameterSpace
 from generation_models.VAEs.VAE_ConvNeXt import VAE_ConvNeXt_2D, VAE_ConvNeXt_3D
 
 
 DEFAULT_VAE_INPUT_ARTEFACTS = ("img", "fname")
 
 
-def _build_model_configuration(config_cls, in_channels, min_params, max_params, *, input_artefacts):
-    return ModelConfiguration(
+def _build_model_hyperparameter_space(config_cls, in_channels, min_params, max_params, *, input_artefacts):
+    return ModelHyperparameterSpace(
         asdict(config_cls(in_channels=in_channels, **min_params)),
         asdict(config_cls(in_channels=in_channels, **max_params)),
         input_artefacts=input_artefacts,
@@ -33,7 +33,7 @@ def get_convnext_vae_3d_configuration(in_channels):
         "skip_alpha": 0.2,
         "use_transpose_conv": False,
     }
-    return _build_model_configuration(
+    return _build_model_hyperparameter_space(
         VAE_ConvNeXt_3D.Config,
         in_channels,
         {
@@ -76,7 +76,7 @@ def get_convnext_vae_2d_configuration(in_channels):
         "fg_weight": 1.0,
         "fg_threshold": 0.0,
     }
-    return _build_model_configuration(
+    return _build_model_hyperparameter_space(
         VAE_ConvNeXt_2D.Config,
         in_channels,
         base,

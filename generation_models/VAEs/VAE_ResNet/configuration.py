@@ -1,14 +1,14 @@
 from dataclasses import asdict
 
-from generation_models.model_configuration import ModelConfiguration
+from generation_models.model_settings import ModelHyperparameterSpace
 from generation_models.VAEs.VAE_ResNet import VAE_ResNet_2D, VAE_ResNet_3D
 
 
 DEFAULT_VAE_INPUT_ARTEFACTS = ("img", "fname")
 
 
-def _build_model_configuration(config_cls, in_channels, min_params, max_params, *, input_artefacts):
-    return ModelConfiguration(
+def _build_model_hyperparameter_space(config_cls, in_channels, min_params, max_params, *, input_artefacts):
+    return ModelHyperparameterSpace(
         asdict(config_cls(in_channels=in_channels, **min_params)),
         asdict(config_cls(in_channels=in_channels, **max_params)),
         input_artefacts=input_artefacts,
@@ -17,7 +17,7 @@ def _build_model_configuration(config_cls, in_channels, min_params, max_params, 
 
 def get_resnet_vae_3d_configuration(in_channels):
     base = {}
-    return _build_model_configuration(
+    return _build_model_hyperparameter_space(
         VAE_ResNet_3D.Config,
         in_channels,
         {
@@ -54,7 +54,7 @@ def get_resnet_vae_3d_configuration(in_channels):
 
 def get_resnet_vae_2d_configuration(in_channels):
     base = {}
-    return _build_model_configuration(
+    return _build_model_hyperparameter_space(
         VAE_ResNet_2D.Config,
         in_channels,
         {

@@ -7,11 +7,11 @@ IMMUTABLE_MODEL_PARAMS = {"in_channels"}
 
 
 @dataclass
-class GeneratorModelConfiguration:
+class GeneratorModelSettings:
     """Selected generator implementation and its model-specific parameters."""
 
     name: str
-    parameters: "ModelConfiguration"
+    parameters: "ModelHyperparameterSpace"
 
     def to_dict(self):
         return {
@@ -23,11 +23,11 @@ class GeneratorModelConfiguration:
     def from_dict(cls, values):
         return cls(
             name=values["name"],
-            parameters=ModelConfiguration.from_value(values["parameters"]),
+            parameters=ModelHyperparameterSpace.from_value(values["parameters"]),
         )
 
 
-class ModelConfiguration:
+class ModelHyperparameterSpace:
     """
     Model-specific hyperparameter search space.
 
@@ -57,7 +57,7 @@ class ModelConfiguration:
                 min_config = value["min"]
                 max_config = value["max"]
             except KeyError as exc:
-                raise KeyError("Model configuration mapping must contain 'min' and 'max'.") from exc
+                raise KeyError("Model hyperparameter-space mapping must contain 'min' and 'max'.") from exc
             return cls(
                 min_config,
                 max_config,
@@ -67,7 +67,7 @@ class ModelConfiguration:
                 ),
                 immutable_params=value.get("immutable_params", IMMUTABLE_MODEL_PARAMS),
             )
-        raise TypeError("model_params must be a ModelConfiguration or mapping.")
+        raise TypeError("model_params must be a ModelHyperparameterSpace or mapping.")
 
     def set_hyperparameter_space(self, min_config, max_config):
         """
