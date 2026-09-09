@@ -16,8 +16,9 @@ the study folder.
 
 ```text
 OriginalSample  1 ── 0..n  RealAnomaly  1 ── 0..n  SyntheticAnomaly
-     1 │                                                    │ 1
-       └── 0..n  HybridSample  1 ── 1..n  Placement  0..n  ─┘
+       1                                                      1
+       │                                                      │ 
+       └──  0..n  HybridSample  1 ── 1..n  Placement  0..n  ──┘
 ```
 
 A placement is an independent record. It identifies one synthetic anomaly,
