@@ -125,8 +125,8 @@ from data_handler.Visualizer import run_hybrid_visualizer
 
 config = Configuration(
     "study-01",
-    "VAE_ResNet_2D",
-    anomaly_size=(3, 32, 32),
+    "cVAE_ConvNeXt_2D",
+    anomaly_size=(1, 32, 32),
     study_folder="results/study-01",
 )
 
@@ -135,7 +135,7 @@ config.matching.hybrids_per_original = 3
 config.matching.anomalies_per_hybrid = 2
 config.matching.reuse_synthetic_across_hybrids = True
 config.matching.allow_sibling_variants_in_same_hybrid = False
-config.matching.routine = "global"
+config.matching.routine = "local"
 
 generator = HybridDataGenerator(config)
 summary = generator.ingest_dataset(all_samples_dataloader)
