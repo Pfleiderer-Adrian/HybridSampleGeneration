@@ -4,7 +4,9 @@ import unittest
 from pathlib import Path
 
 from synthesizer.Configuration import Configuration, load_config_file
+from synthesizer.configuration.augmentation import MaskTransformConfiguration
 from synthesizer.configuration.matching import MatchingConfiguration
+from synthesizer.mask_manipulation import TransformGenerator
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -33,6 +35,30 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(serialized["matching"]["hybrids_per_original"], 3)
             self.assertEqual(serialized["generation"]["variants_per_real_anomaly"], 5)
             self.assertEqual(loaded.to_dict(), config.to_dict())
+            self.assertIsInstance(
+                loaded.augmentation.mask_transforms,
+                MaskTransformConfiguration,
+            )
+
+    def test_mask_transform_configuration_builds_runtime_generator(self):
+        config = MaskTransformConfiguration(
+            use_mask_transform=False,
+            padding_factor=3,
+            local_as_global=True,
+        )
+        config.setGlobalParam("rotate", probability=0.25, max_rotation=12.0)
+
+        generator = TransformGenerator.from_config(
+            config,
+            anomaly_size=(1, 16, 16),
+            background_threshold=0.01,
+            seed=7,
+        )
+
+        self.assertEqual(generator.padding_factor, 3)
+        self.assertTrue(generator.mask_transform_local_as_global)
+        self.assertEqual(generator.global_transform_probs["rotate"], 0.25)
+        self.assertEqual(generator.transform_params["rotate"]["max_rotation"], 12.0)
 
     def test_matching_configuration_rejects_invalid_weights(self):
         config = MatchingConfiguration(intensity_weight=0, gradient_weight=0)

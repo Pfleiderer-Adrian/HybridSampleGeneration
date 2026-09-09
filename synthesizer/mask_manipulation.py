@@ -1,11 +1,13 @@
 from copy import deepcopy
-from dataclasses import dataclass, field
 from typing import Any, Dict
 
 import numpy as np
 import scipy.ndimage as ndi
 import torch
 import torch.nn.functional as F
+
+from synthesizer.configuration.augmentation import MaskTransformConfiguration
+
 
 def to_one_hot_3D(mask: torch.Tensor, num_anomaly_classes: int) -> torch.Tensor:
     """Converts 3D/4D/5D integer masks to 5D one-hot float tensors of shape (B, C, D, H, W)."""
@@ -656,72 +658,24 @@ class TransformGenerator:
     @classmethod
     def from_config(
         cls,
-        config,
+        config: MaskTransformConfiguration,
         *,
         anomaly_size,
         background_threshold,
         seed: int | None = None,
     ):
-        """Build from an AugmentationConfiguration and explicit shared inputs."""
-        transform_config = config.mask_transforms
+        """Build from mask-transform settings and explicit shared inputs."""
         return cls(
-            getattr(transform_config, "mask_transform_probs", None),
-            use_mask_transform=getattr(transform_config, "use_mask_transform", True),
-            padding_factor=getattr(transform_config, "padding_factor", 2),
-            transform_params=getattr(transform_config, "mask_transform_params", None),
-            priorities=getattr(
-                transform_config,
-                "priorities",
-                getattr(transform_config, "mask_transform_priorities", None),
-            ),
+            config.mask_transform_probs,
+            use_mask_transform=config.use_mask_transform,
+            padding_factor=config.padding_factor,
+            transform_params=config.mask_transform_params,
+            priorities=config.priorities,
             rng=np.random.default_rng(seed),
             anomaly_size=anomaly_size,
             background_threshold=background_threshold,
-            mask_transform_local_as_global=getattr(
-                transform_config,
-                "local_as_global",
-                getattr(transform_config, "mask_transform_local_as_global", False),
-            ),
+            mask_transform_local_as_global=config.local_as_global,
         )
-
-    @dataclass
-    class Config:
-        use_mask_transform: bool = True
-        mask_transform_probs: Dict[int | str, Any] = field(default_factory=dict)
-        mask_transform_params: Dict[int | str, Dict[str, Any]] = field(default_factory=dict)
-        priorities: list[int] | tuple[int, ...] | None = None
-        local_as_global: bool = False
-        padding_factor: int = 2
-
-        def setGlobalParam(self, transform_name: str, probability=None, **params):
-            if transform_name not in TransformGenerator.GLOBAL_TRANSFORMS:
-                raise ValueError(f"{transform_name!r} is not a global transform.")
-            return self._set_transform_config(transform_name, probability, params)
-
-        def setClassParam(self, class_id: int, transform_name: str, probability=None, **params):
-            if transform_name not in TransformGenerator.LOCAL_TRANSFORMS:
-                raise ValueError(f"{transform_name!r} is not a local transform.")
-            return self._set_transform_config(transform_name, probability, params, class_id=class_id)
-
-        def setAllClassParams(self, transform_name: str, probability=None, **params):
-            if transform_name not in TransformGenerator.LOCAL_TRANSFORMS:
-                raise ValueError(f"{transform_name!r} is not a local transform.")
-            return self._set_transform_config(transform_name, probability, params)
-
-        def _set_transform_config(self, transform_name: str, probability, params: dict, class_id: int | None = None):
-            if probability is not None:
-                if class_id is None:
-                    self.mask_transform_probs[transform_name] = probability
-                else:
-                    self.mask_transform_probs.setdefault(class_id, {})[transform_name] = probability
-
-            if params:
-                if class_id is None:
-                    self.mask_transform_params.setdefault(transform_name, {}).update(params)
-                else:
-                    self.mask_transform_params.setdefault(class_id, {}).setdefault(transform_name, {}).update(params)
-
-            return self
 
     GLOBAL_TRANSFORMS = {
         "zoom": random_global_zoom_transform,

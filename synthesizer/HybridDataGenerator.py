@@ -309,7 +309,7 @@ class HybridDataGenerator:
             for variant_index in range(int(generation.variants_per_real_anomaly)):
                 seed = stable_seed(self.config.study.seed, real_id, variant_index)
                 target_mask_generator = TransformGenerator.from_config(
-                    self.config.augmentation,
+                    self.config.augmentation.mask_transforms,
                     anomaly_size=self.config.extraction.anomaly_size,
                     background_threshold=generation.background_threshold,
                     seed=seed,
