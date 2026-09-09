@@ -243,7 +243,16 @@ class StudyPipelineTests(unittest.TestCase):
                 config,
                 fusion_backend=_FakeFusionBackend(),
             )
-            generated = materializer.materialize_hybrid_samples()
+            with patch(
+                "synthesizer.HybridDataGenerator.tqdm",
+                side_effect=lambda iterable, **_kwargs: iterable,
+            ) as progress:
+                generated = materializer.materialize_hybrid_samples()
+            progress.assert_called_once()
+            progress_args, progress_kwargs = progress.call_args
+            self.assertEqual(len(progress_args[0]), 6)
+            self.assertEqual(progress_kwargs["desc"], "Materializing hybrid samples")
+            self.assertEqual(progress_kwargs["unit"], "sample")
             self.assertEqual(len(generated), 6)
             artifact_paths = set()
             for hybrid in generated:

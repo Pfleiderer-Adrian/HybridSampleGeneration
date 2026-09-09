@@ -30,7 +30,7 @@ class Configuration:
     relationships and anomaly metadata live in the study repository.
     """
 
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = 4
 
     def __init__(
         self,
@@ -64,7 +64,6 @@ class Configuration:
         self.model = GeneratorModelConfiguration(
             name=model_name,
             parameters=model_spec.build_configuration(int(anomaly_size[0])),
-            uses_masks=model_spec.uses_masks,
         )
         self.fusion = FusionSettings.for_backend("classical")
         self.validate()
@@ -72,11 +71,6 @@ class Configuration:
     def validate(self) -> None:
         if self.model.name not in ALLOWED_MODELS:
             raise ValueError(f"Unknown model {self.model.name!r}.")
-        model_spec = get_model_spec(self.model.name)
-        if self.model.uses_masks != model_spec.uses_masks:
-            raise ValueError(
-                f"model.uses_masks={self.model.uses_masks} conflicts with model {self.model.name!r}."
-            )
         self.extraction.validate()
         expected_channels = int(self.extraction.anomaly_size[0])
         for bound_name, parameters in (

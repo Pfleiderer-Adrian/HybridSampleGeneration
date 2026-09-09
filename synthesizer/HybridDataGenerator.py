@@ -170,7 +170,7 @@ class HybridDataGenerator:
         records = self.repository.list_real_anomalies()
         if not records:
             raise ValueError("No real anomalies found. Run extract_anomalies first.")
-        if self.config.model.uses_masks:
+        if get_model_spec(self.config.model.name).uses_masks:
             max_class = max(
                 int(round(float(record.metadata.get("label", 0))))
                 for record in records
@@ -408,7 +408,9 @@ class HybridDataGenerator:
         generated: list[HybridSample] = []
         failures = []
 
-        for hybrid in hybrids:
+        for hybrid in tqdm(
+            hybrids, desc="Materializing hybrid samples", unit="sample"
+        ):
             try:
                 result = self._materialize_hybrid(
                     hybrid, synthetic_dataset, fusion_backend

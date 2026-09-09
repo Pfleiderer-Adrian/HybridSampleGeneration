@@ -12,12 +12,10 @@ class GeneratorModelConfiguration:
 
     name: str
     parameters: "ModelConfiguration"
-    uses_masks: bool = False
 
     def to_dict(self):
         return {
             "name": self.name,
-            "uses_masks": self.uses_masks,
             "parameters": self.parameters.to_dict(),
         }
 
@@ -25,7 +23,6 @@ class GeneratorModelConfiguration:
     def from_dict(cls, values):
         return cls(
             name=values["name"],
-            uses_masks=bool(values.get("uses_masks", False)),
             parameters=ModelConfiguration.from_value(values["parameters"]),
         )
 

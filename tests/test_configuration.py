@@ -27,6 +27,8 @@ class ConfigurationTests(unittest.TestCase):
             loaded = load_config_file(path)
 
             self.assertEqual(serialized["schema_version"], Configuration.SCHEMA_VERSION)
+            self.assertNotIn("uses_masks", serialized["model"])
+            self.assertFalse(hasattr(loaded.model, "uses_masks"))
             self.assertEqual(serialized["matching"]["anomalies_per_hybrid"], 2)
             self.assertEqual(serialized["matching"]["hybrids_per_original"], 3)
             self.assertEqual(serialized["generation"]["variants_per_real_anomaly"], 5)
