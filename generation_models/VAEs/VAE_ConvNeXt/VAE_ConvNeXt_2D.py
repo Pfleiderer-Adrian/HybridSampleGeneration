@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """ConvNeXt2D-U-Net VAE
 
 2D variant of the ConvNeXt3D-U-Net VAE
@@ -16,6 +14,8 @@ Shapes:
 
 
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional, Tuple, Dict, Iterable, Union, List
@@ -148,8 +148,6 @@ class ConvNeXtUNetEncoder2D(nn.Module):
         n_res_blocks: int,
         n_levels: int,
         z_channels: int,
-        use_multires_skips: bool = True,  # kept for API compatibility (not used)
-        leak: float = 0.2,               # kept for API compatibility
         gn_groups: int = 8,
         drop_path_rate: float = 0.0,
         dropout: float = 0.0,
@@ -222,8 +220,6 @@ class ConvNeXtUNetDecoder2D(nn.Module):
         n_res_blocks: int,
         n_levels: int,
         z_channels: int,
-        use_multires_skips: bool = True,  # kept for API compatibility (not used)
-        leak: float = 0.2,               # kept for API compatibility
         use_transpose_conv: bool = True,
         gn_groups: int = 8,
         drop_path_rate: float = 0.0,
@@ -348,7 +344,6 @@ class Config:
     """Hyperparameters for ConvNeXtVAE2D.
 
     Notes:
-      - use_multires_skips is kept but ignored by the U-Net implementation.
       - use_transpose_conv is honored.
     """
     in_channels:int = None
@@ -356,7 +351,6 @@ class Config:
     n_levels: int = 4
     z_channels: int = 250
     bottleneck_dim: int = 250
-    use_multires_skips: bool = True
     recon_weight: float = 100.0
     beta_kl: float = 1.0
     beta_kl_start: float = 0.0
@@ -405,7 +399,6 @@ class ConvNeXtVAE2D(HybridVAEBase):
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
-            use_multires_skips=cfg.use_multires_skips,
             drop_path_rate=cfg.drop_path_rate,
             dropout=cfg.dropout,
             skip_dropout_p=cfg.skip_dropout_p,
@@ -417,7 +410,6 @@ class ConvNeXtVAE2D(HybridVAEBase):
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
-            use_multires_skips=cfg.use_multires_skips,
             use_transpose_conv=cfg.use_transpose_conv,
             drop_path_rate=cfg.drop_path_rate,
             dropout=cfg.dropout,
@@ -748,21 +740,3 @@ class ConvNeXtVAE2D(HybridVAEBase):
 
         recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
         return recon_np, target_mask_generator.create_target_mask(synth_anomaly_image=recon_np)
-
-if __name__ == "__main__":
-    # Quick sanity check
-    cfg = Config(n_res_blocks=2, n_levels=4, z_channels=64, bottleneck_dim=64)
-    model = ConvNeXtVAE2D(in_channels=1, cfg=cfg)
-    x = torch.randn(2, 1, 128, 128)
-    out = model(x)
-    print({k: tuple(v.shape) for k, v in out.items()})
-
-    # Posterior sampling: generate 5 variants per item
-    variants = model.generate(
-        {"img": x[0], "fname": "sanity.npy"},
-        mode="posterior",
-        n=5,
-        variation_strength=0.3,
-        return_torch=True,
-    )
-    print("variants:", tuple(variants.shape))

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """ConvNeXt2D-U-Net conditional VAE
 
 Features:
@@ -16,6 +14,8 @@ Shapes:
 - Output recon: (B, C, H, W)
 
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional, Tuple, Dict, Iterable, Union, List
@@ -199,8 +199,6 @@ class ConvNeXtUNetEncoder2D(nn.Module):
         n_res_blocks: int,
         n_levels: int,
         z_channels: int,
-        use_multires_skips: bool = True,
-        leak: float = 0.2,
         gn_groups: int = 8,
         drop_path_rate: float = 0.0,
         dropout: float = 0.0,
@@ -271,8 +269,6 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
         n_levels: int,
         z_channels: int,
         num_anomaly_classes: int,
-        use_multires_skips: bool = True,
-        leak: float = 0.2,
         use_transpose_conv: bool = True,
         gn_groups: int = 8,
         drop_path_rate: float = 0.0,
@@ -412,7 +408,6 @@ class Config:
     n_levels: int = 4
     z_channels: int = 250
     bottleneck_dim: int = 250
-    use_multires_skips: bool = True
     recon_weight: float = 100.0
     beta_kl: float = 1.0
     beta_kl_start: float = 0.0
@@ -457,7 +452,6 @@ class ConvNeXtcVAE2D(HybridVAEBase):
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
-            use_multires_skips=cfg.use_multires_skips,
             drop_path_rate=cfg.drop_path_rate,
             dropout=cfg.dropout,
             skip_dropout_p=cfg.skip_dropout_p,
@@ -471,7 +465,6 @@ class ConvNeXtcVAE2D(HybridVAEBase):
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
             num_anomaly_classes=cfg.num_anomaly_classes,
-            use_multires_skips=cfg.use_multires_skips,
             use_transpose_conv=cfg.use_transpose_conv,
             drop_path_rate=cfg.drop_path_rate,
             dropout=cfg.dropout,
@@ -818,23 +811,3 @@ class ConvNeXtcVAE2D(HybridVAEBase):
         recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
         tgt_mask_np = tgt_mask_return.cpu().numpy().astype(np.uint8, copy=False)
         return recon_np, tgt_mask_np
-
-if __name__ == "__main__":
-    # Quick sanity check
-    cfg = Config(in_channels=1, num_anomaly_classes=4, n_res_blocks=2, n_levels=4, z_channels=64, bottleneck_dim=64)
-    model = ConvNeXtcVAE2D(cfg=cfg)
-    
-    x = torch.randn(2, 1, 128, 128)
-    mask = torch.zeros(2, 1, 128, 128, dtype=torch.long)
-    
-    out = model(x, mask)
-    print("Forward Pass output:")
-    print({k: tuple(v.shape) for k, v in out.items()})
-
-    # Posterior sampling: generate 3 variants per item
-    variants = model.generate(x[0], mode="posterior", original_mask=mask[0], n=3, variation_strength=0.3, return_torch=True)
-    print("Variants (posterior sampling) shape:", tuple(variants.shape))
-    
-    # Prior sampling
-    prior = model.generate(mask[0], mode="prior", variation_strength=1.0, return_torch=True)
-    print("Prior sampling shape:", tuple(prior.shape))

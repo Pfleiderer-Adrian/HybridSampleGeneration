@@ -1,11 +1,10 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, Iterable, Union
+from typing import Optional, Tuple, Dict, Union
 import math
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from generation_models.VAEs.vae_base import HybridVAEBase
 from synthesizer.mask_manipulation import TransformGenerator
@@ -745,8 +744,3 @@ class ResNetVAE2D(HybridVAEBase):
             self.train()
 
         return self
-
-
-if __name__ == "__main__":
-    cfg = Config(n_res_blocks=4, n_levels=4, z_channels=128, bottleneck_dim=128)
-    model = ResNetVAE2D(in_channels=1, cfg=cfg)

@@ -17,7 +17,7 @@ from synthesizer.configuration.extraction import ExtractionConfiguration, RoiCon
 
 
 class FusionConfigurationTests(unittest.TestCase):
-    def test_schema_three_round_trip_preserves_backend_dataclass(self):
+    def test_fusion_configuration_round_trip_preserves_backend_dataclass(self):
         for backend, config_cls, field, value in (
             ('classical', ClassicalConfig, 'max_alpha', 0.7),
             ('learned_residual_alpha', LearnedConfig, 'residual_scale', 0.1),

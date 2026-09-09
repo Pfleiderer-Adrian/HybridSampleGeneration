@@ -30,7 +30,7 @@ class Configuration:
     relationships and anomaly metadata live in the study repository.
     """
 
-    SCHEMA_VERSION = 4
+    SCHEMA_VERSION = 5
 
     def __init__(
         self,

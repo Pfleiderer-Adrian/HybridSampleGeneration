@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import os
 from dataclasses import asdict, dataclass
-from typing import Optional, Union
+from typing import Optional
 
 import numpy as np
 import torch

@@ -170,26 +170,6 @@ def configure_mvtecad2_defaults(config: Configuration):
     config.fusion.parameters.sq_variation = 0.1
     config.fusion.parameters.steepness_variation = 1.0
     config.fusion.parameters.selected_confidence = "90%"
-    """
-    config.fusion.set_backend("learned_residual_alpha")
-    config.fusion.parameters.base_alpha = 0.70
-    config.fusion.parameters.base_alpha_blur_sigma = 2.0
-    config.fusion.parameters.alpha_delta_scale = 0.35
-    config.fusion.parameters.residual_scale = 0.35
-    config.fusion.parameters.residual_border_width = 6
-    config.fusion.parameters.fusion_normalization_border_width = None
-    config.fusion.parameters.clamp_output = False
-    config.fusion.parameters.train_epochs = 50
-    config.fusion.parameters.train_lr = 1e-3
-    config.fusion.parameters.train_weight_decay = 1e-5
-    config.fusion.parameters.train_crop_margin = 32
-    config.fusion.parameters.train_inpaint_blur_sigma = 10.0
-    config.fusion.parameters.foreground_loss_weight = 3.0
-    config.fusion.parameters.support_loss_weight = 4.0
-    config.fusion.parameters.alpha_delta_l1 = 1e-4
-    config.fusion.parameters.residual_l1 = 5e-5
-    config.fusion.parameters.grad_clip_norm = 1.0
-    """
     # Training settings
     config.training.validation_ratio = 0.1
     config.training.batch_size = 8
@@ -218,7 +198,6 @@ def configure_mvtecad2_defaults(config: Configuration):
             "n_levels": 3,
             "z_channels": 16,
             "bottleneck_dim": 32,
-            "use_multires_skips": False,
             "recon_weight": 4.0,
             "beta_kl": 0.03,
             "beta_kl_start": 0.0,
@@ -243,7 +222,6 @@ def configure_mvtecad2_defaults(config: Configuration):
             "n_levels": 4,
             "z_channels": 96,
             "bottleneck_dim": 160,
-            "use_multires_skips": False,
             "recon_weight": 24.0,
             "beta_kl": 0.08,
             "beta_kl_start": 0.0,
@@ -273,22 +251,6 @@ def configure_can(config: Configuration) -> Configuration:
 
 
 
-    """
-    # Prototype diffusion model settings for can category. These parameters are not tuned.
-    # Diffusion model settings. num_anomaly_classes is filled after masks are loaded.
-    config.model.parameters.set_model_params(
-        prompt="a realistic close-up photo of a damaged can surface, industrial anomaly texture, high detail",
-        negative_prompt="blur, low quality, text, watermark",
-        resolution=512,
-        num_inference_steps=30,
-        guidance_scale=7.5,
-        strength=0.85,
-        prior_strength=0.999,
-        lora_rank=8,
-        lora_alpha=8,
-        lora_dropout=0.0,
-    )
-    """
 
     return config
 

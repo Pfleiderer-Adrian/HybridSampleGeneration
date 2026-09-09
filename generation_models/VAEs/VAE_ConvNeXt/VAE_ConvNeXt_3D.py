@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """ConvNeXt3D-U-Net VAE
 
 Features:
@@ -8,6 +6,8 @@ Features:
 - True U-Net skip connections (feature concatenation)
 
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional, Tuple, Dict, Iterable, Union, List
@@ -120,8 +120,6 @@ class ConvNeXtUNetEncoder3D(nn.Module):
         n_res_blocks: int,
         n_levels: int,
         z_channels: int,
-        use_multires_skips: bool = True,  # kept for API compatibility (not used)
-        leak: float = 0.2,  # kept for API compatibility
         gn_groups: int = 8,
     ):
         super().__init__()
@@ -186,8 +184,6 @@ class ConvNeXtUNetDecoder3D(nn.Module):
         n_res_blocks: int,
         n_levels: int,
         z_channels: int,
-        use_multires_skips: bool = True,  # kept for API compatibility (not used)
-        leak: float = 0.2,  # kept for API compatibility
         use_transpose_conv: bool = True,
         skip_dropout_p: float = 0.0,
         skip_dropout_ps: Optional[Iterable[float]] = None,
@@ -329,7 +325,6 @@ class Config:
     Kept identical to the original file for drop-in compatibility.
 
     Notes:
-      - `use_multires_skips` is kept but ignored by the U-Net implementation.
       - `use_transpose_conv` is still honored.
     """
     in_channels: int = None
@@ -337,7 +332,6 @@ class Config:
     n_levels: int = 4
     z_channels: int = 250
     bottleneck_dim: int = 250
-    use_multires_skips: bool = True
     recon_weight: float = 100.0
     beta_kl: float = 1.0
     beta_kl_start: float = 0.0
@@ -387,7 +381,6 @@ class ConvNeXtVAE3D(HybridVAEBase):
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
-            use_multires_skips=cfg.use_multires_skips,
         )
 
         # Decoder reconstructs from latent feature map; skips are set each forward
@@ -396,7 +389,6 @@ class ConvNeXtVAE3D(HybridVAEBase):
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
-            use_multires_skips=cfg.use_multires_skips,
             use_transpose_conv=cfg.use_transpose_conv,
             skip_dropout_p=cfg.skip_dropout_p,
             skip_dropout_ps=cfg.skip_dropout_ps,
@@ -734,12 +726,3 @@ class ConvNeXtVAE3D(HybridVAEBase):
 
         recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
         return recon_np, target_mask_generator.create_target_mask(synth_anomaly_image=recon_np)
-
-
-if __name__ == "__main__":
-    # Quick sanity check
-    cfg = Config(n_res_blocks=2, n_levels=4, z_channels=64, bottleneck_dim=64)
-    model = ConvNeXtVAE3D(in_channels=1, cfg=cfg)
-    x = torch.randn(1, 1, 64, 64, 64)
-    out = model(x)
-    print({k: tuple(v.shape) for k, v in out.items()})

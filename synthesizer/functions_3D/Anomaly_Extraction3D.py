@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.ndimage import zoom, label, find_objects, center_of_mass
+from scipy.ndimage import zoom, label, find_objects
 
 from synthesizer.mask_manipulation import interpolate_masked_regions
 from synthesizer.configuration.extraction import ExtractionConfiguration

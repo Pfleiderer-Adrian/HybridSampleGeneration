@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import asdict, replace
 
-import os
 from pathlib import Path
 
 import numpy as np

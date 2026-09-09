@@ -1,4 +1,5 @@
 # Hybrid Sample Generation
+![Python](https://img.shields.io/badge/Python-14354C?style=flat&logo=python&logoColor=green) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![DOI:AMLDS63918.2025.11159383](http://img.shields.io/badge/DOI-AMLDS63918.2025.11159383-B31B1B.svg)](https://doi.org/10.1109/AMLDS63918.2025.11159383)
 
 This project extracts real anomalies from labelled 2D images or 3D volumes,
 trains a generative model, creates multiple synthetic variants and places them
@@ -87,11 +88,32 @@ different `source_image_path` values. Resolved source identities must also be
 unique. A positive segmentation marks an anomalous original; an empty mask marks
 an annotated control, and `None` marks an unannotated control.
 
+An annotated mask must have the same spatial shape as its image and either one
+channel or the same channel count as the image. The spatial dimensions in
+`config.extraction.anomaly_size` must match the input data; tuple order is
+`(C, H, W)` for 2D and `(C, D, H, W)` for 3D.
+
 The bundled image, NIfTI and MVTec AD 2 loaders expose this typed boundary.
 `ingest_dataset()` validates, classifies and snapshots the complete supplied
 dataset on each call, replacing the previous input catalog and derived records.
 All later phases select their inputs from the repository and never iterate the
 original dataloader again.
+
+## Requirements and installation
+
+The pipeline uses PyTorch, Optuna, NumPy, SciPy, pandas, scikit-image and
+Matplotlib. Additional model and file-format dependencies are listed in
+`requirements.txt`.
+
+Install PyTorch in the variant appropriate for the local CPU/CUDA environment,
+then install the repository dependencies:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+Exact PyTorch and CUDA versions depend on the target system. A GPU is useful for
+training but the orchestration and repository layers do not require one.
 
 ## Usage
 
@@ -198,7 +220,7 @@ config.model        generator choice and model-specific parameters
 config.fusion       fusion backend and backend-specific parameters
 ```
 
-The current configuration schema is version 3 and the artifact database schema
+The current configuration schema is version 5 and the artifact database schema
 is version 2. Older study databases and filename/CSV layouts are intentionally
 unsupported; recreate the study and run `ingest_dataset()` again.
 
@@ -210,6 +232,35 @@ matching seeds together:
 config.study.seed = 123
 config.matching.seed = 123
 ```
+
+### Extraction
+
+Extraction finds connected components in the positive segmentation, crops each
+component, downscales it only when it exceeds the configured target size, and
+center-pads it to `config.extraction.anomaly_size`. The original ROI, mask,
+normalized source center, scale factors and normalization metadata are retained
+with the resulting `RealAnomaly` record.
+
+The principal settings are:
+
+- `config.extraction.separate_components`: extract connected components as
+  separate real anomalies. When disabled, the positive mask is handled as one
+  region.
+- `config.extraction.min_coverage_ratio`: discard components smaller than this
+  fraction of the target spatial cutout area/volume. The default is `0.05`.
+- `config.extraction.add_background_noise`: add a small noise floor to otherwise
+  constant cutout background.
+- `config.extraction.normalization`: `"z-score"` (mean/std),
+  `"zscore_median"` (median/MAD), or `None`.
+- `config.extraction.roi.fixed_size`: fixed spatial ROI size, or `None` for a
+  dynamic ROI.
+- `config.extraction.roi.min_padding` and `padding_ratio`: for a dynamic ROI,
+  its size on each axis is the anomaly extent plus the larger of the absolute
+  padding and proportional padding.
+- `config.extraction.roi.min_size`: scalar or per-axis lower bound for a dynamic
+  ROI.
+
+ROI tuples contain spatial axes only: `(H, W)` for 2D and `(D, H, W)` for 3D.
 
 ### Fusion parameters
 
@@ -244,6 +295,40 @@ Learned checkpoints still store plain parameter dictionaries. Explicitly supplie
 parameters take precedence over checkpoint parameters, and architecture settings
 must match. A standalone learned backend constructed without parameters adopts
 the saved parameters when loading a checkpoint.
+
+The classical backend crops the generated anomaly to its target mask, restores
+its saved extraction scale, matches its intensity to the target context and
+alpha-blends it at the planned normalized center. It returns the fused image, a
+label mask in control coordinates and optional placement ROI artifacts. Multiple
+placements are materialized in their stored order and their label masks are
+combined.
+
+Important classical parameters include:
+
+- `max_alpha`, `sq`, `steepness_factor` and `upsampling_factor`, which control
+  the maximum anomaly contribution and the distance-transform alpha falloff.
+- `fusion_use_sobel_for_alpha_mask`, `sobel_threshold`, `dilation_size` and
+  `shave_pixels`, which enable and tune the optional edge-refined alpha path.
+- `fusion_variation` plus `alpha_variation`, `sq_variation`,
+  `steepness_variation` and `selected_confidence`, which sample blending
+  parameters per placement.
+- `fusion_normalization_border_width`: `None` disables fusion-time intensity
+  normalization, `-1` uses the whole control, `0` uses the available fallback
+  context, and a positive value uses a local ring around the target mask.
+- `fusion_restore_anomaly_bg_relation`, `fusion_relation_mode`,
+  `fusion_relation_norm_classes_separately` and
+  `fusion_relation_min_context_size`, which control whether the original
+  anomaly/context relation is restored and how multiclass context is estimated.
+- `fusion_keep_bg`, `fusion_bg_value`, `fusion_relative_bg_threshold` and
+  `fusion_bg_exterior_only`, which can preserve detected control-background
+  pixels unchanged.
+
+Local normalization uses robust median/IQR context statistics. Relation mode
+`delta` preserves the original median difference; `ratio` preserves the median
+ratio and is intended for strictly positive intensities away from zero. If a
+local or class-specific ring contains too few values, the backend falls back to
+available target-mask-outside context; if that is still insufficient, the scope
+is left unnormalized.
 
 ### Synthetic variants
 
@@ -307,6 +392,20 @@ Original → Hybrid → Placement → Synthetic → Real join. The CSV output co
 all relevant IDs, so multiple variants cannot overwrite or masquerade as one
 pair.
 
+`evaluate_study(config)` compares each explicit real/synthetic cutout pair using
+GLCM contrast, homogeneity, energy and correlation, plus mask volume and center
+of mass. GLCMs quantize each channel to 32 levels and aggregate immediate-neighbor
+pairs over four 2D or thirteen 3D directions. When placement ROI artifacts are
+available, the same GLCM features are also compared between the original real
+ROI and the fused placement ROI.
+
+For every metric the evaluator records the absolute pair difference. Outliers
+default to the `1.5 * IQR` rule and can be overridden per metric with
+`config.evaluation.outlier_thresholds`. Each run replaces
+`evaluation_results/metric_diffs.csv`, writes up to three histogram images
+(cutout texture, cutout morphology and placement-ROI texture), prints real and
+synthetic means, and summarizes outlier overlaps.
+
 `run_hybrid_visualizer(config)` opens a repository-backed study browser with
 six views: study overview, datasource originals, real/synthetic anomaly variants,
 hybrid samples and their placements, metric-based evaluation, and the complete
@@ -346,3 +445,37 @@ The integration tests cover the one-time mixed dataset ingest, multiple real
 components, multiple synthetic and hybrid variants, normalized multi-placement
 records, unique artifacts, foreign-key traversal, 2D/3D coordinates,
 materialization, FK-based evaluation and cached full-image `local` matching.
+
+## Project structure
+
+- `synthesizer/HybridDataGenerator.py` — pipeline orchestration and persisted
+  phase transitions
+- `synthesizer/Configuration.py` and `synthesizer/configuration/` — validated,
+  section-based configuration
+- `synthesizer/StudyRepository.py` and `synthesizer/ArtifactStore.py` — normalized
+  metadata and NumPy artifact persistence
+- `synthesizer/functions_2D/` and `synthesizer/functions_3D/` — anomaly extraction
+- `synthesizer/Matching.py` — cached matching and hybrid planning
+- `generation_models/` — registered VAE, conditional VAE and diffusion backends
+- `fusion_backend/` — classical and trainable fusion backends
+- `synthesizer/Evaluation.py` — pairwise metrics, outliers and reports
+- `data_handler/visualizer/` — repository-backed study browser and maintenance UI
+- `use_cases/` — 2D image, 3D NIfTI and MVTec AD 2 examples
+
+## Cite this work
+
+```bibtex
+@INPROCEEDINGS{11159383,
+  author={Pfleiderer, Adrian and Bauer, Bernhard},
+  booktitle={2025 International Conference on Advanced Machine Learning and Data Science (AMLDS)},
+  title={Fused Hybrid Training Samples through Synthetic Anomaly Generation for Optimized Model Training},
+  year={2025},
+  pages={248-256},
+  doi={10.1109/AMLDS63918.2025.11159383}
+}
+```
+
+## License
+
+This project is licensed under the GNU General Public License v3.0. See
+`LICENSE` for the complete terms.

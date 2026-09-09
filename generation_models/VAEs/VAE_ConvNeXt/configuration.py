@@ -19,7 +19,6 @@ def get_convnext_vae_3d_configuration(in_channels):
     base = {
         "z_channels": 128,
         "bottleneck_dim": 256,
-        "use_multires_skips": True,
         "recon_weight": 1.0,
         "beta_kl": 4.0,
         "beta_kl_start": 0.0,
@@ -58,7 +57,6 @@ def get_convnext_vae_2d_configuration(in_channels):
         "n_levels": 4,
         "z_channels": 32,
         "bottleneck_dim": 64,
-        "use_multires_skips": False,
         "recon_loss": "smoothl1",
         "recon_weight": 10.0,
         "drop_path_rate": 0.001,
