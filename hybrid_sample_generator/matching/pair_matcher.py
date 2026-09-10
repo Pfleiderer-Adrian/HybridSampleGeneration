@@ -13,7 +13,8 @@ from hybrid_sample_generator.matching.template_matching import (
     template_matching_prepared,
 )
 from hybrid_sample_generator.persistence.artifact_store import ArtifactStore
-from hybrid_sample_generator.persistence.study_repository import StudyRepository, stable_id
+from hybrid_sample_generator.persistence.identifiers import stable_id
+from hybrid_sample_generator.persistence.study_repository import StudyRepository
 
 MATCHER_ALGORITHM_VERSION = 1
 

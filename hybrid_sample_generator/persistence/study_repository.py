@@ -7,8 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from hybrid_sample_generator.persistence.identifiers import stable_id, stable_seed
-from hybrid_sample_generator.persistence.schema import SCHEMA_VERSION, StudySchemaMixin
+from hybrid_sample_generator.persistence.schema import StudySchemaMixin
 from hybrid_sample_generator.persistence.study_reader import StudyReaderMixin
 from hybrid_sample_generator.persistence.study_writer import StudyWriterMixin
 
@@ -36,4 +35,4 @@ class StudyRepository(StudySchemaMixin, StudyWriterMixin, StudyReaderMixin):
             connection.close()
 
 
-__all__ = ["SCHEMA_VERSION", "StudyRepository", "stable_id", "stable_seed"]
+__all__ = ["StudyRepository"]

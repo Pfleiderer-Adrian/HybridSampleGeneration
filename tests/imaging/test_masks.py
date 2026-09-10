@@ -10,13 +10,9 @@ from hybrid_sample_generator.imaging.masks.encoding import (
 from hybrid_sample_generator.imaging.masks.interpolation import (
     interpolate_masked_regions,
 )
-from hybrid_sample_generator.imaging.masks.operations import (
-    TransformGenerator as CompatibleTransformGenerator,
-)
 from hybrid_sample_generator.imaging.masks.target_generation import (
     target_mask_from_synthetic_anomaly,
 )
-from hybrid_sample_generator.imaging.masks.transforms import TransformGenerator
 
 
 class MaskEncodingTests(unittest.TestCase):
@@ -66,9 +62,6 @@ class TargetMaskTests(unittest.TestCase):
         )
 
         np.testing.assert_array_equal(result, np.array([[0, 0], [1, 1]], dtype=np.uint8))
-
-    def test_operations_module_remains_a_compatibility_facade(self):
-        self.assertIs(CompatibleTransformGenerator, TransformGenerator)
 
 
 if __name__ == "__main__":

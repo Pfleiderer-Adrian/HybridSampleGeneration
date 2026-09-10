@@ -1,7 +1,8 @@
 from dataclasses import asdict
 
 from hybrid_sample_generator.generation.model_settings import ModelHyperparameterSpace
-from hybrid_sample_generator.generation.vae.conditional_convnext import cVAE_ConvNeXt_2D, cVAE_ConvNeXt_3D
+from hybrid_sample_generator.generation.vae.conditional_convnext.model_2d import Config as ConvNeXtcVAE2DConfig
+from hybrid_sample_generator.generation.vae.conditional_convnext.model_3d import Config as ConvNeXtcVAE3DConfig
 
 
 CONDITIONAL_VAE_INPUT_ARTEFACTS = ("img", "fname", "ori_mask")
@@ -35,7 +36,7 @@ def get_convnext_cvae_3d_configuration(in_channels):
         "use_transpose_conv": False,
     }
     return _build_model_hyperparameter_space(
-        cVAE_ConvNeXt_3D.Config,
+        ConvNeXtcVAE3DConfig,
         in_channels,
         {
             **base,
@@ -79,7 +80,7 @@ def get_convnext_cvae_2d_configuration(in_channels):
         "fg_threshold": 0.0,
     }
     return _build_model_hyperparameter_space(
-        cVAE_ConvNeXt_2D.Config,
+        ConvNeXtcVAE2DConfig,
         in_channels,
         base,
         base,

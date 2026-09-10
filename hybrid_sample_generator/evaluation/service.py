@@ -9,11 +9,9 @@ import pandas as pd
 
 from hybrid_sample_generator.configuration.evaluation import EvaluationConfiguration
 from hybrid_sample_generator.evaluation.metrics import (
-    compute_glcm,
     get_glcm_feature_diffs,
     get_glcm_roi_feature_diffs,
     get_volume_feature_diffs,
-    glcm_features,
     relative_foreground_mask,
 )
 from hybrid_sample_generator.evaluation.outliers import find_outliers
@@ -151,7 +149,7 @@ def _scalar(value):
 
 
 __all__ = [
-    "EvaluationPair", "compute_glcm", "evaluate_study", "evaluation_pipeline",
+    "EvaluationPair", "evaluate_study", "evaluation_pipeline",
     "get_glcm_feature_diffs", "get_glcm_roi_feature_diffs",
-    "get_volume_feature_diffs", "glcm_features", "run_feature_calculator",
+    "get_volume_feature_diffs", "run_feature_calculator",
 ]

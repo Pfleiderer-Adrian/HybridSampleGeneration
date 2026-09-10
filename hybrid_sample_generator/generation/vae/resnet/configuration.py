@@ -1,7 +1,8 @@
 from dataclasses import asdict
 
 from hybrid_sample_generator.generation.model_settings import ModelHyperparameterSpace
-from hybrid_sample_generator.generation.vae.resnet import VAE_ResNet_2D, VAE_ResNet_3D
+from hybrid_sample_generator.generation.vae.resnet.model_2d import Config as ResNetVAE2DConfig
+from hybrid_sample_generator.generation.vae.resnet.model_3d import Config as ResNetVAE3DConfig
 
 
 DEFAULT_VAE_INPUT_ARTEFACTS = ("img", "fname")
@@ -18,7 +19,7 @@ def _build_model_hyperparameter_space(config_cls, in_channels, min_params, max_p
 def get_resnet_vae_3d_configuration(in_channels):
     base = {}
     return _build_model_hyperparameter_space(
-        VAE_ResNet_3D.Config,
+        ResNetVAE3DConfig,
         in_channels,
         {
             **base,
@@ -55,7 +56,7 @@ def get_resnet_vae_3d_configuration(in_channels):
 def get_resnet_vae_2d_configuration(in_channels):
     base = {}
     return _build_model_hyperparameter_space(
-        VAE_ResNet_2D.Config,
+        ResNetVAE2DConfig,
         in_channels,
         {
             **base,

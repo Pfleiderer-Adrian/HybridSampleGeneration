@@ -26,9 +26,8 @@ from hybrid_sample_generator import (
 )
 ```
 
-The former `synthesizer` and `data_handler.Visualizer` entry points remain as
-small compatibility facades. They contain no production implementation and can
-be removed in a later breaking release.
+Import production APIs exclusively from `hybrid_sample_generator`; no legacy
+package roots are retained.
 
 Tests mirror feature boundaries below `tests/`. MVTec AD 2 is an example
 integration below `examples/mvtec_ad2/`, not a dependency of the core package.

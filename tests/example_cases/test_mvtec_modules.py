@@ -5,23 +5,13 @@ from unittest.mock import patch
 
 import numpy as np
 
-from examples.mvtec_ad2 import pipeline
 from examples.mvtec_ad2.dataloader import MVTecAD2Dataloader
 from examples.mvtec_ad2.discovery import discover_mvtecad2_categories
 from examples.mvtec_ad2.records import MVTecAD2Sample
-from examples.mvtec_ad2.runner import (
-    _segmentation_for_png,
-    prepare_mvtecad2_usecases,
-)
-from examples.mvtec_ad2.steps import _default_generation_steps
+from examples.mvtec_ad2.runner import _segmentation_for_png
 
 
 class MVTecModuleBoundaryTests(unittest.TestCase):
-    def test_pipeline_facade_reexports_split_implementations(self):
-        self.assertIs(pipeline.MVTecAD2Dataloader, MVTecAD2Dataloader)
-        self.assertIs(pipeline.prepare_mvtecad2_usecases, prepare_mvtecad2_usecases)
-        self.assertIs(pipeline._default_generation_steps, _default_generation_steps)
-
     def test_category_discovery_requires_expected_dataset_splits(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

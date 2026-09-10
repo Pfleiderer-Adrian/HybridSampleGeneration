@@ -18,7 +18,7 @@ Shapes:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, Iterable, Union, List
+from typing import Optional, Tuple, Dict, Union, List
 import math
 import numpy as np
 
@@ -30,14 +30,8 @@ from hybrid_sample_generator.imaging.masks.encoding import to_one_hot_2D
 from hybrid_sample_generator.imaging.masks.transforms import TransformGenerator
 
 
-from hybrid_sample_generator.generation.vae.convnext.layers_2d import (
-    ConvNeXtBlock2D,
-    ConvNeXtUNetEncoder2D,
-    DropPath,
-    _best_gn_groups,
-    _upsample_block2d,
-)
-from .spade_2d import SPADE2D, ConvNeXtSPADEBlock2D, ConvNeXtSPADEUNetDecoder2D
+from hybrid_sample_generator.generation.vae.convnext.layers_2d import ConvNeXtUNetEncoder2D
+from .spade_2d import ConvNeXtSPADEUNetDecoder2D
 
 # -------------------------
 # VAE 2D conditional

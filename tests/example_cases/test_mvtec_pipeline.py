@@ -1,6 +1,6 @@
 import unittest
 
-from examples.mvtec_ad2.pipeline import _default_generation_steps
+from examples.mvtec_ad2.steps import _default_generation_steps
 
 
 class MVTecPipelineStepTests(unittest.TestCase):

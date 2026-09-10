@@ -12,7 +12,7 @@ Features:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, Iterable, Union, List
+from typing import Optional, Tuple, Dict, Union, List
 import math
 import numpy as np
 
@@ -25,14 +25,8 @@ from hybrid_sample_generator.imaging.masks.encoding import to_one_hot_3D
 from hybrid_sample_generator.imaging.masks.transforms import TransformGenerator
 
 
-from hybrid_sample_generator.generation.vae.convnext.layers_3d import (
-    ConvNeXtBlock3D,
-    ConvNeXtUNetEncoder3D,
-    DropPath,
-    _best_gn_groups,
-    _upsample_block3d,
-)
-from .spade_3d import SPADE3D, ConvNeXtSPADEBlock3D, ConvNeXtSPADEUNetDecoder3D
+from hybrid_sample_generator.generation.vae.convnext.layers_3d import ConvNeXtUNetEncoder3D
+from .spade_3d import ConvNeXtSPADEUNetDecoder3D
 
 # -------------------------
 # VAE 3D

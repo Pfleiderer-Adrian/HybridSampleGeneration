@@ -10,7 +10,7 @@ from hybrid_sample_generator.generation.vae.base import HybridVAEBase
 from hybrid_sample_generator.imaging.masks.transforms import TransformGenerator
 
 
-from .layers_2d import ResidualBlock2D, ResNetDecoder2D, ResNetEncoder2D
+from .layers_2d import ResNetDecoder2D, ResNetEncoder2D
 
 # -------------------------
 # VAE 2D

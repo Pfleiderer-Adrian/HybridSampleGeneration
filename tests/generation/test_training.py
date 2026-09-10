@@ -12,8 +12,6 @@ from hybrid_sample_generator.generation.training.metrics import (
     metric_value,
 )
 from hybrid_sample_generator.generation.training.optuna import sample_model_params
-from hybrid_sample_generator.generation.training.service import train as compatible_train
-from hybrid_sample_generator.generation.training.loop import train
 
 
 class _Trial:
@@ -50,9 +48,6 @@ class TrainingModuleTests(unittest.TestCase):
             {"min": {"depth": 2}, "max": {"depth": 2}},
         )
         self.assertEqual(params, {"depth": 2})
-
-    def test_service_is_only_a_compatibility_facade(self):
-        self.assertIs(compatible_train, train)
 
 
 if __name__ == "__main__":

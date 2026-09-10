@@ -5,6 +5,7 @@ import torch
 from hybrid_sample_generator.generation.registry import MODEL_REGISTRY
 from hybrid_sample_generator.generation.vae.conditional_convnext import model_2d as conditional_2d
 from hybrid_sample_generator.generation.vae.conditional_convnext import model_3d as conditional_3d
+from hybrid_sample_generator.generation.vae.conditional_convnext import spade_2d, spade_3d
 from hybrid_sample_generator.generation.vae.convnext import layers_2d as convnext_layers_2d
 from hybrid_sample_generator.generation.vae.convnext import layers_3d as convnext_layers_3d
 
@@ -119,9 +120,9 @@ class ModelCompatibilityTests(unittest.TestCase):
                 self.assertEqual(list(restored.state_dict()), list(model.state_dict()))
 
     def test_conditional_models_reuse_base_convnext_layers(self):
-        self.assertIs(conditional_2d.ConvNeXtBlock2D, convnext_layers_2d.ConvNeXtBlock2D)
+        self.assertIs(spade_2d.ConvNeXtBlock2D, convnext_layers_2d.ConvNeXtBlock2D)
         self.assertIs(conditional_2d.ConvNeXtUNetEncoder2D, convnext_layers_2d.ConvNeXtUNetEncoder2D)
-        self.assertIs(conditional_3d.ConvNeXtBlock3D, convnext_layers_3d.ConvNeXtBlock3D)
+        self.assertIs(spade_3d.ConvNeXtBlock3D, convnext_layers_3d.ConvNeXtBlock3D)
         self.assertIs(conditional_3d.ConvNeXtUNetEncoder3D, convnext_layers_3d.ConvNeXtUNetEncoder3D)
 
 

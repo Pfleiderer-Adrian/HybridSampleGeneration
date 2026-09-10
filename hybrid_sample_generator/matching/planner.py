@@ -12,7 +12,8 @@ from hybrid_sample_generator.domain.records import (
     Placement,
     RealAnomaly,
 )
-from hybrid_sample_generator.persistence.study_repository import StudyRepository, stable_id, stable_seed
+from hybrid_sample_generator.persistence.identifiers import stable_id, stable_seed
+from hybrid_sample_generator.persistence.study_repository import StudyRepository
 from hybrid_sample_generator.configuration.matching import MatchingConfiguration
 from hybrid_sample_generator.matching.template_matching import (
     PreparedArray as _PreparedArray,

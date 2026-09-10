@@ -16,7 +16,7 @@ class StepOutput:
 
 @runtime_checkable
 class TrainableModule(Protocol):
-    """Capability interface consumed by hybrid_sample_generator.generation.training.service."""
+    """Capability interface consumed by hybrid_sample_generator.generation.training.loop."""
 
     def warmup(self, shape, device=None, dtype=None, config=None):
         ...

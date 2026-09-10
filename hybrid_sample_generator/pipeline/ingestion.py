@@ -9,7 +9,8 @@ from tqdm import tqdm
 from hybrid_sample_generator.persistence.artifact_store import ArtifactStore
 from hybrid_sample_generator.domain.input_sample import iter_input_samples
 from hybrid_sample_generator.domain.records import OriginalSample
-from hybrid_sample_generator.persistence.study_repository import StudyRepository, stable_id
+from hybrid_sample_generator.persistence.identifiers import stable_id
+from hybrid_sample_generator.persistence.study_repository import StudyRepository
 
 
 @dataclass(frozen=True)

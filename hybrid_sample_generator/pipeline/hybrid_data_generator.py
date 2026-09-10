@@ -27,7 +27,8 @@ from hybrid_sample_generator.matching.planner import (
     plan_hybrid_samples as build_hybrid_plan,
 )
 from hybrid_sample_generator.domain.records import HybridSample, RealAnomaly, SyntheticAnomaly
-from hybrid_sample_generator.persistence.study_repository import StudyRepository, stable_id, stable_seed
+from hybrid_sample_generator.persistence.identifiers import stable_id, stable_seed
+from hybrid_sample_generator.persistence.study_repository import StudyRepository
 from hybrid_sample_generator.generation.training.optuna import optimize
 from hybrid_sample_generator.extraction.extraction_2d import crop_and_center_anomaly_2d
 from hybrid_sample_generator.extraction.extraction_3d import crop_and_center_anomaly_3d

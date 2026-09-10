@@ -9,8 +9,6 @@ from hybrid_sample_generator.evaluation.metrics import (
     relative_foreground_mask,
 )
 from hybrid_sample_generator.evaluation.outliers import find_outliers
-from hybrid_sample_generator.evaluation.pairs import EvaluationPair
-from hybrid_sample_generator.evaluation.service import EvaluationPair as CompatiblePair
 
 
 class EvaluationMetricTests(unittest.TestCase):
@@ -36,9 +34,6 @@ class EvaluationMetricTests(unittest.TestCase):
             find_outliers([0.5, 2.0], entries, config, "Contrast"),
             [{"value": 2.0, "sample": "b"}],
         )
-
-    def test_service_reexports_evaluation_pair_for_compatibility(self):
-        self.assertIs(CompatiblePair, EvaluationPair)
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ from hybrid_sample_generator.generation.vae.base import HybridVAEBase
 from hybrid_sample_generator.imaging.masks.transforms import TransformGenerator
 
 
-from .layers_3d import ResidualBlock3D, ResNetDecoder3D, ResNetEncoder3D
+from .layers_3d import ResNetDecoder3D, ResNetEncoder3D
 
 # -------------------------
 # VAE 3D
