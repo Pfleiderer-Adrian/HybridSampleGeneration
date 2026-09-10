@@ -1,267 +1,15 @@
+"""Two-dimensional anomaly extraction."""
+
 import numpy as np
-from scipy.ndimage import zoom, label, find_objects
+from scipy.ndimage import find_objects, label
 
-from hybrid_sample_generator.imaging.masks.interpolation import interpolate_masked_regions
 from hybrid_sample_generator.configuration.extraction import ExtractionConfiguration
-
-
-def _as_axis_tuple(value, ndim, name):
-    if np.isscalar(value):
-        return (value,) * ndim
-
-    values = tuple(value)
-    if len(values) < ndim:
-        raise ValueError(f"{name} must have at least len {ndim}. Got {value!r}")
-    return values[:ndim]
-
-
-def dynamic_roi_size(spatial_shape, min_roi_padding, roi_padding_ratio, min_roi_size):
-    spatial_shape = tuple(int(size) for size in spatial_shape)
-    min_roi_padding = _as_axis_tuple(min_roi_padding, len(spatial_shape), "min_roi_padding")
-    roi_padding_ratio = _as_axis_tuple(roi_padding_ratio, len(spatial_shape), "roi_padding_ratio")
-    min_roi_size = _as_axis_tuple(min_roi_size, len(spatial_shape), "min_roi_size")
-
-    return [
-        max(int(size + max(axis_min_roi_padding, size * axis_roi_padding_ratio)), int(axis_min_roi))
-        for size, axis_min_roi_padding, axis_roi_padding_ratio, axis_min_roi
-        in zip(spatial_shape, min_roi_padding, roi_padding_ratio, min_roi_size)
-    ]
-
-
-def resize_and_pad_2d(arr, target_size, order=1, foreground_mask=None):
-    """
-    Resize (downscale only) and center-pad a 3D tensor (C, H, W) to a target spatial size.
-
-    Behavior:
-    - Only *downscales* if an input spatial dimension exceeds the target (scale factor < 1).
-    - Never upscales (scale factors are capped at 1.0).
-    - Pads with the minimum value of `arr` to keep background consistent.
-    - Pads symmetrically so the anomaly stays centered in the saved cutout.
-    - Returns the padded array cropped to exactly (C, tH, tW).
-
-    Inputs
-    ------
-    arr:
-        np.ndarray with shape (C, H, W).
-    target_size:
-        Target spatial size (tH, tW).
-    order:
-        Interpolation order for scipy.ndimage.zoom (1=linear).
-    foreground_mask:
-        Optional spatial boolean mask used to avoid foreground/background mixing.
-    Outputs
-    -------
-    arr_padded:
-        np.ndarray
-        Array of shape (C, tH, tW).
-    scale_factor:
-        tuple[float, float]
-        Per-axis scale factor used for (H, W). Values are in (0, 1] due to "no upscaling".
-
-    Raises
-    ------
-    ValueError:
-        If arr.ndim != 3.
-    """
-    if arr.ndim != 3:
-        raise ValueError(f"resize_and_pad_2d expects 3D (C,h,w). Got {arr.shape}")
-    if foreground_mask is not None:
-        foreground_mask = np.asarray(foreground_mask, dtype=bool)
-        if foreground_mask.shape != arr.shape[1:]:
-            raise ValueError(
-                f"foreground_mask shape {foreground_mask.shape} does not match "
-                f"array spatial shape {arr.shape[1:]}."
-            )
-
-    C, h, w = arr.shape
-    tH, tW = target_size
-
-    scale_spatial = [min(t / s, 1.0) for s, t in zip((h, w), (tH, tW))]
-
-    if any(sf < 1.0 for sf in scale_spatial):
-        if order == 0 or foreground_mask is None:
-            arr = zoom(arr, (1.0, *scale_spatial), order=order)
-        else:
-            arr = interpolate_masked_regions(
-                arr, foreground_mask,
-                warp=lambda spatial: zoom(spatial, scale_spatial, order=order),
-                nearest_warp=lambda spatial: zoom(spatial, scale_spatial, order=0),
-            )
-
-    _, h2, w2 = arr.shape
-    pad_total_h = max(tH - h2, 0)
-    pad_total_w = max(tW - w2, 0)
-
-    pad_h0 = pad_total_h // 2
-    pad_w0 = pad_total_w // 2
-
-    pad_h = (pad_h0, pad_total_h - pad_h0)
-    pad_w = (pad_w0, pad_total_w - pad_w0)
-
-    pad_widths = ((0, 0), pad_h, pad_w)
-
-    fill = float(np.min(arr))
-    arr_padded = np.pad(arr, pad_widths, mode="constant", constant_values=fill)
-    arr_padded = arr_padded[:, :tH, :tW]
-
-    return arr_padded, tuple(scale_spatial)
-
-
-def _normalize_anomaly(arr, normalization, eps):
-    """
-    Normalize a cutout for training and return normalization metadata.
-
-    Supported normalization:
-      - "zscore": (x - mean) / std
-      - "zscore_median": (x - median) / mad
-    """
-    if normalization is None or str(normalization).lower() in ("none", "null"):
-        return arr, {"norm_type": None}
-
-    norm = str(normalization).lower()
-    if norm in ("zscore", "z-score", "z_score"):
-        mean = float(np.mean(arr))
-        std = float(np.std(arr))
-        if std < eps:
-            std = eps
-        return (arr - mean) / std, {"norm_type": "zscore", "norm_mean": mean, "norm_std": std}
-
-    if norm in ("zscore_median", "z-score-median", "zscore-median"):
-        median = float(np.median(arr))
-        mad = float(np.median(np.abs(arr - median)))
-        if mad < eps:
-            mad = eps
-        return (arr - median) / mad, {"norm_type": "zscore_median", "norm_median": median, "norm_mad": mad}
-
-    raise ValueError(f"Unknown normalization: {normalization!r}")
-
-
-def crop_square_clip(arr, centroid, size, centroid_is_normalized=None):
-    """
-    Crop a square/rect subregion from a 3D (C, H, W) array, clipping to image bounds.
-
-    Inputs
-    ------
-    arr:
-        np.ndarray with shape (C, H, W).
-    centroid:
-        Center location of the crop. Accepted formats:
-          - length 2: (h, w)
-          - length 3: (c, h, w)  -> channel index ignored
-        Values may be:
-          - pixel coordinates (ints/floats)
-          - or normalized coordinates in [0,1] (if centroid_is_normalized=True or auto-detected)
-    size:
-        Requested crop size. Accepted formats:
-          - (H, W)
-          - (C, H, W) -> last 2 are used
-    centroid_is_normalized:
-        If None, auto-detect: if 0<=h<=~1 and 0<=w<=~1, centroid is interpreted as normalized.
-
-    Returns
-    -------
-    np.ndarray:
-        Cropped view of shape (C, h', w') where h'<=H and w'<=W.
-
-    Raises
-    ------
-    ValueError:
-        If arr.ndim != 3.
-    """
-    if arr.ndim != 3:
-        raise ValueError(f"crop_square_clip expects 3D (C,H,W). Got {arr.shape}")
-
-    C, H, W = arr.shape
-
-    centroid = tuple(centroid)
-    if len(centroid) == 2:
-        ch, cw = centroid
-    elif len(centroid) == 3:
-        ch, cw = centroid[1], centroid[2]
-    else:
-        raise ValueError(f"centroid must be length 2 or 3. Got {centroid}")
-
-    size = tuple(size)
-    sh, sw = size[-2], size[-1]
-
-    if centroid_is_normalized is None:
-        # allow a small margin above 1.0 to avoid false negatives due to rounding
-        centroid_is_normalized = (0.0 <= ch <= 1.2) and (0.0 <= cw <= 1.2)
-
-    if centroid_is_normalized:
-        ch = ch * H
-        cw = cw * W
-
-    ch, cw = int(round(ch)), int(round(cw))
-    sh, sw = int(sh), int(sw)
-
-    h0 = ch - sh // 2
-    w0 = cw - sw // 2
-    h1 = h0 + sh
-    w1 = w0 + sw
-
-    # shift y axis
-    if h0 < 0:
-        h1 = h1 - h0
-        h0 = 0
-    elif h1 > H:
-        h0 = h0 - (h1 - H)
-        h1 = H
-
-    # shift x axis
-    if w0 < 0:
-        w1 = w1 - w0
-        w0 = 0
-    elif w1 > W:
-        w0 = w0 - (w1 - W)
-        w1 = W
-
-    h0c, w0c = max(h0, 0), max(w0, 0)
-    h1c, w1c = min(h1, H), min(w1, W)
-
-    return arr[:, h0c:h1c, w0c:w1c]
-
-
-def _spatial_target_size(target_size):
-    """
-    Normalize target_size to a pure spatial (H, W) tuple.
-
-    Inputs
-    ------
-    target_size:
-        Either:
-          - (H, W)
-          - (C, H, W)  -> last 2 are used
-
-    Outputs
-    -------
-    tuple[int, int]
-        Spatial target size (H, W).
-    """
-    if len(target_size) == 2:
-        return tuple(target_size)
-    if len(target_size) == 3:
-        return tuple(target_size[-2:])
-    raise ValueError(f"target_size must be (H,W) or (C,H,W). Got {target_size}")
-
-def add_background_noise_floor(img, sigma_rel=0.003, eps=1e-8):
-    """
-    sigma_rel: relative Stärke zum Dynamikbereich (0.1% - 1% ist typisch)
-    """
-    img = img.copy()
-    bg = img.min()
-
-    # Maske: überall wo wirklich Background ist (oder fast Background)
-    mask = np.isclose(img, bg, atol=eps)
-
-    # Dynamikbereich schätzen
-    dyn = img.max() - img.min()
-    sigma = sigma_rel * (dyn + 1e-12)
-
-    noise = np.random.normal(loc=0.0, scale=sigma, size=img.shape).astype(img.dtype)
-
-    img[mask] = bg + noise[mask]
-    return img
+from hybrid_sample_generator.extraction.normalization import (
+    add_background_noise_floor,
+    normalize_anomaly,
+)
+from hybrid_sample_generator.imaging.resampling import resize_and_pad_2d, spatial_target_size
+from hybrid_sample_generator.imaging.roi import crop_square_clip, dynamic_roi_size
 
 
 def crop_and_center_anomaly_2d(
@@ -322,7 +70,7 @@ def crop_and_center_anomaly_2d(
         Segmentation crops around anomaly centroid, shape (C, tH, tW).
     """
     config.validate()
-    target_size = _spatial_target_size(config.anomaly_size)
+    target_size = spatial_target_size(config.anomaly_size, 2)
 
     if seg is None or np.all(seg == 0):
         return None, None, None
@@ -392,7 +140,7 @@ def crop_and_center_anomaly_2d(
             order=1,
             foreground_mask=region_mask,
         )
-        padded_arr, norm_meta = _normalize_anomaly(
+        padded_arr, norm_meta = normalize_anomaly(
             padded_arr, normalization=config.normalization, eps=float(config.normalization_eps)
         )
         scale_factor = tuple(round(float(ele), 4) for ele in scale_factor)

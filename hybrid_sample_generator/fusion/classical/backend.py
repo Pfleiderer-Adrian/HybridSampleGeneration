@@ -16,8 +16,11 @@ from hybrid_sample_generator.fusion.classical.intensity import (
     normalize_anomaly_to_context as _normalize_anomaly_to_context,
 )
 from hybrid_sample_generator.fusion.interfaces import FusionOutput, control_background_mask, keep_control_background_after_fusion
-from hybrid_sample_generator.extraction.extraction_2d import crop_square_clip, dynamic_roi_size as dynamic_roi_size_2d
-from hybrid_sample_generator.extraction.extraction_3d import crop_cube_clip, dynamic_roi_size as dynamic_roi_size_3d
+from hybrid_sample_generator.imaging.roi import (
+    crop_cube_clip,
+    crop_square_clip,
+    dynamic_roi_size,
+)
 from hybrid_sample_generator.imaging.masks.interpolation import interpolate_masked_regions
 from hybrid_sample_generator.fusion.preprocessing import (
     denormalize_anomaly as _denormalize_anomaly,
@@ -104,7 +107,7 @@ class ClassicalFusionBackend:
                 extraction_config,
                 spatial_ndim=2,
                 crop_roi=crop_square_clip,
-                dynamic_roi_size=dynamic_roi_size_2d,
+                dynamic_roi_size=dynamic_roi_size,
                 alpha_builder=_get_alpha_mask_2d,
                 anomaly_roi=anomaly_roi,
                 anomaly_roi_mask=anomaly_roi_mask,
@@ -119,7 +122,7 @@ class ClassicalFusionBackend:
                 extraction_config,
                 spatial_ndim=3,
                 crop_roi=crop_cube_clip,
-                dynamic_roi_size=dynamic_roi_size_3d,
+                dynamic_roi_size=dynamic_roi_size,
                 alpha_builder=_get_alpha_mask_3d,
                 anomaly_roi=anomaly_roi,
                 anomaly_roi_mask=anomaly_roi_mask,

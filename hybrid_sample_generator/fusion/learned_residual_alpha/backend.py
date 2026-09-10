@@ -30,8 +30,11 @@ from hybrid_sample_generator.fusion.learned_residual_alpha.preprocessing import 
     unpack_sample as _unpack_sample,
 )
 from hybrid_sample_generator.fusion.learned_residual_alpha.training import train_backend
-from hybrid_sample_generator.extraction.extraction_2d import crop_square_clip, dynamic_roi_size as dynamic_roi_size_2d
-from hybrid_sample_generator.extraction.extraction_3d import crop_cube_clip, dynamic_roi_size as dynamic_roi_size_3d
+from hybrid_sample_generator.imaging.roi import (
+    crop_cube_clip,
+    crop_square_clip,
+    dynamic_roi_size,
+)
 
 
 class LearnedResidualAlphaFusionBackend:
@@ -240,7 +243,7 @@ class LearnedResidualAlphaFusionBackend:
         roi_config = extraction_config.roi
         if roi_config.fixed_size is None:
             if spatial_dims == 2:
-                roi_size = dynamic_roi_size_2d(
+                roi_size = dynamic_roi_size(
                     crop_shape,
                     roi_config.min_padding,
                     roi_config.padding_ratio,
@@ -248,7 +251,7 @@ class LearnedResidualAlphaFusionBackend:
                 )
                 crop_roi = crop_square_clip
             else:
-                roi_size = dynamic_roi_size_3d(
+                roi_size = dynamic_roi_size(
                     crop_shape,
                     roi_config.min_padding,
                     roi_config.padding_ratio,
