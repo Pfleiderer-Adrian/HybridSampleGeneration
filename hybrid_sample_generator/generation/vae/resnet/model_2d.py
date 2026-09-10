@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 
 from hybrid_sample_generator.generation.vae.base import HybridVAEBase
-from hybrid_sample_generator.imaging.masks.transforms import TransformGenerator
+from hybrid_sample_generator.imaging.masks.transform_generator import TransformGenerator
 
 
 from .layers_2d import ResNetDecoder2D, ResNetEncoder2D

@@ -32,7 +32,7 @@ from hybrid_sample_generator.persistence.study_repository import StudyRepository
 from hybrid_sample_generator.generation.training.optuna import optimize
 from hybrid_sample_generator.extraction.extraction_2d import crop_and_center_anomaly_2d
 from hybrid_sample_generator.extraction.extraction_3d import crop_and_center_anomaly_3d
-from hybrid_sample_generator.imaging.masks.transforms import TransformGenerator
+from hybrid_sample_generator.imaging.masks.transform_generator import TransformGenerator
 
 
 class HybridDataGenerator:

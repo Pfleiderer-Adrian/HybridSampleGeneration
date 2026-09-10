@@ -10,7 +10,7 @@ from PIL import Image
 from torch import nn
 
 from hybrid_sample_generator.generation.interfaces import StepOutput
-from hybrid_sample_generator.imaging.masks.transforms import TransformGenerator
+from hybrid_sample_generator.imaging.masks.transform_generator import TransformGenerator
 
 
 @dataclass

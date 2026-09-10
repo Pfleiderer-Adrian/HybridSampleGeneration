@@ -6,7 +6,7 @@ from pathlib import Path
 from hybrid_sample_generator.configuration.root import Configuration, load_config_file
 from hybrid_sample_generator.configuration.augmentation import MaskTransformConfiguration
 from hybrid_sample_generator.configuration.matching import MatchingConfiguration
-from hybrid_sample_generator.imaging.masks.transforms import TransformGenerator
+from hybrid_sample_generator.imaging.masks.transform_generator import TransformGenerator
 
 
 class ConfigurationTests(unittest.TestCase):

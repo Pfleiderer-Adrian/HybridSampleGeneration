@@ -27,7 +27,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from hybrid_sample_generator.generation.vae.base import HybridVAEBase
 from hybrid_sample_generator.imaging.masks.encoding import to_one_hot_2D
-from hybrid_sample_generator.imaging.masks.transforms import TransformGenerator
+from hybrid_sample_generator.imaging.masks.transform_generator import TransformGenerator
 
 
 from hybrid_sample_generator.generation.vae.convnext.layers_2d import ConvNeXtUNetEncoder2D
