@@ -1,14 +1,14 @@
 """Repository-backed study browser components."""
 
-from data_handler.visualizer.queries import (
+from hybrid_sample_generator.visualization.queries import (
     AnomalyContext,
     EvaluationGroup,
     HybridContext,
     PlacementContext,
     StudyBrowserModel,
 )
-from data_handler.visualizer.maintenance import RemovalImpact, StudyMaintenance
-from data_handler.visualizer.rendering import (
+from hybrid_sample_generator.visualization.maintenance import RemovalImpact, StudyMaintenance
+from hybrid_sample_generator.visualization.rendering import (
     ArrayCache,
     DisplayPlane,
     Marker,
@@ -17,7 +17,7 @@ from data_handler.visualizer.rendering import (
     display_plane,
     normalize_for_display,
 )
-from data_handler.visualizer.state import SelectionController, SelectionState
+from hybrid_sample_generator.visualization.state import SelectionController, SelectionState
 
 __all__ = [
     "AnomalyContext",

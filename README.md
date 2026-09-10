@@ -72,7 +72,7 @@ For unambiguous source identity and provenance, yield `InputSample` records or
 implement `iter_input_samples()`:
 
 ```python
-from synthesizer.InputSample import InputSample
+from hybrid_sample_generator.domain.input_sample import InputSample
 
 yield InputSample(
     image=image,
@@ -118,10 +118,10 @@ training but the orchestration and repository layers do not require one.
 ## Usage
 
 ```python
-from synthesizer.Configuration import Configuration
-from synthesizer.Evaluation import evaluate_study
-from synthesizer.HybridDataGenerator import HybridDataGenerator
-from data_handler.Visualizer import run_hybrid_visualizer
+from hybrid_sample_generator.configuration.root import Configuration
+from hybrid_sample_generator.evaluation.service import evaluate_study
+from hybrid_sample_generator.pipeline.hybrid_data_generator import HybridDataGenerator
+from hybrid_sample_generator.visualization import run_hybrid_visualizer
 
 config = Configuration(
     "study-01",
@@ -174,8 +174,8 @@ For a study with synthetic variants and a saved hybrid plan, continue directly
 with materialization:
 
 ```python
-from synthesizer.Configuration import load_config_file
-from synthesizer.HybridDataGenerator import HybridDataGenerator
+from hybrid_sample_generator.configuration.root import load_config_file
+from hybrid_sample_generator.pipeline.hybrid_data_generator import HybridDataGenerator
 
 config = load_config_file("results/study-01/configuration.json")
 generator = HybridDataGenerator(config)
@@ -423,7 +423,7 @@ constructing a generation orchestrator. The visualizer can also be started for
 an existing study folder:
 
 ```bash
-python -m data_handler.Visualizer /path/to/study --channel auto
+python -m hybrid_sample_generator.visualization /path/to/study --channel auto
 ```
 
 ## Tests
@@ -439,19 +439,20 @@ materialization, FK-based evaluation and cached full-image `local` matching.
 
 ## Project structure
 
-- `synthesizer/HybridDataGenerator.py` — pipeline orchestration and persisted
-  phase transitions
-- `synthesizer/Configuration.py` and `synthesizer/configuration/` — validated,
-  section-based configuration
-- `synthesizer/StudyRepository.py` and `synthesizer/ArtifactStore.py` — normalized
-  metadata and NumPy artifact persistence
-- `synthesizer/functions_2D/` and `synthesizer/functions_3D/` — anomaly extraction
-- `synthesizer/Matching.py` — cached matching and hybrid planning
-- `generation_models/` — registered VAE, conditional VAE and diffusion backends
-- `fusion_backend/` — classical and trainable fusion backends
-- `synthesizer/Evaluation.py` — pairwise metrics, outliers and reports
-- `data_handler/visualizer/` — repository-backed study browser and maintenance UI
-- `use_cases/` — 2D image, 3D NIfTI and MVTec AD 2 examples
+- `hybrid_sample_generator/configuration/` — validated, section-based configuration
+- `hybrid_sample_generator/domain/` — input and persisted study records
+- `hybrid_sample_generator/persistence/` — repository, study paths and artifacts
+- `hybrid_sample_generator/pipeline/` — ingestion and high-level orchestration
+- `hybrid_sample_generator/imaging/` — shared image, similarity and mask operations
+- `hybrid_sample_generator/extraction/` and `matching/` — anomaly extraction and
+  hybrid planning
+- `hybrid_sample_generator/generation/` — model registry, training, VAEs and diffusion
+- `hybrid_sample_generator/fusion/` — classical and trainable fusion backends
+- `hybrid_sample_generator/evaluation/` — pairwise metrics, outliers and reports
+- `hybrid_sample_generator/datasets/` — repository-backed training datasets
+- `hybrid_sample_generator/visualization/` — study browser and maintenance UI
+- `examples/` — 2D image, 3D NIfTI and MVTec AD 2 examples
+- `tests/` — tests grouped by the same feature boundaries
 
 ## Cite this work
 

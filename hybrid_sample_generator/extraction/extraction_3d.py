@@ -1,0 +1,465 @@
+import numpy as np
+from scipy.ndimage import zoom, label, find_objects
+
+from hybrid_sample_generator.imaging.masks.interpolation import interpolate_masked_regions
+from hybrid_sample_generator.configuration.extraction import ExtractionConfiguration
+
+
+def _as_axis_tuple(value, ndim, name):
+    if np.isscalar(value):
+        return (value,) * ndim
+
+    values = tuple(value)
+    if len(values) < ndim:
+        raise ValueError(f"{name} must have at least len {ndim}. Got {value!r}")
+    return values[:ndim]
+
+
+def dynamic_roi_size(spatial_shape, min_roi_padding, roi_padding_ratio, min_roi_size):
+    spatial_shape = tuple(int(size) for size in spatial_shape)
+    min_roi_padding = _as_axis_tuple(min_roi_padding, len(spatial_shape), "min_roi_padding")
+    roi_padding_ratio = _as_axis_tuple(roi_padding_ratio, len(spatial_shape), "roi_padding_ratio")
+    min_roi_size = _as_axis_tuple(min_roi_size, len(spatial_shape), "min_roi_size")
+
+    return [
+        max(int(size + max(axis_min_roi_padding, size * axis_roi_padding_ratio)), int(axis_min_roi))
+        for size, axis_min_roi_padding, axis_roi_padding_ratio, axis_min_roi
+        in zip(spatial_shape, min_roi_padding, roi_padding_ratio, min_roi_size)
+    ]
+
+def resize_and_pad_3d(arr, target_size, order=1, foreground_mask=None):
+    """
+    Resize (downscale only) and center-pad a 4D tensor (C, D, H, W) to a target spatial size.
+
+    Behavior:
+    - Only *downscales* if an input spatial dimension exceeds the target (scale factor < 1).
+    - Never upscales (scale factors are capped at 1.0).
+    - Pads with the minimum value of `arr` to keep background consistent.
+    - Pads symmetrically so the anomaly stays centered in the saved cutout.
+    - Returns the padded array cropped to exactly (C, tD, tH, tW).
+
+    Inputs
+    ------
+    arr:
+        np.ndarray with shape (C, D, H, W).
+    target_size:
+        Target spatial size (tD, tH, tW).
+    order:
+        Interpolation order for scipy.ndimage.zoom (1=linear).
+    foreground_mask:
+        Optional spatial boolean mask used to avoid foreground/background mixing.
+    Outputs
+    -------
+    arr_padded:
+        np.ndarray with shape (C, tD, tH, tW).
+    scale_spatial:
+        tuple[float, float, float]
+        Per-axis scale factor used for (D, H, W). Values are in (0, 1] due to "no upscaling".
+
+    Raises
+    ------
+    ValueError:
+        If arr.ndim != 4.
+    """
+    if arr.ndim != 4:
+        raise ValueError(f"resize_and_pad_4d expects 4D (C,d,h,w). Got {arr.shape}")
+    if foreground_mask is not None:
+        foreground_mask = np.asarray(foreground_mask, dtype=bool)
+        if foreground_mask.shape != arr.shape[1:]:
+            raise ValueError(
+                f"foreground_mask shape {foreground_mask.shape} does not match "
+                f"array spatial shape {arr.shape[1:]}."
+            )
+
+    C, d, h, w = arr.shape
+    tD, tH, tW = target_size
+
+    scale_spatial = [min(t / s, 1.0) for s, t in zip((d, h, w), (tD, tH, tW))]
+
+    if any(sf < 1.0 for sf in scale_spatial):
+        if order == 0 or foreground_mask is None:
+            arr = zoom(arr, (1.0, *scale_spatial), order=order)
+        else:
+            arr = interpolate_masked_regions(
+                arr, foreground_mask,
+                warp=lambda spatial: zoom(spatial, scale_spatial, order=order),
+                nearest_warp=lambda spatial: zoom(spatial, scale_spatial, order=0),
+            )
+
+    _, d2, h2, w2 = arr.shape
+    pad_total_d = max(tD - d2, 0)
+    pad_total_h = max(tH - h2, 0)
+    pad_total_w = max(tW - w2, 0)
+
+    pad_d0 = pad_total_d // 2
+    pad_h0 = pad_total_h // 2
+    pad_w0 = pad_total_w // 2
+
+    pad_d = (pad_d0, pad_total_d - pad_d0)
+    pad_h = (pad_h0, pad_total_h - pad_h0)
+    pad_w = (pad_w0, pad_total_w - pad_w0)
+
+    pad_widths = ((0, 0), pad_d, pad_h, pad_w)
+
+    fill = float(np.min(arr))
+    arr_padded = np.pad(arr, pad_widths, mode="constant", constant_values=fill)
+    arr_padded = arr_padded[:, :tD, :tH, :tW]
+
+    return arr_padded, tuple(scale_spatial)
+
+
+def _normalize_anomaly(arr, normalization, eps):
+    """
+    Normalize a cutout for training and return normalization metadata.
+
+    Supported normalization:
+      - "zscore": (x - mean) / std
+      - "zscore_median": (x - median) / mad
+    """
+    if normalization is None or str(normalization).lower() in ("none", "null"):
+        return arr, {"norm_type": None}
+
+    norm = str(normalization).lower()
+    if norm in ("zscore", "z-score", "z_score"):
+        mean = float(np.mean(arr))
+        std = float(np.std(arr))
+        if std < eps:
+            std = eps
+        return (arr - mean) / std, {"norm_type": "zscore", "norm_mean": mean, "norm_std": std}
+
+    if norm in ("zscore_median", "z-score-median", "zscore-median"):
+        median = float(np.median(arr))
+        mad = float(np.median(np.abs(arr - median)))
+        if mad < eps:
+            mad = eps
+        return (arr - median) / mad, {"norm_type": "zscore_median", "norm_median": median, "norm_mad": mad}
+
+    raise ValueError(f"Unknown normalization: {normalization!r}")
+
+
+def crop_cube_clip(arr, centroid, size, centroid_is_normalized=None):
+    """
+    Crop a cube-like subvolume from a 4D (C, D, H, W) array, clipping to image bounds.
+
+    Inputs
+    ------
+    arr:
+        np.ndarray with shape (C, D, H, W).
+    centroid:
+        Center location of the crop. Accepted formats:
+          - length 3: (d, h, w)
+          - length 4: (c, d, h, w)  -> channel index ignored
+        Values may be:
+          - voxel coordinates (ints/floats)
+          - or normalized coordinates in [0,1] (if centroid_is_normalized=True or auto-detected)
+    size:
+        Crop size. Accepted formats:
+          - (D, H, W)
+          - (C, D, H, W) (only the last 3 values are used)
+    centroid_is_normalized:
+        If True, centroid is interpreted as normalized and multiplied by (D,H,W).
+        If None, auto-detects normalized centroid if all components are in [0, ~1.2].
+
+    Outputs
+    -------
+    np.ndarray:
+        Cropped subvolume with shape (C, d', h', w') where d'/h'/w' may be smaller if crop hits boundaries.
+
+    Raises
+    ------
+    ValueError:
+        If arr.ndim != 4 or centroid length is not 3/4.
+    """
+    if arr.ndim != 4:
+        raise ValueError(f"crop_cube_clip expects 4D (C,D,H,W). Got {arr.shape}")
+
+    C, D, H, W = arr.shape
+
+    centroid = tuple(centroid)
+    if len(centroid) == 4:
+        cd, ch, cw = centroid[1], centroid[2], centroid[3]
+    elif len(centroid) == 3:
+        cd, ch, cw = centroid
+    else:
+        raise ValueError(f"centroid must be len 3 or 4, got {centroid}")
+
+    size = tuple(size)
+    sd, sh, sw = size[-3], size[-2], size[-1]
+
+    if centroid_is_normalized is None:
+        centroid_is_normalized = (0.0 <= cd <= 1.2) and (0.0 <= ch <= 1.2) and (0.0 <= cw <= 1.2)
+
+    if centroid_is_normalized:
+        cd = cd * D
+        ch = ch * H
+        cw = cw * W
+
+    cd, ch, cw = int(round(cd)), int(round(ch)), int(round(cw))
+    sd, sh, sw = int(sd), int(sh), int(sw)
+
+    d0 = cd - sd // 2
+    h0 = ch - sh // 2
+    w0 = cw - sw // 2
+
+    d1 = d0 + sd
+    h1 = h0 + sh
+    w1 = w0 + sw
+
+    # shift depth
+    if d0 < 0:
+        d1 = d1 - d0
+        d0 = 0
+    elif d1 > D:
+        d0 = d0 - (d1 - D)
+        d1 = D
+
+    # shift height
+    if h0 < 0:
+        h1 = h1 - h0
+        h0 = 0
+    elif h1 > H:
+        h0 = h0 - (h1 - H)
+        h1 = H
+
+    # shift width
+    if w0 < 0:
+        w1 = w1 - w0
+        w0 = 0
+    elif w1 > W:
+        w0 = w0 - (w1 - W)
+        w1 = W
+
+    d0c, h0c, w0c = max(d0, 0), max(h0, 0), max(w0, 0)
+    d1c, h1c, w1c = min(d1, D), min(h1, H), min(w1, W)
+
+    return arr[:, d0c:d1c, h0c:h1c, w0c:w1c]
+
+
+def _spatial_target_size(target_size):
+    """
+    Normalize target_size to a pure spatial (D, H, W) tuple.
+
+    Inputs
+    ------
+    target_size:
+        Either:
+          - (D, H, W)
+          - (C, D, H, W)  -> last 3 are used
+
+    Outputs
+    -------
+    tuple[int, int, int]
+        Spatial target size (D, H, W).
+
+    Raises
+    ------
+    ValueError:
+        If target_size is not length 3 or 4.
+    """
+    # accept (D,H,W) or (C,D,H,W)
+    if len(target_size) == 3:
+        return tuple(target_size)
+    if len(target_size) == 4:
+        return tuple(target_size[-3:])
+    raise ValueError(f"target_size must be (D,H,W) or (C,D,H,W), got {target_size}")
+
+def add_background_noise_floor(img, sigma_rel=0.003, eps=1e-8):
+    """
+    sigma_rel: relative Stärke zum Dynamikbereich (0.1% - 1% ist typisch)
+    """
+    img = img.copy()
+    bg = img.min()
+
+    # Maske: überall wo wirklich Background ist (oder fast Background)
+    mask = np.isclose(img, bg, atol=eps)
+
+    # Dynamikbereich schätzen
+    dyn = img.max() - img.min()
+    sigma = sigma_rel * (dyn + 1e-12)
+
+    noise = np.random.normal(loc=0.0, scale=sigma, size=img.shape).astype(img.dtype)
+
+    img[mask] = bg + noise[mask]
+    return img
+
+def crop_and_center_anomaly_3d(
+    img,
+    seg,
+    config: ExtractionConfiguration,
+):
+    """
+    Extract connected anomaly regions from a 3D segmentation mask and return:
+      - normalized-size anomaly cutouts (C, tD, tH, tW) via resize+pad
+      - ROI cutouts around the anomaly centroid (variable size)
+
+    Pipeline:
+      1) Collapse seg across channel axis -> binary 3D mask (D,H,W)
+      2) Connected-component labeling -> individual anomaly regions (if separated_anomaly=True in config)
+      3) For each region above min_region_voxels:
+         - crop the region from img
+         - compute centroid (center of mass)
+         - resize+pad the region crop to target_size
+         - compute ROI crop around centroid (region size + margin)
+         - store meta_data (label, scale_factor, centroid, original shape)
+
+    Inputs
+    ------
+    img:
+        np.ndarray with shape (C, D, H, W).
+    seg:
+        np.ndarray with shape (C, D, H, W).
+        Convention:
+          - 0 = background
+          - >0 = anomaly (any positive value is treated as anomaly)
+    config:
+        ExtractionConfiguration containing target size, normalization and ROI rules.
+    min_region_voxels:
+        Minimum voxel count for a connected component to be kept.
+        If <= 0, defaults to 5% of target volume (0.05 * tD * tH * tW).
+
+    Outputs
+    -------
+    anomalies:
+        list[tuple[np.ndarray, dict]]
+        Each item: (padded_arr, meta_data)
+          - padded_arr: np.ndarray of shape (C, tD, tH, tW)
+          - meta_data: dict with keys:
+              - "label": float, max label value in seg (rounded)
+              - "scale_factor": tuple[float,float,float], (D,H,W) resize factor
+              - "centroid_voxel": tuple[int,int,int], centroid in voxel coords (d,h,w)
+              - "centroid_norm": tuple[float,float,float], centroid normalized by (D,H,W)
+              - "shape": tuple[int,int,int,int], original image shape
+              - "norm_type": str or None ("zscore" | "zscore_median" | None)
+              - "norm_mean": float (zscore only)
+              - "norm_std": float (zscore only)
+              - "norm_median": float (zscore_median only)
+              - "norm_mad": float (zscore_median only)
+    anomalies_roi:
+        list[np.ndarray]
+        ROI crops around anomaly centroid, shape (C, d', h', w') (variable).
+    org_masks:
+        list[np.ndarray]
+        Segmentation crops around anomaly centroid, shape (C, tD, tH, tW).
+
+    Notes
+    -----
+    - If seg is None or completely empty, the function returns None in the original code.
+
+    Raises
+    ------
+    ValueError:
+        If img/seg are not 4D or shapes do not match.
+    """
+    config.validate()
+    target_size = _spatial_target_size(config.anomaly_size)
+    if seg is None or np.all(seg == 0):
+        return None, None, None
+
+    if img.ndim != 4:
+        raise ValueError(f"img must be (C,D,H,W). Got {img.shape}")
+    if seg.ndim != 4:
+        raise ValueError(f"seg must be (C,D,H,W). Got {seg.shape}")
+    if seg.shape[1:] != img.shape[1:] or seg.shape[0] not in (1, img.shape[0]):
+        raise ValueError(
+            "img and seg must share their spatial shape and seg must have one or "
+            f"{img.shape[0]} channels. Got img={img.shape}, seg={seg.shape}"
+        )
+
+    C, D, H, W = img.shape
+    shape = img.shape
+
+    binary3d = np.any(seg > 0, axis=0).astype(np.uint8)  # (D,H,W)
+
+    if config.separate_components:
+        labeled, num = label(binary3d)
+        regions = [r for r in find_objects(labeled) if r is not None]
+    else:
+        # whole mask as one region
+        labeled = binary3d
+        
+        d_indices, h_indices, w_indices = np.where(binary3d > 0)
+        dsl = slice(int(np.min(d_indices)), int(np.max(d_indices)) + 1)
+        hsl = slice(int(np.min(h_indices)), int(np.max(h_indices)) + 1)
+        wsl = slice(int(np.min(w_indices)), int(np.max(w_indices)) + 1)
+        regions = [(dsl, hsl, wsl)]
+
+    anomalies = []
+    anomalies_roi = []
+    org_masks = []
+    roi_masks = []
+
+    min_region_voxels = int(config.min_coverage_ratio * (target_size[0] * target_size[1] * target_size[2]))
+
+    for ridx, region in enumerate(regions, start=1):
+        dsl, hsl, wsl = region
+        region_mask = (labeled[region] == ridx)
+        voxels = int(region_mask.sum())
+
+        if voxels < min_region_voxels:
+            print(f"Anomaly region {ridx} omitted! voxels={voxels} < {min_region_voxels}")
+            continue
+
+        result = img[:, dsl, hsl, wsl]  # (C,d,h,w)
+        result = np.where(region_mask, result, np.min(img))
+
+        if config.add_background_noise:
+            result = add_background_noise_floor(result)
+
+        # geometric middle like in 2D
+        cd = (dsl.start + dsl.stop - 1) / 2
+        ch = (hsl.start + hsl.stop - 1) / 2
+        cw = (wsl.start + wsl.stop - 1) / 2
+        
+        centroid_voxel = (int(round(cd)), int(round(ch)), int(round(cw)))
+        centroid_norm = (centroid_voxel[0] / D, centroid_voxel[1] / H, centroid_voxel[2] / W)
+
+        padded_arr, scale_factor = resize_and_pad_3d(
+            result,
+            target_size=target_size,
+            order=1,
+            foreground_mask=region_mask,
+        )
+        padded_arr, norm_meta = _normalize_anomaly(
+            padded_arr, normalization=config.normalization, eps=float(config.normalization_eps)
+        )
+        scale_factor = tuple(round(float(ele), 4) for ele in scale_factor)
+
+        label_tmp = float(np.max(seg).round(0))
+
+        meta_data = {
+            "label": label_tmp,
+            "scale_factor": scale_factor,
+            "centroid_voxel": centroid_voxel,
+            "centroid_norm": centroid_norm,
+            "shape": shape
+        }
+        meta_data.update(norm_meta)
+        
+        if config.roi.fixed_size is None:
+            size_spatial = dynamic_roi_size(
+                result.shape[-3:],
+                config.roi.min_padding,
+                config.roi.padding_ratio,
+                config.roi.min_size,
+            )
+        else:
+            size_spatial = config.roi.fixed_size
+
+        anomalies_roi.append(crop_cube_clip(img, centroid_voxel, size_spatial, centroid_is_normalized=False))
+        roi_masks.append(crop_cube_clip(seg, centroid_voxel, size_spatial, centroid_is_normalized=False))
+
+        anomalies.append((padded_arr, meta_data))
+
+        # cutout like in img
+        m_result = seg[:, dsl, hsl, wsl]
+        m_result = np.where(region_mask, m_result, 0)
+
+        # order=0 for nearest neighbor
+        padded_mask, _ = resize_and_pad_3d(
+            m_result,
+            target_size=target_size,
+            order=0,
+        )
+        org_masks.append(padded_mask)
+
+    return anomalies, anomalies_roi, org_masks, roi_masks
