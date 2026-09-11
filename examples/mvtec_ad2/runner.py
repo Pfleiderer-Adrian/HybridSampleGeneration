@@ -33,7 +33,6 @@ from examples.mvtec_ad2.steps import (
 MVTECAD2_ROOT = Path(os.environ.get("MVTECAD2_ROOT", r"/mnt/results/mvtec2/mvtec_ad_2"))
 MVTECAD2_SAVE = Path(os.environ.get("MVTECAD2_SAVE", r"/mnt/results/mvtec2/experiments/test_datarepo_v3"))
 
-
 def prepare_mvtecad2_usecases(
     root: Path | str = MVTECAD2_ROOT,
     categories: str | Iterable[str] | None = None,
@@ -105,7 +104,6 @@ def prepare_mvtecad2_usecases(
 
     return use_cases
 
-
 def run_hybrid_sample_generation_for_usecase(
     use_case: MVTecAD2UseCase,
     *,
@@ -117,9 +115,6 @@ def run_hybrid_sample_generation_for_usecase(
     plan_hybrids: bool = True,
     generator_db_path: Path | str | None = None,
     generator_trial_id: int = -1,
-    fusion_backend_epochs: int | None = None,
-    fusion_backend_lr: float | None = None,
-    fusion_backend_checkpoint: Path | str | None = None,
 ) -> Configuration:
     """
     Execute HybridSampleGeneration for one prepared MVTec AD 2 use case.
@@ -166,13 +161,6 @@ def run_hybrid_sample_generation_for_usecase(
     if "plan_hybrid_samples" in selected_steps:
         generator.plan_hybrid_samples()
 
-    if "train_fusion_backend" in selected_steps:
-        generator.train_fusion_backend(
-            epochs=fusion_backend_epochs,
-            lr=fusion_backend_lr,
-            checkpoint_path=None if fusion_backend_checkpoint is None else str(fusion_backend_checkpoint),
-        )
-
     if "materialize_hybrid_samples" in selected_steps:
         _generate_and_save_hybrid_samples(generator, use_case)
 
@@ -180,7 +168,6 @@ def run_hybrid_sample_generation_for_usecase(
         config.save_config_file()
 
     return config
-
 
 def run_hybrid_sample_generation_for_all_usecases(
     root: Path | str = MVTECAD2_ROOT,
@@ -203,7 +190,6 @@ def run_hybrid_sample_generation_for_all_usecases(
         configs.append(run_hybrid_sample_generation_for_usecase(use_case, **kwargs))
     return configs
 
-
 def run_evaluation_for_usecase(
     use_case: MVTecAD2UseCase,
     *,
@@ -220,7 +206,6 @@ def run_evaluation_for_usecase(
     config = _downstream_config_for_usecase(use_case, load_saved_config=load_saved_config)
     evaluate_study(config)
     return config
-
 
 def run_evaluation_for_all_usecases(
     root: Path | str = MVTECAD2_ROOT,
@@ -248,7 +233,6 @@ def run_evaluation_for_all_usecases(
         )
     return configs
 
-
 def visualize_evaluation_for_usecase(
     use_case: MVTecAD2UseCase,
     *,
@@ -262,7 +246,6 @@ def visualize_evaluation_for_usecase(
     config = _downstream_config_for_usecase(use_case, load_saved_config=load_saved_config)
     run_hybrid_visualizer(config)
     return config
-
 
 def visualize_evaluation_for_all_usecases(
     root: Path | str = MVTECAD2_ROOT,
@@ -291,7 +274,6 @@ def visualize_evaluation_for_all_usecases(
         )
     return configs
 
-
 def run_evaluation_and_visualization_for_usecase(
     use_case: MVTecAD2UseCase,
     *,
@@ -306,7 +288,6 @@ def run_evaluation_and_visualization_for_usecase(
     evaluate_study(config)
     run_hybrid_visualizer(config)
     return config
-
 
 def run_evaluation_and_visualization_for_all_usecases(
     root: Path | str = MVTECAD2_ROOT,
@@ -335,7 +316,6 @@ def run_evaluation_and_visualization_for_all_usecases(
         )
     return configs
 
-
 def _configuration_for_category(
     category: str,
     *,
@@ -350,14 +330,12 @@ def _configuration_for_category(
         save_path=category_save_path,
     )
 
-
 def _category_save_path(base_save_path: Path | str | None, category: str) -> Path | None:
     if base_save_path is None:
         return None
     path = Path(base_save_path) / category
     path.mkdir(parents=True, exist_ok=True)
     return path
-
 
 def _downstream_config_for_usecase(
     use_case: MVTecAD2UseCase,
@@ -370,7 +348,6 @@ def _downstream_config_for_usecase(
             return load_config_file(str(config_path))
         print(f"Warning: No saved configuration found at {config_path}. Using prepared config.")
     return use_case.config
-
 
 def _generate_and_save_hybrid_samples(
     generator: HybridDataGenerator,
@@ -390,7 +367,6 @@ def _generate_and_save_hybrid_samples(
         export_name = f"{source.stem}__hybrid_{hybrid.variant_index}{suffix}"
         save_image(image, img_folder / export_name)
         save_image(_segmentation_for_png(segmentation), seg_folder / export_name)
-
 
 def _segmentation_for_png(seg: np.ndarray) -> np.ndarray:
     mask = np.asarray(seg)

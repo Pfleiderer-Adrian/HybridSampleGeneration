@@ -32,6 +32,7 @@ class ConfigurationTests(unittest.TestCase):
 
             self.assertEqual(serialized["schema_version"], Configuration.SCHEMA_VERSION)
             self.assertNotIn("uses_masks", serialized["model"])
+            self.assertNotIn("checkpoint", serialized["fusion"])
             self.assertFalse(hasattr(loaded.model, "uses_masks"))
             self.assertEqual(serialized["matching"]["anomalies_per_hybrid"], 2)
             self.assertEqual(serialized["matching"]["hybrids_per_original"], 3)
@@ -61,6 +62,11 @@ class ConfigurationTests(unittest.TestCase):
         self.assertTrue(generator.mask_transform_local_as_global)
         self.assertEqual(generator.global_transform_probs["rotate"], 0.25)
         self.assertEqual(generator.transform_params["rotate"]["max_rotation"], 12.0)
+
+    def test_model_and_anomaly_size_dimensions_must_match(self):
+        with tempfile.TemporaryDirectory() as root, self.assertRaises(ValueError):
+            Configuration("dimension-test", "VAE_ResNet_3D", (1, 16, 16), save_path=root)
+
 
     def test_matching_configuration_rejects_invalid_weights(self):
         config = MatchingConfiguration(intensity_weight=0, gradient_weight=0)

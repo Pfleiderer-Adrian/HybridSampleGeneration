@@ -14,11 +14,10 @@ class FusionParameters(Protocol):
 
 @dataclass
 class FusionSettings:
-    """Selected fusion backend, its parameters and optional checkpoint."""
+    """Selected fusion backend and its typed parameters."""
 
     backend: str
     parameters: FusionParameters
-    checkpoint: str | None = None
 
     @classmethod
     def for_backend(cls, backend: str) -> "FusionSettings":
@@ -33,7 +32,6 @@ class FusionSettings:
         spec = get_fusion_backend_spec(backend)
         parameters = spec.build_configuration()
         self.backend = backend
-        self.checkpoint = None
         self.parameters = parameters
 
     def validate(self) -> None:
@@ -45,18 +43,19 @@ class FusionSettings:
         self.validate()
         return {
             "backend": self.backend,
-            "checkpoint": self.checkpoint,
             "parameters": asdict(self.parameters),
         }
 
     @classmethod
     def from_dict(cls, values):
+        unknown = set(values) - {"backend", "parameters"}
+        if unknown:
+            raise TypeError(f"Unknown fusion setting(s): {sorted(unknown)}")
         from hybrid_sample_generator.fusion.registry import get_fusion_backend_spec
 
         spec = get_fusion_backend_spec(values["backend"])
         parameter_values = values["parameters"]
         return cls(
             backend=values["backend"],
-            checkpoint=values.get("checkpoint"),
             parameters=spec.build_configuration(parameter_values),
         )

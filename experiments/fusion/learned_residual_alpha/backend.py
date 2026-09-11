@@ -18,9 +18,9 @@ from hybrid_sample_generator.fusion.preprocessing import (
     validate_position as _validate_position,
 )
 from hybrid_sample_generator.fusion.interfaces import FusionOutput, control_background_mask, keep_control_background_after_fusion
-from hybrid_sample_generator.fusion.learned_residual_alpha.configuration import Config
-from hybrid_sample_generator.fusion.learned_residual_alpha.model import ResidualAlphaRefiner
-from hybrid_sample_generator.fusion.learned_residual_alpha.preprocessing import (
+from experiments.fusion.learned_residual_alpha.configuration import Config
+from experiments.fusion.learned_residual_alpha.model import ResidualAlphaRefiner
+from experiments.fusion.learned_residual_alpha.preprocessing import (
     bbox_slices as _bbox_slices,
     channel_min as _channel_min,
     pseudo_inpaint as _pseudo_inpaint,
@@ -31,7 +31,7 @@ from hybrid_sample_generator.fusion.learned_residual_alpha.preprocessing import 
     to_tensor as _to_tensor,
     unpack_sample as _unpack_sample,
 )
-from hybrid_sample_generator.fusion.learned_residual_alpha.training import train_backend
+from experiments.fusion.learned_residual_alpha.training import train_backend
 from hybrid_sample_generator.imaging.roi import (
     crop_cube_clip,
     crop_square_clip,

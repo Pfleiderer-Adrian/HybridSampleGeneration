@@ -8,7 +8,6 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 import scipy.ndimage as ndi
 
-
 @dataclass
 class FusionOutput:
     """Return value for one fusion operation."""
@@ -18,7 +17,6 @@ class FusionOutput:
     roi: np.ndarray | None = None
     roi_mask: np.ndarray | None = None
     metrics: dict[str, Any] | None = None
-
 
 def keep_control_background_after_fusion(
     fused_image: np.ndarray,
@@ -46,7 +44,6 @@ def keep_control_background_after_fusion(
     image[(slice(None), *np.where(background_mask))] = control_image[(slice(None), *np.where(background_mask))]
     segmentation[(slice(None), *np.where(background_mask))] = 0
     return image, segmentation
-
 
 def control_background_mask(
     control_image: np.ndarray,
@@ -98,7 +95,6 @@ def control_background_mask(
     mask = np.all(per_channel, axis=0)
     return _exterior_connected_mask(mask) if exterior_only else mask
 
-
 def _border_mask(shape: tuple[int, ...]) -> np.ndarray:
     border = np.zeros(shape, dtype=bool)
     for axis in range(len(shape)):
@@ -109,7 +105,6 @@ def _border_mask(shape: tuple[int, ...]) -> np.ndarray:
         border[tuple(low)] = True
         border[tuple(high)] = True
     return border
-
 
 def _robust_low_background_value(values: np.ndarray) -> float:
     values = np.asarray(values, dtype=np.float32)
@@ -123,7 +118,6 @@ def _robust_low_background_value(values: np.ndarray) -> float:
         return min_value
 
     return float(np.percentile(finite, 0.5))    # fallback to 0.5th percentile if the minimum is not robust
-
 
 def _exterior_connected_mask(mask: np.ndarray) -> np.ndarray:
     """Keep only background components connected to the spatial array border."""
@@ -144,27 +138,11 @@ def _exterior_connected_mask(mask: np.ndarray) -> np.ndarray:
         return np.zeros_like(mask, dtype=bool)
     return np.isin(labels, border_labels)
 
-
 @runtime_checkable
 class FusionBackend(Protocol):
     """Capability interface consumed by HybridDataGenerator for final sample fusion."""
 
     def warmup(self, shape, device=None, dtype=None, config=None):
-        ...
-
-    def load_checkpoint(self, path: str, **kwargs) -> None:
-        ...
-
-    def train_model(
-        self,
-        sample_dataloader,
-        *,
-        epochs: int | None = None,
-        lr: float | None = None,
-        checkpoint_path: str | None = None,
-        device=None,
-        config=None,
-    ) -> dict:
         ...
 
     def fuse(

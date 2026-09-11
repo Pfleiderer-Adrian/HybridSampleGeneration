@@ -13,10 +13,6 @@ from hybrid_sample_generator.generation.vae.resnet.model_2d import ResNetVAE2D, 
 from hybrid_sample_generator.generation.vae.resnet.model_3d import ResNetVAE3D, Config as ResNetVAE3D_Config
 from hybrid_sample_generator.generation.vae.conditional_convnext.model_2d import ConvNeXtcVAE2D, Config as ConvNeXtcVAE2D_Config
 from hybrid_sample_generator.generation.vae.conditional_convnext.model_3d import ConvNeXtcVAE3D, Config as ConvNeXtcVAE3D_Config
-from hybrid_sample_generator.generation.diffusion.latent_diffusion_lora.model_2d import (
-    LatentDiffusionLoRA2D,
-    Config as LatentDiffusionLoRA2D_Config,
-)
 from hybrid_sample_generator.generation.vae.convnext.configuration import (
     get_convnext_vae_2d_configuration,
     get_convnext_vae_3d_configuration,
@@ -29,9 +25,6 @@ from hybrid_sample_generator.generation.vae.conditional_convnext.configuration i
     get_convnext_cvae_2d_configuration,
     get_convnext_cvae_3d_configuration,
 )
-from hybrid_sample_generator.generation.diffusion.latent_diffusion_lora.configuration import (
-    get_latent_diffusion_lora_2d_configuration,
-)
 
 
 @dataclass(frozen=True)
@@ -41,8 +34,6 @@ class ModelSpec:
     config_cls: Type
     config_factory: Callable[[int], object]
     uses_masks: bool = False
-    trainable: bool = True
-    generative: bool = True
     spatial_dims: int | None = None
 
     def build(self, params: dict):
@@ -97,16 +88,9 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         uses_masks=True,
         spatial_dims=2,
     ),
-    "LatentDiffusionLoRA_2D": ModelSpec(
-        "LatentDiffusionLoRA_2D",
-        LatentDiffusionLoRA2D,
-        LatentDiffusionLoRA2D_Config,
-        get_latent_diffusion_lora_2d_configuration,
-        uses_masks=True,
-        spatial_dims=2,
-    ),
-}
 
+
+}
 
 def get_model_spec(model_name: str) -> ModelSpec:
     try:

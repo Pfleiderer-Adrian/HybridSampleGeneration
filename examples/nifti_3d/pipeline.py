@@ -19,8 +19,6 @@ if __name__ == "__main__":
 
     # define a basic configuration
     config = Configuration("brain_T1", "VAE_ConvNeXt_3D", (1, 32, 96, 96))
-    # Optional trainable fusion backend:
-    # config.fusion.set_backend("learned_residual_alpha")
 
     generator = HybridDataGenerator(config)
     # 1) Persist and classify every original exactly once
@@ -38,9 +36,6 @@ if __name__ == "__main__":
 
     # 5) Plan controls from persisted originals
     generator.plan_hybrid_samples()
-
-    # Optional when using a trainable fusion backend:
-    # generator.train_fusion_backend()
 
     # 6) Materialize every planned hybrid; the fusion backend is initialized lazily
     generator.materialize_hybrid_samples()

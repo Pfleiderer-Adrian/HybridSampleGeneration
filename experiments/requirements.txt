@@ -1,0 +1,10 @@
+# Additional dependencies for unsupported research prototypes.
+# Install PyTorch separately for the target CPU/CUDA environment.
+-r ../requirements.txt
+
+accelerate>=1.1.0
+diffusers>=0.35.1
+huggingface-hub>=0.25.0
+peft>=0.14.0
+safetensors>=0.4.5
+transformers>=4.46.0

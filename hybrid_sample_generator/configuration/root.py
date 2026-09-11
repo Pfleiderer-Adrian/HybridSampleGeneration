@@ -32,7 +32,7 @@ class Configuration:
     relationships and anomaly metadata live in the study repository.
     """
 
-    SCHEMA_VERSION = 5
+    SCHEMA_VERSION = 6
 
     def __init__(
         self,
@@ -74,6 +74,13 @@ class Configuration:
         if self.model.name not in ALLOWED_MODELS:
             raise ValueError(f"Unknown model {self.model.name!r}.")
         self.extraction.validate()
+        model_spec = get_model_spec(self.model.name)
+        spatial_dimensions = len(self.extraction.anomaly_size) - 1
+        if model_spec.spatial_dims != spatial_dimensions:
+            raise ValueError(
+                f"Model {self.model.name!r} expects {model_spec.spatial_dims} spatial "
+                f"dimensions, but extraction.anomaly_size describes {spatial_dimensions}."
+            )
         expected_channels = int(self.extraction.anomaly_size[0])
         for bound_name, parameters in (
             ("min", self.model.parameters.min),

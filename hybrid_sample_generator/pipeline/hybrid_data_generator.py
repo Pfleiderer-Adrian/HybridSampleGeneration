@@ -5,7 +5,6 @@ from __future__ import annotations
 import random
 from contextlib import contextmanager
 from dataclasses import replace
-from pathlib import Path
 
 import numpy as np
 import optuna
@@ -35,7 +34,6 @@ from hybrid_sample_generator.generation.training.optuna import optimize
 from hybrid_sample_generator.extraction.extraction_2d import crop_and_center_anomaly_2d
 from hybrid_sample_generator.extraction.extraction_3d import crop_and_center_anomaly_3d
 from hybrid_sample_generator.imaging.masks.transform_generator import TransformGenerator
-
 
 class HybridDataGenerator:
     """Coordinates write operations for the record-based generation pipeline.
@@ -225,54 +223,6 @@ class HybridDataGenerator:
         self._generator_model.load_checkpoint(trial.user_attrs["model_path"])
         return self._generator_model
 
-    def train_fusion_backend(
-        self,
-        *,
-        epochs: int | None = None,
-        lr: float | None = None,
-        checkpoint_path: str | None = None,
-        device=None,
-    ):
-        self._log_step("Training fusion backend.")
-        spec = get_fusion_backend_spec(self.config.fusion.backend)
-        if not spec.trainable:
-            raise ValueError(
-                f"Fusion backend {self.config.fusion.backend!r} is not trainable."
-            )
-        backend = self._ensure_fusion_backend()
-        training_dataset = self.datasets.original_samples(
-            return_artifacts=("img", "ori_mask", "fname"),
-            has_anomaly=True,
-            is_annotated=True,
-            load_to_ram=False,
-            numpy_mode=True,
-        )
-        if not len(training_dataset):
-            raise ValueError(
-                "No anomalous originals found for fusion training. Run ingest_dataset first."
-            )
-        if spec.trainable and checkpoint_path is None:
-            checkpoint_path = str(
-                Path(self.config.study.paths.trained_fusion_backends)
-                / f"{self.config.fusion.backend}.pth"
-            )
-        summary = backend.train_model(
-            training_dataset,
-            epochs=epochs,
-            lr=lr,
-            checkpoint_path=checkpoint_path,
-            device=device,
-            config=self.config.fusion,
-        )
-        resolved_checkpoint = (
-            summary.get("checkpoint_path", checkpoint_path)
-            if isinstance(summary, dict)
-            else checkpoint_path
-        )
-        if resolved_checkpoint:
-            self.config.fusion.checkpoint = resolved_checkpoint
-        return summary
-
     def _ensure_fusion_backend(self) -> FusionBackend:
         if self._fusion_backend_injected:
             return self._fusion_backend
@@ -282,9 +232,6 @@ class HybridDataGenerator:
         backend = get_fusion_backend_spec(self.config.fusion.backend).build(
             self.config.fusion.parameters
         )
-        checkpoint = self.config.fusion.checkpoint
-        if checkpoint:
-            backend.load_checkpoint(checkpoint)
         self._fusion_backend = backend
         self._fusion_backend_settings = settings
         return backend
@@ -504,14 +451,12 @@ class HybridDataGenerator:
         self.repository.upsert_hybrid_sample(generated)
         return generated
 
-
 def _position_columns(position):
     if len(position) == 2:
         return None, position[0], position[1]
     if len(position) == 3:
         return position[0], position[1], position[2]
     raise ValueError(f"Expected a 2D or 3D normalized position, got {position!r}.")
-
 
 def _mask_like_image(mask, image):
     mask = np.asarray(mask)
@@ -523,12 +468,10 @@ def _mask_like_image(mask, image):
         return np.repeat(mask[None, ...], image.shape[0], axis=0)
     raise ValueError(f"Mask shape {mask.shape} is incompatible with image shape {image.shape}.")
 
-
 def _as_numpy(value) -> np.ndarray:
     if isinstance(value, torch.Tensor):
         return value.detach().cpu().numpy()
     return np.asarray(value)
-
 
 def _validate_generated_variant(image, mask, expected_image):
     image = _as_numpy(image)
@@ -548,7 +491,6 @@ def _validate_generated_variant(image, mask, expected_image):
             f"{expected_shape[0]} channels, got {mask.shape}."
         )
     return image, mask
-
 
 @contextmanager
 def _seeded_random(seed: int):

@@ -122,6 +122,12 @@ python -m pip install -r requirements.txt
 Exact PyTorch and CUDA versions depend on the target system. A GPU is useful for
 training but the orchestration and repository layers do not require one.
 
+Unsupported diffusion and learned-fusion research prototypes are isolated under
+`experiments/`. They are excluded from the stable registries and require a
+separate installation with `experiments/requirements.txt`. Their APIs,
+configuration formats and checkpoints may change without notice; see
+`experiments/README.md` for their current status and explicit test command.
+
 ## Usage
 
 ```python
@@ -165,13 +171,12 @@ config.save_config_file()
 run_hybrid_visualizer(config)
 ```
 
-The ingest is the only phase that accepts the source dataloader. Extraction,
-fusion-backend training and planning select anomalous or normal originals by
-database fields. Repository-backed phases need no load step. A new
+The ingest is the only phase that accepts the source dataloader. Extraction and
+planning select anomalous or normal originals by database fields. Repository-backed phases need no load step. A new
 `HybridDataGenerator(config)` can immediately continue from persisted records.
 Only the generator model has to be loaded explicitly before producing new
-variants, because it is an in-memory runtime component. A fusion backend is
-created on demand and loads `config.fusion.checkpoint` when one is configured.
+variants, because it is an in-memory runtime component. The classical fusion backend is created on demand from the validated fusion
+parameters.
 Save the configuration before opening the visualizer: its configuration view
 reads the saved JSON, and the GUI call blocks until the window closes.
 
@@ -276,7 +281,7 @@ Configure its fields directly; the former `set_fusion_params(...)` wrapper is
 removed:
 
 ```python
-config.fusion.set_backend("classical")  # default: classical backend / others are experimental
+config.fusion.set_backend("classical")  # stable default backend
 
 config.fusion.parameters.sq = 0.1
 config.fusion.parameters.steepness_factor = 5.0
@@ -453,13 +458,14 @@ materialization, FK-based evaluation and cached full-image `local` matching.
 - `hybrid_sample_generator/imaging/` — shared image, similarity and mask operations
 - `hybrid_sample_generator/extraction/` and `matching/` — anomaly extraction and
   hybrid planning
-- `hybrid_sample_generator/generation/` — model registry, training, VAEs and diffusion
-- `hybrid_sample_generator/fusion/` — classical and trainable fusion backends
+- `hybrid_sample_generator/generation/` — model registry, training and supported VAEs
+- `hybrid_sample_generator/fusion/` — classical fusion backend
 - `hybrid_sample_generator/evaluation/` — pairwise metrics, outliers and reports
 - `hybrid_sample_generator/datasets/` — repository-backed training datasets
 - `hybrid_sample_generator/visualization/` — study browser and maintenance UI
 - `examples/` — 2D image, 3D NIfTI and MVTec AD 2 examples
 - `tests/` — tests grouped by the same feature boundaries
+- `experiments/` — unsupported prototypes, optional dependencies and isolated tests
 
 ## Cite this work
 

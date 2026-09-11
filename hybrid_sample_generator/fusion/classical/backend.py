@@ -31,7 +31,6 @@ from hybrid_sample_generator.fusion.preprocessing import (
     validate_position as _validate_position,
 )
 
-
 class ClassicalFusionBackend:
     """
     Classical alpha-blending fusion backend for 2D and 3D samples.
@@ -59,26 +58,6 @@ class ClassicalFusionBackend:
     def warmup(self, shape, device=None, dtype=None, config=None):
         self.params.validate()
         return self
-
-    def load_checkpoint(self, path: str, **kwargs) -> None:
-        return None
-
-    def train_model(
-        self,
-        sample_dataloader,
-        *,
-        epochs: int | None = None,
-        lr: float | None = None,
-        checkpoint_path: str | None = None,
-        device=None,
-        config=None,
-    ) -> dict:
-        print("ClassicalFusionBackend is not trainable. Skipping fusion backend training.")
-        return {
-            "skipped": True,
-            "reason": "ClassicalFusionBackend is not trainable.",
-            "checkpoint_path": None,
-        }
 
     def fuse(
         self,

@@ -7,14 +7,12 @@ import numpy as np
 from hybrid_sample_generator.fusion.classical.alpha import get_alpha_mask_2d
 from hybrid_sample_generator.fusion.classical.configuration import Config as ClassicalConfig
 from hybrid_sample_generator.fusion.classical.intensity import infer_output_intensity_bounds
-from hybrid_sample_generator.fusion.learned_residual_alpha.preprocessing import support_mask
 from hybrid_sample_generator.fusion.preprocessing import (
     denormalize_anomaly,
     inverse_extraction_scale,
     spatial_label_mask,
     validate_position,
 )
-
 
 class FusionPreprocessingTests(unittest.TestCase):
     def test_inverse_extraction_scale_accepts_scalar_and_per_axis_values(self):
@@ -40,7 +38,6 @@ class FusionPreprocessingTests(unittest.TestCase):
         )
         self.assertEqual(validate_position((0.25, 0.75), 2), (0.25, 0.75))
 
-
 class ClassicalFusionHelperTests(unittest.TestCase):
     def test_alpha_mask_is_bounded_and_zero_outside_support(self):
         config = ClassicalConfig(
@@ -62,18 +59,6 @@ class ClassicalFusionHelperTests(unittest.TestCase):
         self.assertEqual(infer_output_intensity_bounds([0.0, 1.0]), (0.0, 1.0))
         self.assertEqual(infer_output_intensity_bounds([0.0, 255.0]), (0.0, 255.0))
         self.assertIsNone(infer_output_intensity_bounds([-2.0, 300.0]))
-
-
-class LearnedFusionHelperTests(unittest.TestCase):
-    def test_support_mask_dilates_by_requested_border(self):
-        mask = np.zeros((5, 5), dtype=np.float32)
-        mask[2, 2] = 1.0
-
-        support = support_mask(mask, border_width=1, spatial_dims=2)
-
-        self.assertEqual(int(np.count_nonzero(support)), 9)
-        self.assertEqual(support.dtype, np.float32)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -121,6 +121,10 @@ class ModelCompatibilityTests(unittest.TestCase):
                 restored.load_state_dict(model.state_dict(), strict=True)
                 self.assertEqual(list(restored.state_dict()), list(model.state_dict()))
 
+    def test_experimental_diffusion_model_is_not_registered(self):
+        self.assertNotIn("LatentDiffusionLoRA_2D", MODEL_REGISTRY)
+
+
     def test_conditional_models_reuse_base_convnext_layers(self):
         self.assertIs(spade_2d.ConvNeXtBlock2D, convnext_layers_2d.ConvNeXtBlock2D)
         self.assertIs(conditional_2d.ConvNeXtUNetEncoder2D, convnext_layers_2d.ConvNeXtUNetEncoder2D)

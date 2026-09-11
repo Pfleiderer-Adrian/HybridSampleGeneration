@@ -1,6 +1,5 @@
 """Anomaly fusion backends."""
 
 from hybrid_sample_generator.fusion.classical import ClassicalFusionBackend
-from hybrid_sample_generator.fusion.learned_residual_alpha import LearnedResidualAlphaFusionBackend
 
-__all__ = ["ClassicalFusionBackend", "LearnedResidualAlphaFusionBackend"]
+__all__ = ["ClassicalFusionBackend"]

@@ -8,11 +8,7 @@ from typing import Type
 from hybrid_sample_generator.fusion.classical import ClassicalFusionBackend
 from hybrid_sample_generator.fusion.interfaces import FusionBackend
 from hybrid_sample_generator.fusion.classical import Config as ClassicalFusionConfig
-from hybrid_sample_generator.fusion.learned_residual_alpha import (
-    LearnedResidualAlphaFusionBackend,
-)
 from hybrid_sample_generator.fusion.settings import FusionParameters
-from hybrid_sample_generator.fusion.learned_residual_alpha import Config as LearnedResidualAlphaFusionConfig
 
 
 @dataclass(frozen=True)
@@ -20,8 +16,6 @@ class FusionBackendSpec:
     name: str
     backend_cls: Type[FusionBackend]
     config_cls: Type[FusionParameters]
-    spatial_dims: int | None = None
-    trainable: bool = False
 
     def validate_configuration(self, parameters: FusionParameters) -> None:
         if not isinstance(parameters, self.config_cls):
@@ -44,12 +38,6 @@ FUSION_BACKEND_REGISTRY: dict[str, FusionBackendSpec] = {
         name="classical",
         backend_cls=ClassicalFusionBackend,
         config_cls=ClassicalFusionConfig,
-    ),
-    "learned_residual_alpha": FusionBackendSpec(
-        name="learned_residual_alpha",
-        backend_cls=LearnedResidualAlphaFusionBackend,
-        config_cls=LearnedResidualAlphaFusionConfig,
-        trainable=True,
     ),
 }
 

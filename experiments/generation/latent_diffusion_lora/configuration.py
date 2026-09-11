@@ -2,7 +2,7 @@
 
 from dataclasses import asdict
 
-from hybrid_sample_generator.generation.diffusion.latent_diffusion_lora.model_2d import Config
+from experiments.generation.latent_diffusion_lora.model_2d import Config
 from hybrid_sample_generator.generation.model_settings import ModelHyperparameterSpace
 
 

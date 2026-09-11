@@ -292,7 +292,7 @@ class LatentDiffusionLoRA2D(nn.Module):
         except ImportError as exc:
             raise ImportError(
                 "LatentDiffusionLoRA2D requires diffusers, transformers, accelerate, peft, "
-                "and safetensors. Install the updated requirements before training this model."
+                "and safetensors. Install experiments/requirements.txt before training this model."
             ) from exc
 
         kwargs = {

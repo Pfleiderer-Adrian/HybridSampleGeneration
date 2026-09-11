@@ -27,7 +27,6 @@ GENERATION_STEP_ORDER = (
     "load_generator",
     "generate_synthetic_anomalies",
     "plan_hybrid_samples",
-    "train_fusion_backend",
     "materialize_hybrid_samples",
     "save_config",
 )
@@ -47,8 +46,6 @@ GENERATION_STEP_ALIASES = {
     "synth": "generate_synthetic_anomalies",
     "plan": "plan_hybrid_samples",
     "plan_hybrid_samples": "plan_hybrid_samples",
-    "train_fusion": "train_fusion_backend",
-    "train_fusion_backend": "train_fusion_backend",
     "materialize": "materialize_hybrid_samples",
     "materialize_hybrid_samples": "materialize_hybrid_samples",
     "save": "save_config",
