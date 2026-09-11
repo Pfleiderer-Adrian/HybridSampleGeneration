@@ -143,7 +143,7 @@ files. In Python, these records are immutable dataclasses defined in
 
 ```text
 OriginalSample  1 ── 0..n  RealAnomaly  1 ── 0..n  SyntheticAnomaly
-     1 │                                                    │ 1
+     1 │                                                     │ 1
        └── 0..n  HybridSample  1 ── 1..n  Placement  0..n ──┘
 ```
 
