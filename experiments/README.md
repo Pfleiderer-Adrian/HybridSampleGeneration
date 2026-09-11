@@ -30,11 +30,10 @@ Status:
 
 ## Installation and tests
 
-Install the stable dependencies first, then the experimental additions:
+Install the package with the experimental dependency group:
 
 ```bash
-pip install -r requirements.txt
-pip install -r experiments/requirements.txt
+python -m pip install -e ".[experiments]"
 ```
 
 Run the isolated prototype tests explicitly:

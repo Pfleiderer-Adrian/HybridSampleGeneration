@@ -69,8 +69,6 @@ class StudyPaths:
         return self._join("trained_models")
 
     @property
-
-    @property
     def generated_images(self):
         return self._join("exports", "images")
 

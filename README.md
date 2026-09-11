@@ -15,10 +15,10 @@ Matplotlib. Additional model and file-format dependencies are listed in
 `requirements.txt`.
 
 Install PyTorch in the variant appropriate for the local CPU/CUDA environment,
-then install the repository dependencies:
+then install the project in editable mode:
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
 
 Exact PyTorch and CUDA versions depend on the target system. A GPU is useful for
@@ -76,6 +76,15 @@ variants, because it is an in-memory runtime component. The classical fusion
 backend is created on demand from the validated fusion parameters.
 Save the configuration before opening the visualizer: its configuration view
 reads the saved JSON, and the GUI call blocks until the window closes.
+
+Run the bundled examples from the repository root so their package imports are
+resolved consistently:
+
+```bash
+python -m examples.image_2d.main
+python -m examples.nifti_3d.main
+python -m examples.mvtec_ad2.main
+```
 
 ## Input data
 
@@ -459,7 +468,7 @@ current status.
 Install and test them separately only when working on the prototypes:
 
 ```bash
-python -m pip install -r experiments/requirements.txt
+python -m pip install -e ".[experiments]"
 python -m unittest discover -s experiments/tests -v
 ```
 
@@ -476,6 +485,7 @@ materialization, FK-based evaluation and cached full-image `local` matching.
 
 ## Project structure
 
+- `pyproject.toml` — package metadata, stable dependencies and experimental extras
 - `hybrid_sample_generator/configuration/` — validated, section-based configuration
 - `hybrid_sample_generator/domain/` — input and persisted study records
 - `hybrid_sample_generator/persistence/` — repository, study paths and artifacts
@@ -490,7 +500,7 @@ materialization, FK-based evaluation and cached full-image `local` matching.
 - `hybrid_sample_generator/evaluation/` — pairwise metrics, outliers and reports
 - `hybrid_sample_generator/datasets/` — repository-backed training datasets
 - `hybrid_sample_generator/visualization/` — study browser and maintenance UI
-- `examples/` — 2D image, 3D NIfTI and MVTec AD 2 examples
+- `examples/` — shared example helpers plus 2D image, 3D NIfTI and MVTec AD 2 workflows
 - `tests/` — tests grouped by the same feature boundaries
 - `experiments/` — unsupported prototypes, optional dependencies and isolated tests
 

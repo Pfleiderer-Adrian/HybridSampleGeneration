@@ -7,8 +7,7 @@ from collections.abc import Iterator, Sequence
 import numpy as np
 
 from hybrid_sample_generator.domain.input_sample import InputSample
-from examples.image_2d.image_dataloader import ensure_chw
-from examples.image_2d.image_dataloader import _load_image_array as load_image_array
+from examples.common.image_io import ensure_chw, load_image_array
 from examples.mvtec_ad2.records import MVTecAD2Sample
 
 

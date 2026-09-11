@@ -52,7 +52,6 @@ def create_mvtecad2_configuration(
     category: str,
     *,
     save_path: Path | str | None = None,
-    results_root: Path | str | None = None,
     apply_category_overrides: bool = True,
 ) -> Configuration:
     """
@@ -62,24 +61,20 @@ def create_mvtecad2_configuration(
     customize the domain-specific configuration sections.
 
     save_path is forwarded to Configuration. The resulting study folder is
-    <save_path>/results/<study_name>. results_root is kept as a legacy alias.
+    <save_path>/results/<study_name>.
     """
 
-    if save_path is not None and results_root is not None:
-        raise ValueError("Use either save_path or results_root, not both.")
-
     category = canonical_category(category)
-    config_save_path = save_path if save_path is not None else results_root
     generation_model = CATEGORY_GENERATION_MODEL[category]
 
     config = Configuration(
         f"mvtecad2_{safe_name(f'{category}_{generation_model}')}",
         generation_model,
         CATEGORY_ANOMALY_SHAPES[category],
-        save_path=config_save_path,
+        save_path=save_path,
     )
     config = configure_mvtecad2_defaults(config)
-    if apply_category_overrides:
+    if apply_category_overrides and category in CATEGORY_CONFIGURATORS:
         config = CATEGORY_CONFIGURATORS[category](config)
     return config
 
@@ -95,11 +90,7 @@ def create_mvtecad2_configurations(
     <save_path>/<category>.
     """
 
-    save_path = kwargs.pop("save_path", None)
-    results_root = kwargs.pop("results_root", None)
-    if save_path is not None and results_root is not None:
-        raise ValueError("Use either save_path or results_root, not both.")
-    base_save_path = save_path if save_path is not None else results_root
+    base_save_path = kwargs.pop("save_path", None)
 
     configs: dict[str, Configuration] = {}
     for category in categories or MVTECAD2_CATEGORIES:
@@ -249,9 +240,6 @@ def configure_can(config: Configuration) -> Configuration:
     config.fusion.parameters.sobel_threshold = 0.05
     config.extraction.roi.min_size = (256, 256)
 
-
-
-
     return config
 
 
@@ -260,39 +248,9 @@ def configure_fabric(config: Configuration) -> Configuration:
     return config
 
 
-def configure_fruit_jelly(config: Configuration) -> Configuration:
-    return config
-
-
-def configure_rice(config: Configuration) -> Configuration:
-    return config
-
-
-def configure_sheet_metal(config: Configuration) -> Configuration:
-    return config
-
-
-def configure_vial(config: Configuration) -> Configuration:
-    return config
-
-
-def configure_wallplugs(config: Configuration) -> Configuration:
-    return config
-
-
-def configure_walnuts(config: Configuration) -> Configuration:
-    return config
-
-
 CATEGORY_CONFIGURATORS: dict[str, Callable[[Configuration], Configuration]] = {
     "can": configure_can,
     "fabric": configure_fabric,
-    "fruit_jelly": configure_fruit_jelly,
-    "rice": configure_rice,
-    "sheet_metal": configure_sheet_metal,
-    "vial": configure_vial,
-    "wallplugs": configure_wallplugs,
-    "walnuts": configure_walnuts,
 }
 
 
@@ -306,6 +264,3 @@ def safe_name(value: str) -> str:
     value = re.sub(r"[^a-z0-9_]+", "_", value)
     value = re.sub(r"_+", "_", value).strip("_")
     return value or "sample"
-
-
-MVTECAD2_CONFIGURATIONS = create_mvtecad2_configurations()

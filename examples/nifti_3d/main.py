@@ -1,24 +1,21 @@
-"""Run the two-dimensional hybrid sample generation example."""
+"""Run the three-dimensional hybrid sample generation example."""
 
-from examples.image_2d.image_dataloader import ImageDataloader
+from examples.nifti_3d.nifti_dataloader import NiftiDataloader
 from hybrid_sample_generator.configuration.root import Configuration
 from hybrid_sample_generator.evaluation.service import evaluate_study
 from hybrid_sample_generator.pipeline.hybrid_data_generator import HybridDataGenerator
 from hybrid_sample_generator.visualization import run_hybrid_visualizer
 
-path_to_img = "add image path here for all original samples"
-path_to_seg = "add segmentation path here for all original samples"
+def main() -> None:
+    path_to_img = "add image path here for all original samples"
+    path_to_seg = "add segmentation path here for all original samples"
 
-# keep in mind you need to create your on dataloader/iterator for your dataset (e.g. png-files in one folder)
-# The iterator/dataloader yields (img_arr, seg_arr_or_none, basename).
-# Images use (Channels, Height, Width); annotated masks share the spatial shape.
-# Controls may have an empty mask or no annotation at all.
-dataloader_all_samples = ImageDataloader(path_to_img, path_to_seg)
+    # Replace this with an iterator for the dataset being processed.
+    # Images use (Channels, Depth, Height, Width); controls may use an empty mask or None.
+    dataloader_all_samples = NiftiDataloader(path_to_img, path_to_seg, "t1")
 
-if __name__ == "__main__":
-
-    # define a basic configuration
-    config = Configuration("images", "cVAE_ConvNeXt_2D", (3, 32, 32))
+    # Define a basic configuration
+    config = Configuration("brain_T1", "VAE_ConvNeXt_3D", (1, 32, 96, 96))
 
     generator = HybridDataGenerator(config)
     # 1) Persist and classify every original exactly once
@@ -52,3 +49,7 @@ if __name__ == "__main__":
 
     # 8) Browse the persisted study hierarchy
     run_hybrid_visualizer(config)
+
+
+if __name__ == "__main__":
+    main()

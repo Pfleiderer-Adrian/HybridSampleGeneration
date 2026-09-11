@@ -1,14 +1,19 @@
-"""Load and save channel-first images for the two-dimensional example."""
+"""Load paired channel-first images for the two-dimensional example."""
 
-import os
 import glob
-from typing import Dict, Iterator, List, Tuple
+import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Union, Optional
-import numpy as np
-from PIL import Image
+from typing import Dict, Iterator, List, Optional, Tuple
 
+import numpy as np
+
+from examples.common.image_io import (
+    ensure_chw,
+    is_image_file,
+    load_image_array,
+    minmax01_chw,
+)
 from hybrid_sample_generator.domain.input_sample import InputSample
 
 
@@ -29,74 +34,6 @@ class SampleInfo:
 # -------------------------
 # Helpers
 # -------------------------
-IMG_EXTS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp")
-
-
-def _is_image_file(p: str) -> bool:
-    return os.path.splitext(p)[1].lower() in IMG_EXTS
-
-
-def _load_image_array(path: str) -> np.ndarray:
-    """
-    Loads an image file as numpy array.
-    Returns:
-      - grayscale: (H, W)
-      - color:     (H, W, C)
-    """
-    with Image.open(path) as im:
-        # Keep as-is; convert palette/LA/etc. to something sane
-        # If you want to force RGB, change to: im = im.convert("RGB")
-        if im.mode == "P":
-            im = im.convert("L")
-        arr = np.asarray(im)
-    return arr
-
-
-def ensure_chw(arr: np.ndarray) -> np.ndarray:
-    """
-    Convert common 2D image shapes to (C, H, W).
-
-    Supports:
-      - (H, W)       -> (1, H, W)
-      - (H, W, C)    -> (C, H, W)
-      - (C, H, W)    -> unchanged
-    """
-    arr = np.asarray(arr)
-
-    if arr.ndim == 2:
-        H, W = arr.shape
-        return arr.reshape(1, H, W)
-
-    if arr.ndim == 3:
-        # if already CHW, keep
-        # heuristic: if first axis is small (<=4) and last two look like H,W, treat as CHW
-        if arr.shape[0] <= 4 and arr.shape[1] > 4 and arr.shape[2] > 4:
-            return arr
-        # else assume HWC
-        return arr.transpose(2, 0, 1)
-
-    raise ValueError(f"Unsupported ndim={arr.ndim}, shape={arr.shape}")
-
-
-def minmax01_chw(x: np.ndarray, eps: float = 1e-8) -> np.ndarray:
-    """
-    Per-channel min-max normalization to [0, 1] for (C, H, W).
-    Constant channels become 0.
-    """
-    img = x.astype(np.float32, copy=False)
-    out = np.empty_like(img, dtype=np.float32)
-    for c in range(img.shape[0]):
-        xc = img[c]
-        mn = np.nanmin(xc)
-        mx = np.nanmax(xc)
-        rng = mx - mn
-        if (not np.isfinite(rng)) or rng < eps:
-            out[c] = 0.0
-        else:
-            out[c] = (xc - mn) / (rng + eps)
-    return out
-
-
 def _stem_no_ext(p: str) -> str:
     return Path(p).stem
 
@@ -169,8 +106,8 @@ class ImageDataloader:
         self.keep_mask_channels = keep_mask_channels
 
 
-        img_paths = [p for p in glob.iglob(os.path.join(img_dir, "*")) if _is_image_file(p)]
-        seg_paths = [p for p in glob.iglob(os.path.join(seg_dir, "*")) if _is_image_file(p)]
+        img_paths = [p for p in glob.iglob(os.path.join(img_dir, "*")) if is_image_file(p)]
+        seg_paths = [p for p in glob.iglob(os.path.join(seg_dir, "*")) if is_image_file(p)]
         img_paths.sort()
         seg_paths.sort()
 
@@ -208,11 +145,11 @@ class ImageDataloader:
             if not img_path or not os.path.exists(img_path):
                 continue
 
-            img_raw = _load_image_array(img_path)
+            img_raw = load_image_array(img_path)
             img_arr = ensure_chw(img_raw).astype(np.float32, copy=False)
             seg_arr = None
             if seg_path and os.path.exists(seg_path):
-                seg_raw = _load_image_array(seg_path)
+                seg_raw = load_image_array(seg_path)
                 seg_arr = ensure_chw(seg_raw).astype(np.float32, copy=False)
                 if (not self.keep_mask_channels) and seg_arr.shape[0] > 1:
                     seg_arr = seg_arr[:1]
@@ -232,10 +169,10 @@ class ImageDataloader:
         for seg_path, img_path in self.union_paths:
             if not img_path or not os.path.exists(img_path):
                 continue
-            img_arr = ensure_chw(_load_image_array(img_path)).astype(np.float32, copy=False)
+            img_arr = ensure_chw(load_image_array(img_path)).astype(np.float32, copy=False)
             seg_arr = None
             if seg_path and os.path.exists(seg_path):
-                seg_arr = ensure_chw(_load_image_array(seg_path)).astype(
+                seg_arr = ensure_chw(load_image_array(seg_path)).astype(
                     np.float32, copy=False
                 )
                 if (not self.keep_mask_channels) and seg_arr.shape[0] > 1:
@@ -258,7 +195,7 @@ class ImageDataloader:
         img_dtype = seg_dtype = None
 
         def _meta(p: str):
-            arr = _load_image_array(p)
+            arr = load_image_array(p)
             return tuple(arr.shape), np.dtype(arr.dtype)
 
         # image-preferred
@@ -304,81 +241,3 @@ class ImageDataloader:
             width=int(width),
             channels=int(channels),
         )
-
-
-def save_image(arr_chw: np.ndarray, filepath: Union[str, Path], *, clamp: bool = True, quality: int = 95) -> None:
-    """
-    Save a channel-first image array (C,H,W) to disk.
-
-    Supports:
-      - C=1 (grayscale)
-      - C=3 (RGB)
-      - C=4 (RGBA)  -> PNG recommended (JPEG can't store alpha)
-
-    Dtypes / ranges:
-      - float: assumed in [0,1] or [0,255]; will be scaled to uint8
-      - int/uint: will be converted/clipped to uint8
-
-    Parameters
-    ----------
-    arr_chw : np.ndarray
-        Image array with shape (C,H,W).
-    filepath : str | Path
-        Output file path (extension determines format).
-    clamp : bool
-        If True, clip values before conversion (recommended).
-    quality : int
-        JPEG quality (only used for .jpg/.jpeg).
-    """
-    filepath = Path(filepath)
-    filepath.parent.mkdir(parents=True, exist_ok=True)
-
-    arr = np.asarray(arr_chw)
-    if arr.ndim != 3:
-        raise ValueError(f"Expected (C,H,W), got shape={arr.shape}")
-
-    C, H, W = arr.shape
-    if C not in (1, 3, 4):
-        raise ValueError(f"Unsupported channel count C={C}. Expected 1, 3, or 4.")
-
-    # Convert to HWC for PIL when needed
-    if C == 1:
-        img = arr[0]  # (H,W)
-    else:
-        img = arr.transpose(1, 2, 0)  # (H,W,C)
-
-    # Convert to uint8
-    if np.issubdtype(img.dtype, np.floating):
-        m = float(np.nanmax(img)) if img.size else 0.0
-        if m <= 1.0:
-            img = img * 255.0
-        if clamp:
-            img = np.clip(img, 0.0, 255.0)
-        img_u8 = img.astype(np.uint8)
-    else:
-        if clamp:
-            img = np.clip(img, 0, 255)
-        img_u8 = img.astype(np.uint8)
-
-    # Choose PIL mode
-    if C == 1:
-        pil = Image.fromarray(img_u8, mode="L")
-    elif C == 3:
-        pil = Image.fromarray(img_u8, mode="RGB")
-    else:  # C == 4
-        pil = Image.fromarray(img_u8, mode="RGBA")
-
-    ext = filepath.suffix.lower()
-    save_kwargs = {}
-
-    # JPEG can't do alpha; drop alpha if user still wants .jpg/.jpeg
-    if ext in (".jpg", ".jpeg") and C == 4:
-        pil = pil.convert("RGB")
-        save_kwargs["quality"] = int(quality)
-        save_kwargs["subsampling"] = 0  # nicer JPEGs
-
-    if ext in (".jpg", ".jpeg"):
-        save_kwargs.setdefault("quality", int(quality))
-        save_kwargs.setdefault("subsampling", 0)
-
-    pil.save(str(filepath), **save_kwargs)

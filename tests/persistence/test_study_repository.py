@@ -13,6 +13,7 @@ from hybrid_sample_generator.domain.records import (
     SyntheticAnomaly,
 )
 from hybrid_sample_generator.persistence.identifiers import stable_id, stable_seed
+from hybrid_sample_generator.persistence.study_paths import StudyPaths
 from hybrid_sample_generator.persistence.study_repository import StudyRepository
 
 
@@ -96,6 +97,18 @@ class StudyRepositoryTests(unittest.TestCase):
             connection.execute("INSERT INTO schema_info(version) VALUES (999)")
         with self.assertRaisesRegex(ValueError, "Unsupported artifact database schema 999"):
             StudyRepository(incompatible_path)
+
+    def test_export_paths_are_plain_path_values(self):
+        paths = StudyPaths(self.temporary.name, "study")
+
+        self.assertEqual(
+            Path(paths.generated_images),
+            Path(self.temporary.name) / "exports" / "images",
+        )
+        self.assertEqual(
+            Path(paths.generated_segmentations),
+            Path(self.temporary.name) / "exports" / "segmentations",
+        )
 
 
 if __name__ == "__main__":

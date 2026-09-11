@@ -1,11 +1,10 @@
 """Executable MVTec AD 2 example workflow."""
 
 from examples.mvtec_ad2.runner import (
-    MVTECAD2_ROOT,
-    MVTECAD2_SAVE,
     run_evaluation_and_visualization_for_all_usecases,
     run_hybrid_sample_generation_for_all_usecases,
 )
+from examples.mvtec_ad2.settings import MVTECAD2_ROOT, MVTECAD2_SAVE
 
 
 def main() -> None:
@@ -15,11 +14,11 @@ def main() -> None:
         categories=categories,
         no_of_trials=1,
         steps=(
-            "ingest",
-            "extract",
-            "train",
-            "generate_synth",
-            "plan",
+            #"ingest",
+            #"extract",
+            #"train",
+            #"generate_synth",
+            #"plan",
             "materialize",
             "save",
         ),

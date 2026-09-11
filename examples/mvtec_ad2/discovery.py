@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-import os
-
 from collections.abc import Iterable
 from pathlib import Path
 
-from examples.mvtec_ad2.configuration import CATEGORY_ALIASES
+from examples.common.image_io import IMAGE_EXTENSIONS
+from examples.mvtec_ad2.configuration import canonical_category, safe_name
 from examples.mvtec_ad2.records import MVTecAD2Sample
+from examples.mvtec_ad2.settings import MVTECAD2_ROOT
 
-IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp")
 CONTROL_SPLITS = ("train", "validation", "val")
 ANOMALY_SPLIT = "test_public"
 ANOMALY_LABEL = "bad"
 NORMAL_LABEL = "good"
-MVTECAD2_ROOT = Path(os.environ.get("MVTECAD2_ROOT", r"/mnt/results/mvtec2/mvtec_ad_2"))
-
 
 def discover_mvtecad2_categories(root: Path | str = MVTECAD2_ROOT) -> list[str]:
     """
@@ -47,7 +44,7 @@ def _normalize_categories(
     for category in raw_categories:
         if not isinstance(category, str):
             raise TypeError(f"MVTec AD 2 category names must be strings, got {type(category).__name__}.")
-        normalized_categories.append(_canonical_category(category))
+        normalized_categories.append(canonical_category(category))
 
     return normalized_categories
 
@@ -145,28 +142,15 @@ def _find_mask_path(category_root: Path, label: str, image_path: Path) -> Path |
 
 
 def _make_sample_id(split: str, label: str, image_path: Path) -> str:
-    filename = _safe_name(image_path.stem) + image_path.suffix.lower()
-    return f"{_safe_name(split)}_{_safe_name(label)}_{filename}"
-
-
-def _safe_name(value: str) -> str:
-    value = value.strip().lower().replace(" ", "_").replace("-", "_")
-    value = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in value)
-    while "__" in value:
-        value = value.replace("__", "_")
-    return value.strip("_") or "sample"
-
-
-def _canonical_category(category: str) -> str:
-    category = category.strip().lower()
-    return CATEGORY_ALIASES.get(category, category)
+    filename = safe_name(image_path.stem) + image_path.suffix.lower()
+    return f"{safe_name(split)}_{safe_name(label)}_{filename}"
 
 
 def _validate_dataset_root(root: Path) -> None:
     if not root.exists():
         raise FileNotFoundError(
             f"MVTec AD 2 root does not exist: {root}. "
-            "Set MVTECAD2_ROOT in pipeline_MVTecAD2.py or via the MVTECAD2_ROOT environment variable."
+            "Set MVTECAD2_ROOT via the environment variable or edit examples/mvtec_ad2/settings.py."
         )
     if not root.is_dir():
         raise NotADirectoryError(f"MVTec AD 2 root is not a directory: {root}")

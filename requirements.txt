@@ -1,4 +1,5 @@
-# Install PyTorch separately for the target CPU/CUDA environment.
+# Install the appropriate PyTorch CPU/CUDA variant before this file when needed.
+torch
 matplotlib==3.10.8
 nibabel==5.3.3
 numpy==2.4.6

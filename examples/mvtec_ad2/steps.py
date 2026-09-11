@@ -8,9 +8,7 @@ from collections.abc import Iterable, Mapping, Sequence
 PREPARE_USECASE_KEYS = {
     "include_public_good_controls",
     "save_path",
-    "results_root",
 }
-DEPRECATED_GENERATION_FLAGS = ("run_evaluation", "visualize_evaluation")
 DEFAULT_GENERATION_STEPS = (
     "ingest_dataset",
     "extract_anomalies",
@@ -58,18 +56,6 @@ GENERATION_STEP_CONFLICTS = (
 
 def _pop_prepare_kwargs(kwargs: dict) -> dict:
     return {key: kwargs.pop(key) for key in list(kwargs) if key in PREPARE_USECASE_KEYS}
-
-
-def _reject_deprecated_generation_flags(kwargs: dict) -> None:
-    deprecated_values = {key: kwargs.pop(key) for key in DEPRECATED_GENERATION_FLAGS if key in kwargs}
-    enabled = [key for key, value in deprecated_values.items() if value]
-    if enabled:
-        raise ValueError(
-            "Evaluation and visualization are now downstream steps. "
-            "Run run_evaluation_for_all_usecases(...) and "
-            "visualize_evaluation_for_all_usecases(...) after generation instead, "
-            "or use run_evaluation_and_visualization_for_all_usecases(...)."
-        )
 
 
 def _reject_unknown_kwargs(kwargs: Mapping[str, object]) -> None:

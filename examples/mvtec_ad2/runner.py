@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -12,7 +11,7 @@ from hybrid_sample_generator.configuration.root import Configuration, load_confi
 from hybrid_sample_generator.evaluation.service import evaluate_study
 from hybrid_sample_generator.pipeline.hybrid_data_generator import HybridDataGenerator
 from hybrid_sample_generator.visualization import run_hybrid_visualizer
-from examples.image_2d.image_dataloader import save_image
+from examples.common.image_io import save_image
 from examples.mvtec_ad2.configuration import create_mvtecad2_configuration
 from examples.mvtec_ad2.dataloader import MVTecAD2Dataloader
 from examples.mvtec_ad2.discovery import (
@@ -22,16 +21,13 @@ from examples.mvtec_ad2.discovery import (
     _validate_dataset_root,
 )
 from examples.mvtec_ad2.records import MVTecAD2UseCase
+from examples.mvtec_ad2.settings import MVTECAD2_ROOT
 from examples.mvtec_ad2.steps import (
     _needs_generator_loaded,
     _normalize_generation_steps,
     _pop_prepare_kwargs,
-    _reject_deprecated_generation_flags,
     _reject_unknown_kwargs,
 )
-
-MVTECAD2_ROOT = Path(os.environ.get("MVTECAD2_ROOT", r"/mnt/results/mvtec2/mvtec_ad_2"))
-MVTECAD2_SAVE = Path(os.environ.get("MVTECAD2_SAVE", r"/mnt/results/mvtec2/experiments/test_datarepo_v4"))
 
 def prepare_mvtecad2_usecases(
     root: Path | str = MVTECAD2_ROOT,
@@ -39,7 +35,6 @@ def prepare_mvtecad2_usecases(
     *,
     include_public_good_controls: bool = False,
     save_path: Path | str | None = None,
-    results_root: Path | str | None = None,
 ) -> list[MVTecAD2UseCase]:
     """
     Prepare one HybridSampleGeneration use case per MVTec AD 2 category.
@@ -48,15 +43,12 @@ def prepare_mvtecad2_usecases(
     extraction and train/validation good samples as controls for matching and
     fusion. Both groups are exposed through one mixed sample dataloader.
     Category-specific HybridDataGenerator settings are defined in
-    MVTecAD2_configuration.py.
+    examples/mvtec_ad2/configuration.py.
 
     If save_path is provided, every category gets its own Configuration
     save_path: <save_path>/<category>. HybridDataGenerator results are then
     written below <save_path>/<category>/results/<study_name>.
     """
-
-    if save_path is not None and results_root is not None:
-        raise ValueError("Use either save_path or results_root, not both.")
 
     root = Path(root)
     _validate_dataset_root(root)
@@ -86,7 +78,6 @@ def prepare_mvtecad2_usecases(
         config = _configuration_for_category(
             category,
             save_path=save_path,
-            results_root=results_root,
         )
 
         samples_by_path = {
@@ -181,7 +172,6 @@ def run_hybrid_sample_generation_for_all_usecases(
     <folder>/<category>/results/<study_name>/...
     """
 
-    _reject_deprecated_generation_flags(kwargs)
     prepare_kwargs = _pop_prepare_kwargs(kwargs)
 
     use_cases = prepare_mvtecad2_usecases(root, categories, **prepare_kwargs)
@@ -215,7 +205,7 @@ def run_evaluation_for_all_usecases(
     """
     Run evaluation for all selected MVTec AD 2 categories after generation.
 
-    Pass the same save_path/results_root that was used for generation.
+    Pass the same save_path that was used for generation.
     """
 
     load_saved_config = bool(kwargs.pop("load_saved_config", True))
@@ -256,7 +246,7 @@ def visualize_evaluation_for_all_usecases(
     Open the evaluation/outlier visualization for all selected categories.
 
     The viewer is interactive and blocks per category until the GUI is closed.
-    Pass the same save_path/results_root that was used for generation.
+    Pass the same save_path that was used for generation.
     """
 
     load_saved_config = bool(kwargs.pop("load_saved_config", True))
@@ -320,10 +310,8 @@ def _configuration_for_category(
     category: str,
     *,
     save_path: Path | str | None,
-    results_root: Path | str | None,
 ) -> Configuration:
-    base_save_path = save_path if save_path is not None else results_root
-    category_save_path = _category_save_path(base_save_path, category)
+    category_save_path = _category_save_path(save_path, category)
 
     return create_mvtecad2_configuration(
         category,

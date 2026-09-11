@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hybrid-sample-generator"
+version = "0.1.0"
+description = "Generate hybrid samples by extracting, synthesizing, and fusing anomalies."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-only"
+authors = [
+  { name = "Adrian Pfleiderer" },
+]
+dynamic = ["dependencies"]
+
+[project.optional-dependencies]
+experiments = [
+  "accelerate>=1.1.0",
+  "diffusers>=0.35.1",
+  "huggingface-hub>=0.25.0",
+  "peft>=0.14.0",
+  "safetensors>=0.4.5",
+  "transformers>=4.46.0",
+]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools.packages.find]
+include = ["hybrid_sample_generator*"]
