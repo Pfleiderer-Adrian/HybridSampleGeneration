@@ -133,11 +133,9 @@ files. In Python, these records are immutable dataclasses defined in
 `hybrid_sample_generator/domain/records.py` and persisted in `artifacts.sqlite`.
 
 ```text
-OriginalSample    1 ── 0..n  RealAnomaly
-RealAnomaly       1 ── 0..n  SyntheticAnomaly
-OriginalSample    1 ── 0..n  HybridSample
-HybridSample      1 ── 1..n  Placement
-SyntheticAnomaly  1 ── 0..n  Placement
+OriginalSample  1 ── 0..n  RealAnomaly  1 ── 0..n  SyntheticAnomaly
+     1 │                                                    │ 1
+       └── 0..n  HybridSample  1 ── 1..n  Placement  0..n ──┘
 ```
 
 A placement is an independent record. It identifies one synthetic anomaly,

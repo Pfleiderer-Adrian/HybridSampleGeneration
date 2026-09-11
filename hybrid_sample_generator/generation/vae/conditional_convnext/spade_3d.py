@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 import torch
 import torch.nn as nn
@@ -12,6 +12,7 @@ from hybrid_sample_generator.generation.vae.base import HybridVAEBase
 
 from hybrid_sample_generator.generation.vae.convnext.layers_3d import (
     ConvNeXtBlock3D,
+    DropPath,
     _best_gn_groups,
     _upsample_block3d,
 )

@@ -131,6 +131,13 @@ class ModelCompatibilityTests(unittest.TestCase):
         self.assertIs(spade_3d.ConvNeXtBlock3D, convnext_layers_3d.ConvNeXtBlock3D)
         self.assertIs(conditional_3d.ConvNeXtUNetEncoder3D, convnext_layers_3d.ConvNeXtUNetEncoder3D)
 
+    def test_conditional_spade_blocks_support_stochastic_depth(self):
+        block_2d = spade_2d.ConvNeXtSPADEBlock2D(4, 1, drop_path=0.1)
+        block_3d = spade_3d.ConvNeXtSPADEBlock3D(4, 1, drop_path=0.1)
+
+        self.assertIsInstance(block_2d.drop_path, convnext_layers_2d.DropPath)
+        self.assertIsInstance(block_3d.drop_path, convnext_layers_3d.DropPath)
+
 
 if __name__ == "__main__":
     unittest.main()
