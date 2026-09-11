@@ -40,7 +40,8 @@ def main() -> None:
         load_to_ram=False,
         numpy_mode=True,
     )
-
+    # you can now use hybrid_dataset for training, evaluation or save operations
+    
     # save the actual configuration
     config.save_config_file()
 
