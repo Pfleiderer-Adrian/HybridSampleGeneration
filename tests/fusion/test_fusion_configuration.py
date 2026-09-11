@@ -3,12 +3,13 @@
 import tempfile
 import unittest
 from dataclasses import asdict
+from unittest.mock import Mock
 
 from hybrid_sample_generator.fusion.classical import ClassicalFusionBackend, Config as ClassicalConfig
 from hybrid_sample_generator.fusion.settings import FusionSettings
 from hybrid_sample_generator.fusion.registry import get_fusion_backend_spec
+from hybrid_sample_generator.fusion.service import FusionService
 from hybrid_sample_generator.configuration.root import Configuration, load_config_file
-from hybrid_sample_generator.pipeline.hybrid_data_generator import HybridDataGenerator
 
 class FusionConfigurationTests(unittest.TestCase):
     def test_fusion_configuration_round_trip_preserves_backend_dataclass(self):
@@ -55,19 +56,34 @@ class FusionConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             FusionSettings.for_backend("learned_residual_alpha")
 
-    def test_generator_rebuilds_backend_after_settings_change(self):
+    def test_service_rebuilds_backend_after_settings_change(self):
         with tempfile.TemporaryDirectory() as root:
             config = Configuration('cache-test', 'VAE_ResNet_2D', (1, 16, 16), save_path=root)
-            generator = HybridDataGenerator(config)
-            first = generator._ensure_fusion_backend()
-            self.assertIs(generator._ensure_fusion_backend(), first)
+            service = FusionService(
+                config.fusion,
+                config.extraction,
+                config.study.seed,
+                Mock(),
+                Mock(),
+                Mock(),
+            )
+            first = service._ensure_backend()
+            self.assertIs(service._ensure_backend(), first)
             config.fusion.parameters.max_alpha = 0.6
-            second = generator._ensure_fusion_backend()
+            second = service._ensure_backend()
             self.assertIsNot(first, second)
             self.assertEqual(first.params.max_alpha, 0.8)
             self.assertEqual(second.params.max_alpha, 0.6)
-            injected = HybridDataGenerator(config, fusion_backend=first)
-            self.assertIs(injected._ensure_fusion_backend(), first)
+            injected = FusionService(
+                config.fusion,
+                config.extraction,
+                config.study.seed,
+                Mock(),
+                Mock(),
+                Mock(),
+                backend=first,
+            )
+            self.assertIs(injected._ensure_backend(), first)
 
 if __name__ == '__main__':
     unittest.main()

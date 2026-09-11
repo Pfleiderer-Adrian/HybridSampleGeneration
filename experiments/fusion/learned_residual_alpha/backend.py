@@ -11,13 +11,17 @@ import torch
 import torch.nn.functional as F
 from scipy.ndimage import zoom
 
-from hybrid_sample_generator.fusion.classical.backend import ClassicalFusionBackend
+from hybrid_sample_generator.fusion.classical.intensity import match_local_intensity
 from hybrid_sample_generator.fusion.preprocessing import (
     denormalize_anomaly as _denormalize_anomaly,
     inverse_extraction_scale as _inverse_extraction_scale,
     validate_position as _validate_position,
 )
-from hybrid_sample_generator.fusion.interfaces import FusionOutput, control_background_mask, keep_control_background_after_fusion
+from hybrid_sample_generator.fusion.background import (
+    control_background_mask,
+    keep_control_background_after_fusion,
+)
+from hybrid_sample_generator.fusion.interfaces import FusionOutput
 from experiments.fusion.learned_residual_alpha.configuration import Config
 from experiments.fusion.learned_residual_alpha.model import ResidualAlphaRefiner
 from experiments.fusion.learned_residual_alpha.preprocessing import (
@@ -406,7 +410,7 @@ class LearnedResidualAlphaFusionBackend:
         base_alpha = _soft_alpha(mask_crop, self.params, spatial_dims)
         alpha_for_normalization = np.zeros_like(target_mask, dtype=np.float32)
         alpha_for_normalization[crop_to_bg] = base_alpha
-        anom = ClassicalFusionBackend._match_local_intensity(
+        anom = match_local_intensity(
             anom,
             ctrl,
             bg_slice,

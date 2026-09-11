@@ -31,7 +31,7 @@ from examples.mvtec_ad2.steps import (
 )
 
 MVTECAD2_ROOT = Path(os.environ.get("MVTECAD2_ROOT", r"/mnt/results/mvtec2/mvtec_ad_2"))
-MVTECAD2_SAVE = Path(os.environ.get("MVTECAD2_SAVE", r"/mnt/results/mvtec2/experiments/test_datarepo_v3"))
+MVTECAD2_SAVE = Path(os.environ.get("MVTECAD2_SAVE", r"/mnt/results/mvtec2/experiments/test_datarepo_v4"))
 
 def prepare_mvtecad2_usecases(
     root: Path | str = MVTECAD2_ROOT,

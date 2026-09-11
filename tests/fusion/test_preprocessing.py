@@ -1,12 +1,9 @@
-"""Tests for fusion preprocessing, masks, and intensity helpers."""
+"""Tests for backend-independent fusion preprocessing."""
 
 import unittest
 
 import numpy as np
 
-from hybrid_sample_generator.fusion.classical.alpha import get_alpha_mask_2d
-from hybrid_sample_generator.fusion.classical.configuration import Config as ClassicalConfig
-from hybrid_sample_generator.fusion.classical.intensity import infer_output_intensity_bounds
 from hybrid_sample_generator.fusion.preprocessing import (
     denormalize_anomaly,
     inverse_extraction_scale,
@@ -37,28 +34,6 @@ class FusionPreprocessingTests(unittest.TestCase):
             [[2, 1]],
         )
         self.assertEqual(validate_position((0.25, 0.75), 2), (0.25, 0.75))
-
-class ClassicalFusionHelperTests(unittest.TestCase):
-    def test_alpha_mask_is_bounded_and_zero_outside_support(self):
-        config = ClassicalConfig(
-            fusion_variation=False,
-            fusion_use_sobel_for_alpha_mask=False,
-            upsampling_factor=1,
-        )
-        anomaly = np.ones((5, 5), dtype=np.float32)
-        support = np.zeros((5, 5), dtype=np.uint8)
-        support[1:4, 1:4] = 1
-
-        alpha = get_alpha_mask_2d(anomaly, config, support)
-
-        self.assertEqual(alpha.dtype, np.float32)
-        self.assertAlmostEqual(float(alpha.max()), config.max_alpha)
-        self.assertTrue(np.all(alpha[support == 0] == 0.0))
-
-    def test_output_bounds_are_inferred_only_for_known_ranges(self):
-        self.assertEqual(infer_output_intensity_bounds([0.0, 1.0]), (0.0, 1.0))
-        self.assertEqual(infer_output_intensity_bounds([0.0, 255.0]), (0.0, 255.0))
-        self.assertIsNone(infer_output_intensity_bounds([-2.0, 300.0]))
 
 if __name__ == "__main__":
     unittest.main()

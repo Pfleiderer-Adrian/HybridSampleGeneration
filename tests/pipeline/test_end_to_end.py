@@ -85,7 +85,7 @@ class PipelineEndToEndTests(unittest.TestCase):
                 fusion_backend=_FakeFusionBackend(),
             )
             with patch(
-                "hybrid_sample_generator.pipeline.hybrid_data_generator.tqdm",
+                "hybrid_sample_generator.fusion.service.tqdm",
                 side_effect=lambda iterable, **_kwargs: iterable,
             ) as progress:
                 generated = materializer.materialize_hybrid_samples()
