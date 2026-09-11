@@ -1,3 +1,5 @@
+"""Preview and perform consistent removal of study records and artifacts."""
+
 from __future__ import annotations
 
 import shutil

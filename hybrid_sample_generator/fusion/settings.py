@@ -1,3 +1,5 @@
+"""Backend-independent fusion settings and serialization."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass

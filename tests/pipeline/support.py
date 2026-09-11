@@ -1,3 +1,5 @@
+"""Shared fake components and sample fixtures for pipeline tests."""
+
 import numpy as np
 
 from hybrid_sample_generator.domain.input_sample import InputSample

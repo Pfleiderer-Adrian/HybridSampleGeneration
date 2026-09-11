@@ -1,3 +1,5 @@
+"""Neural network components for learned residual-alpha fusion."""
+
 from __future__ import annotations
 
 import torch

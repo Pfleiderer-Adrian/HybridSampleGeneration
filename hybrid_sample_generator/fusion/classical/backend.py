@@ -1,3 +1,5 @@
+"""Classical intensity-based anomaly fusion backend."""
+
 from __future__ import annotations
 
 from dataclasses import replace

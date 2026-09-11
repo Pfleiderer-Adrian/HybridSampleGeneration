@@ -1,3 +1,5 @@
+"""Tests for evaluation metrics and outlier detection."""
+
 import unittest
 
 import numpy as np

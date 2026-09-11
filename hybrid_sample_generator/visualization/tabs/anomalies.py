@@ -1,3 +1,5 @@
+"""Visualization tab for real and synthetic anomaly variants."""
+
 from __future__ import annotations
 
 from tkinter import ttk

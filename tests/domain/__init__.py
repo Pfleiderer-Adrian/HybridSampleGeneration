@@ -1,1 +1,1 @@
-
+"""Domain model test package."""

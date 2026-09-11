@@ -1,3 +1,5 @@
+"""Tests for consistent record and artifact maintenance."""
+
 from hybrid_sample_generator.visualization.maintenance import StudyMaintenance
 from tests.visualization.support import VisualizerStudyTestCase
 

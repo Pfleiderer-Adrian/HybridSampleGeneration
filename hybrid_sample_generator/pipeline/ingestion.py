@@ -1,3 +1,5 @@
+"""Validate, classify, and persist source dataset samples."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

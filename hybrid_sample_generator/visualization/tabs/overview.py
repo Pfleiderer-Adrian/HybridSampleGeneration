@@ -1,3 +1,5 @@
+"""Visualization tab summarizing study contents and status."""
+
 from __future__ import annotations
 
 import json

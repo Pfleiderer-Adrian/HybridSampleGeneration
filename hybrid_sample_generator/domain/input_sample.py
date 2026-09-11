@@ -1,3 +1,5 @@
+"""Typed input samples and adapters for dataset ingestion."""
+
 from __future__ import annotations
 
 import os

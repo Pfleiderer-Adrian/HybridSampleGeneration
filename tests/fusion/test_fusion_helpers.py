@@ -1,3 +1,5 @@
+"""Tests for fusion preprocessing, masks, and intensity helpers."""
+
 import unittest
 
 import numpy as np

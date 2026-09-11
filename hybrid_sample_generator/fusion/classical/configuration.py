@@ -1,3 +1,5 @@
+"""Configuration model for the classical fusion backend."""
+
 from dataclasses import dataclass
 
 from hybrid_sample_generator.fusion.config_validation import validate_parameters

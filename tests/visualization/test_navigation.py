@@ -1,3 +1,5 @@
+"""Tests for image-grid selection and slice navigation."""
+
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock

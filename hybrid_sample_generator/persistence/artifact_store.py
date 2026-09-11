@@ -1,3 +1,5 @@
+"""Filesystem storage and loading of study array artifacts."""
+
 from __future__ import annotations
 
 import os

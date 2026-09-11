@@ -1,3 +1,5 @@
+"""Tests for anomaly extraction, normalization, resampling, and ROIs."""
+
 import unittest
 from unittest.mock import patch
 

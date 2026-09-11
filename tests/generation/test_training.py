@@ -1,3 +1,5 @@
+"""Tests for training augmentation, metrics, and parameter sampling."""
+
 import unittest
 
 import torch

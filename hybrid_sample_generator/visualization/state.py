@@ -1,3 +1,5 @@
+"""Shared selection state and notifications for visualization tabs."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, replace

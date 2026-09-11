@@ -1,3 +1,5 @@
+"""Shared study fixtures and helpers for visualization tests."""
+
 import csv
 import json
 import tempfile

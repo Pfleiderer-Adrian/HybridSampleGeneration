@@ -1,3 +1,5 @@
+"""Visualization tab for traversing relationships between study records."""
+
 from __future__ import annotations
 
 from tkinter import messagebox, ttk

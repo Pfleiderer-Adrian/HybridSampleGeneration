@@ -1,3 +1,5 @@
+"""Desktop application for browsing and maintaining a study."""
+
 from __future__ import annotations
 
 import os

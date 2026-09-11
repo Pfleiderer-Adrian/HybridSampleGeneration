@@ -1,3 +1,5 @@
+"""Tests for mask encoding, interpolation, and transformations."""
+
 import unittest
 
 import numpy as np

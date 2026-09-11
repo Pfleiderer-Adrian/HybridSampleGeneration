@@ -1,3 +1,5 @@
+"""Visualization tab for filtering and inspecting original samples."""
+
 from __future__ import annotations
 
 import tkinter as tk

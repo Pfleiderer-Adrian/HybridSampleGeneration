@@ -1,3 +1,5 @@
+"""Tests for study dataset factory methods."""
+
 from hybrid_sample_generator.datasets.record_datasets import (
     HybridSampleDataset,
     OriginalSampleDataset,

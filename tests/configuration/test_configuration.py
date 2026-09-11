@@ -1,3 +1,5 @@
+"""Tests for configuration validation, serialization, and compatibility."""
+
 import json
 import tempfile
 import unittest

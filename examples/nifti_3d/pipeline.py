@@ -1,3 +1,5 @@
+"""Run the three-dimensional hybrid sample generation example."""
+
 from examples.nifti_3d.nifti_dataloader import NiftiDataloader
 from hybrid_sample_generator.configuration.root import Configuration
 from hybrid_sample_generator.evaluation.service import evaluate_study

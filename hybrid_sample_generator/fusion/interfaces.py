@@ -1,3 +1,5 @@
+"""Shared interfaces and result types for fusion backends."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,3 +1,5 @@
+"""Configuration models for anomaly matching and placement."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

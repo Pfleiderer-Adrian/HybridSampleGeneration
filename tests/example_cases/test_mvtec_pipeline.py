@@ -1,3 +1,5 @@
+"""Tests for MVTec AD 2 pipeline step selection."""
+
 import unittest
 
 from examples.mvtec_ad2.steps import _default_generation_steps

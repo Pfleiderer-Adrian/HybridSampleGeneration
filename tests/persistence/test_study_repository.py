@@ -1,3 +1,5 @@
+"""Tests for study repository persistence and integrity."""
+
 import sqlite3
 import tempfile
 import unittest

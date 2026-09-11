@@ -1,3 +1,5 @@
+"""Shared interfaces for synthetic anomaly generators."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

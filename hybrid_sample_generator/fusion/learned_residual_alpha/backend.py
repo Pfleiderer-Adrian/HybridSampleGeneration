@@ -1,3 +1,5 @@
+"""Learned residual-alpha anomaly fusion backend."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, replace

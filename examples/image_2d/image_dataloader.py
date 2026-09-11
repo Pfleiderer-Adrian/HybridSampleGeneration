@@ -1,3 +1,5 @@
+"""Load and save channel-first images for the two-dimensional example."""
+
 import os
 import glob
 from typing import Dict, Iterator, List, Tuple

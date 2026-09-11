@@ -1,3 +1,5 @@
+"""Tests for synthetic anomaly and hybrid materialization."""
+
 import tempfile
 import unittest
 from pathlib import Path

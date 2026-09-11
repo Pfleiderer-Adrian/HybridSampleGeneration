@@ -1,3 +1,5 @@
+"""Visualization tab for generated hybrid samples and placements."""
+
 from __future__ import annotations
 
 import tkinter as tk

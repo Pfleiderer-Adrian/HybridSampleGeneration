@@ -1,3 +1,5 @@
+"""Factory facade for repository-backed study datasets."""
+
 from __future__ import annotations
 
 from hybrid_sample_generator.datasets.record_datasets import (

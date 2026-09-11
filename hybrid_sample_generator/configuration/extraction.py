@@ -1,3 +1,5 @@
+"""Configuration models for anomaly extraction and ROI construction."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

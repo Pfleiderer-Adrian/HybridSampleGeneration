@@ -1,3 +1,5 @@
+"""Configuration models for generation-time data augmentation."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field

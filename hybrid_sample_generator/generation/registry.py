@@ -1,3 +1,5 @@
+"""Registry and construction helpers for generator models."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

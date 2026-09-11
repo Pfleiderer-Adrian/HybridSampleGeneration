@@ -1,3 +1,5 @@
+"""Reusable Matplotlib image-grid widget for study artifacts."""
+
 from __future__ import annotations
 
 from tkinter import ttk

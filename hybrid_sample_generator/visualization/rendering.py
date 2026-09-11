@@ -1,3 +1,5 @@
+"""Array loading, normalization, slicing, and panel rendering helpers."""
+
 from __future__ import annotations
 
 from collections import OrderedDict

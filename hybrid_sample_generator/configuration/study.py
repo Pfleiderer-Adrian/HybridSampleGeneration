@@ -1,3 +1,5 @@
+"""Study identity, storage, and reproducibility configuration."""
+
 from __future__ import annotations
 
 import os

@@ -1,3 +1,5 @@
+"""Configuration model for learned residual-alpha fusion."""
+
 from dataclasses import dataclass
 
 from hybrid_sample_generator.fusion.config_validation import validate_parameters

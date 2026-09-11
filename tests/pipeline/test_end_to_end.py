@@ -1,3 +1,5 @@
+"""End-to-end tests for generation and evaluation workflows."""
+
 import csv
 import tempfile
 import unittest

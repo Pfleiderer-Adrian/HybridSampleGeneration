@@ -1,3 +1,5 @@
+"""Run the two-dimensional hybrid sample generation example."""
+
 from examples.image_2d.image_dataloader import ImageDataloader
 from hybrid_sample_generator.configuration.root import Configuration
 from hybrid_sample_generator.evaluation.service import evaluate_study
@@ -16,7 +18,7 @@ dataloader_all_samples = ImageDataloader(path_to_img, path_to_seg)
 if __name__ == "__main__":
 
     # define a basic configuration
-    config = Configuration("images", "VAE_ResNet_2D", (3, 32, 32))
+    config = Configuration("images", "cVAE_ConvNeXt_2D", (3, 32, 32))
     # Optional trainable fusion backend:
     # config.fusion.set_backend("learned_residual_alpha")
 

@@ -1,3 +1,5 @@
+"""Typed settings and serialization for generator models."""
+
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, is_dataclass
 

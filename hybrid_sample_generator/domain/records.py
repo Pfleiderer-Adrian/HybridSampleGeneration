@@ -1,3 +1,5 @@
+"""Immutable domain records for persisted study entities and relationships."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

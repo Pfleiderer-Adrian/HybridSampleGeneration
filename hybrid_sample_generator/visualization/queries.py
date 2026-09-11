@@ -1,3 +1,5 @@
+"""In-memory query model for study records and relationships."""
+
 from __future__ import annotations
 
 import csv

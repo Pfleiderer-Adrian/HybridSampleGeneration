@@ -1,3 +1,5 @@
+"""Configuration model for conditional ConvNeXt VAEs."""
+
 from dataclasses import asdict
 
 from hybrid_sample_generator.generation.model_settings import ModelHyperparameterSpace

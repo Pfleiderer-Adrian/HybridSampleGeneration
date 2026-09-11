@@ -1,3 +1,5 @@
+"""Reusable base widget for browsing study entities and images."""
+
 from __future__ import annotations
 
 import json

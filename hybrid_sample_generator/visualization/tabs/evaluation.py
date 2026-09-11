@@ -1,3 +1,5 @@
+"""Visualization tab for inspecting evaluation metrics and outliers."""
+
 from __future__ import annotations
 
 import tkinter as tk

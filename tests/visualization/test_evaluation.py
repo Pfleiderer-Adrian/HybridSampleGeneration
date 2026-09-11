@@ -1,3 +1,5 @@
+"""Tests for evaluation result visualization."""
+
 from dataclasses import replace
 from unittest.mock import Mock
 

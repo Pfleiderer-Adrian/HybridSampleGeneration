@@ -1,3 +1,5 @@
+"""Shared fixtures and helpers for repository-backed dataset tests."""
+
 import tempfile
 import unittest
 from pathlib import Path

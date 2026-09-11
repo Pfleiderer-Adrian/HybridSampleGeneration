@@ -1,3 +1,5 @@
+"""Tests for MVTec AD 2 discovery and dataset adapters."""
+
 import tempfile
 import unittest
 from pathlib import Path

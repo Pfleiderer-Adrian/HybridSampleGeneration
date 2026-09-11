@@ -1,3 +1,5 @@
+"""Tests for fusion configuration, backends, and checkpoints."""
+
 import tempfile
 import unittest
 from dataclasses import asdict

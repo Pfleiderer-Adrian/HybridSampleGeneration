@@ -1,3 +1,5 @@
+"""Plan hybrid samples and anomaly placements from matching candidates."""
+
 from __future__ import annotations
 
 from time import perf_counter

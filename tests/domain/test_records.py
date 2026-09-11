@@ -1,3 +1,5 @@
+"""Tests for immutable domain records and spatial positions."""
+
 import unittest
 from dataclasses import FrozenInstanceError
 

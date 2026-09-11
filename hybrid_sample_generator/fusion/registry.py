@@ -1,3 +1,5 @@
+"""Registry and construction helpers for fusion backends."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

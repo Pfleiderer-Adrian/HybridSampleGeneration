@@ -1,3 +1,5 @@
+"""Tests for registered generator model architectures."""
+
 import unittest
 
 import torch

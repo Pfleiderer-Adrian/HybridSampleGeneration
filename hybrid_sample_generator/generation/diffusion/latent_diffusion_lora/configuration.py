@@ -1,3 +1,5 @@
+"""Configuration model for latent-diffusion LoRA generation."""
+
 from dataclasses import asdict
 
 from hybrid_sample_generator.generation.diffusion.latent_diffusion_lora.model_2d import Config

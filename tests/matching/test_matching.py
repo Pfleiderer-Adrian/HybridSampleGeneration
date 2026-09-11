@@ -1,3 +1,5 @@
+"""Tests for anomaly matching, caching, and placement planning."""
+
 import contextlib
 import io
 import tempfile

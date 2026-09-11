@@ -1,3 +1,5 @@
+"""Top-level configuration composition, validation, and serialization."""
+
 from __future__ import annotations
 
 import json

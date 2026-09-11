@@ -1,3 +1,5 @@
+"""Tests for typed input samples and ingestion adapters."""
+
 import unittest
 from pathlib import Path
 

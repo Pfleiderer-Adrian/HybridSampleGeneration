@@ -1,3 +1,5 @@
+"""Tests for record browsing and datasource filtering."""
+
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock

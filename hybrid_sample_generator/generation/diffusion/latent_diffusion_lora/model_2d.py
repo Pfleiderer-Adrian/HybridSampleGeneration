@@ -1,3 +1,5 @@
+"""Two-dimensional latent-diffusion LoRA generator implementation."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass

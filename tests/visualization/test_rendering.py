@@ -1,3 +1,5 @@
+"""Tests for image and segmentation rendering helpers."""
+
 import unittest
 from unittest.mock import Mock
 

@@ -1,3 +1,5 @@
+"""Tests for typed datasets backed by persisted records."""
+
 import tempfile
 import unittest
 from pathlib import Path

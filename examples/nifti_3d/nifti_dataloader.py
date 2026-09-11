@@ -1,3 +1,5 @@
+"""Load channel-first NIfTI volumes for the three-dimensional example."""
+
 import os
 import glob
 from pathlib import Path

@@ -14,6 +14,13 @@ Study metadata and relationships are stored in `artifacts.sqlite`. NumPy arrays
 remain normal files below `artifacts/`; the database stores paths relative to
 the study folder.
 
+A **record** is a small, structured description of one study entity, such as an
+original sample, a real or synthetic anomaly, a hybrid sample, or a placement.
+Records contain identifiers, metadata, artifact paths, and links to related
+records; the image and segmentation arrays themselves remain separate `.npy`
+files. In Python, these records are immutable dataclasses defined in
+`hybrid_sample_generator/domain/records.py` and persisted in `artifacts.sqlite`.
+
 ```text
 OriginalSample  1 ── 0..n  RealAnomaly  1 ── 0..n  SyntheticAnomaly
        1                                                      1

@@ -1,3 +1,5 @@
+"""Shared base implementation for variational autoencoders."""
+
 from abc import ABC, abstractmethod
 from typing import Any, Iterable, List, Optional, Tuple, Union
 

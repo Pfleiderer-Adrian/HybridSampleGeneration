@@ -1,3 +1,5 @@
+"""Canonical filesystem paths for persisted study data."""
+
 import os
 from dataclasses import dataclass
 
