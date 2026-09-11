@@ -1,0 +1,54 @@
+"""Tests for MVTec AD 2 pipeline step selection."""
+
+import unittest
+
+from examples.mvtec_ad2.steps import _default_generation_steps
+
+
+class MVTecPipelineStepTests(unittest.TestCase):
+    def test_fresh_generation_starts_with_dataset_ingest(self):
+        steps = _default_generation_steps(
+            train_generator=True,
+            load_existing_generator=False,
+            generate_synthetic_anomalies=True,
+            plan_hybrids=True,
+        )
+
+        self.assertEqual(steps[0:2], ("ingest_dataset", "extract_anomalies"))
+
+    def test_existing_synthetic_anomalies_need_no_load_step(self):
+        steps = _default_generation_steps(
+            train_generator=False,
+            load_existing_generator=False,
+            generate_synthetic_anomalies=False,
+            plan_hybrids=True,
+        )
+
+        self.assertEqual(
+            steps,
+            (
+                "plan_hybrid_samples",
+                "materialize_hybrid_samples",
+                "save_config",
+            ),
+        )
+
+    def test_existing_hybrid_plan_needs_no_load_step(self):
+        steps = _default_generation_steps(
+            train_generator=False,
+            load_existing_generator=False,
+            generate_synthetic_anomalies=False,
+            plan_hybrids=False,
+        )
+
+        self.assertEqual(
+            steps,
+            (
+                "materialize_hybrid_samples",
+                "save_config",
+            ),
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

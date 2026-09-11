@@ -1,14 +1,11 @@
-early-stopping-pytorch==1.0.10
-accelerate>=1.1.0
-diffusers>=0.35.1
-huggingface-hub>=0.25.0
-jsonpickle==4.1.1
+# Install the appropriate PyTorch CPU/CUDA variant before this file when needed.
+torch
 matplotlib==3.10.8
 nibabel==5.3.3
+numpy==2.4.6
 optuna==4.6.0
 pandas==2.3.3
-peft>=0.14.0
-pip==25.1.1
+Pillow==12.2.0
 scikit-image==0.26.0
-safetensors>=0.4.5
-transformers>=4.46.0
+scipy==1.17.1
+tqdm==4.68.2

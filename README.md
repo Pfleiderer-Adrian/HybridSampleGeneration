@@ -1,354 +1,523 @@
 # Hybrid Sample Generation
 ![Python](https://img.shields.io/badge/Python-14354C?style=flat&logo=python&logoColor=green) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![DOI:AMLDS63918.2025.11159383](http://img.shields.io/badge/DOI-AMLDS63918.2025.11159383-B31B1B.svg)](https://doi.org/10.1109/AMLDS63918.2025.11159383)
 
-This repository implements a hybrid sample generation pipeline for imaging data to extend existing training datasets.
-The implementation is based on the IEEE paper: https://doi.org/10.1109/AMLDS63918.2025.11159383
-.
+This project extracts real anomalies from labelled 2D images or 3D volumes,
+trains a generative model, creates multiple synthetic variants and places them
+into original control samples. It is based on the IEEE paper
+[AMLDS63918.2025.11159383](https://doi.org/10.1109/AMLDS63918.2025.11159383).
 
-It extracts real anomaly cutouts from labeled images/volumes, trains a **VAE Model**, generates
-**synthetic anomaly cutouts**, matches them to control samples (images w/o anomalies) via ROI template matching, and finally
-**fuses** synthetic anomalies into control images/volumes to produce hybrid data **and** a corresponding
-segmentation mask.
+![High-level overview of hybrid sample generation](high_level.png)
 
-Core modules:
-- `synthesizer/HybridDataGenerator.py` — pipeline wrapper
-- `synthesizer/Configuration.py` — configuration + metadata persistence
-- `synthesizer/function_XD/Anomaly_Extraction.py` — anomaly + ROI cutouts
-- `synthesizer/function_XD/MatchingXD.py` — matching (syn. anomaly x control image)
-- `synthesizer/function_XD/FusionXD.py` — fusion (syn. anomaly x control image)
-- `synthesizer/Trainer.py` — Optuna training loop
----
+## Requirements and installation
 
-### How it works
+The pipeline uses PyTorch, Optuna, NumPy, SciPy, pandas, scikit-image and
+Matplotlib. Additional model and file-format dependencies are listed in
+`requirements.txt`.
 
-✅ **Input**  
-- Control samples: image/volume (Samples without anomalies)  
-- Anomaly samples: image/volume + anomaly mask (Samples with anomalies)
-- A Dataloader/Iterator for your dataset
+Install PyTorch in the variant appropriate for the local CPU/CUDA environment,
+then install the project in editable mode:
 
-✅ **Output**  
-- Fused control volume containing inserted synthetic anomaly  
-- Segmentation mask for the inserted anomaly
-
-✅ **Supported shapes**
-- 3D: `(C, D, H, W)`
-- 2D: `(C, H, W)`
-
----
-
-### Main Requirements
-
-✅ **Packages:**
-- `Python`
-- `torch`
-- `optuna`
-- `numpy`, `scipy`, `pandas`
-- small packages are listed in requirements.txt
-
-> Exact versions depend on your CUDA / PyTorch setup.
-
-✅ **Dataloader / Iterator:**
-
-Implement a custom dataloader/iterator for your dataset (e.g., NIfTI .nii/.nii.gz files stored in a single folder).
-
-Each iteration must yield:
-- img_arr
-- seg_arr
-- basename
-
-**and**
-- img_arr.shape == seg_arr.shape
-- Both arrays must be in channels-first format: (Channels, Depth, Height, Width) or (Channels, Height, Width)
-
----
-
-### Usage
-```python
-    # create config
-    config = Configuration("Study01", "VAE_ResNet_3D", anomaly_size=(1, 32, 96, 96))
-
-    HDG = HybridDataGenerator(config)
-    # 1) Extract anomaly cutouts + ROI cutouts from anomaly-labeled samples
-    HDG.extract_anomalies(your_dataloader)
-    # 1) Or load already extracted anomalies
-    HDG.load_anomalies()
-
-    # 2) Train generator via Optuna
-    HDG.train_generator(no_of_trials=5)
-    # 2) Or only load a trained model
-    HDG.load_generator()
-
-    # 3) Generate and load synthetic anomalies
-    HDG.generate_synth_anomalies()
-    # 3) Or load already generated synthetic anomalies
-    HDG.load_synth_anomalies()
-
-    # 4) Create matching between control samples and anomaly ROIs
-    HDG.create_matching_dict(your_dataloader)
-    # 4) Or load already created matching dict
-    HDG.load_matching_dict()
-
-    # 5) Generate new Hybrid Training Samples and synthetic ROIs
-    img, seg = HDG.fusion_synth_anomalies(control_image, basename_of_image)
-
-    # 6) Compute (textural and morphological) metric differences for real-synthetic pairs
-    HDG.run_evaluation_pipeline(dataloader_samples_with_anomalies)
-
-    # 7) Start Outlier Viewer for manual inspection of generated samples
-    HDG.visualize_evaluation_results()
-
+```bash
+python -m pip install -e .
 ```
 
----
+Exact PyTorch and CUDA versions depend on the target system. A GPU is useful for
+training but the orchestration and repository layers do not require one.
 
-### Extraction logic
+## Quick start
 
-Extract regions of intereset around anomalies from the input data.
+```python
+from hybrid_sample_generator.configuration.root import Configuration
+from hybrid_sample_generator.evaluation.service import evaluate_study
+from hybrid_sample_generator.pipeline.hybrid_data_generator import HybridDataGenerator
+from hybrid_sample_generator.visualization import run_hybrid_visualizer
 
-The dimension of the tuples should correspond to that of the data:
-- 3-dimensional data -> 3-dimensional tuples
-- 2-dimensional data -> 2-dimensional tuples
+config = Configuration(
+    "study-01",
+    "cVAE_ConvNeXt_2D",
+    anomaly_size=(1, 32, 32),
+    study_folder="results/study-01",
+)
 
-The values in the tuples should be provided in the  order:
-(depth,) height, width
+config.generation.variants_per_real_anomaly = 5
+config.matching.hybrids_per_original = 3
+config.matching.anomalies_per_hybrid = 2
+config.matching.reuse_synthetic_across_hybrids = True
+config.matching.allow_sibling_variants_in_same_hybrid = False
+config.matching.routine = "local"
 
-The parameters are:
+generator = HybridDataGenerator(config)
+summary = generator.ingest_dataset(all_samples_dataloader)
+generator.extract_anomalies()
+generator.train_generator(no_of_trials=5)
+generator.generate_synthetic_anomalies()
 
-- `extraction_add_background_noise`
+# Planning writes HybridSample/Placement records and updates the matching cache.
+generator.plan_hybrid_samples()
 
-    Type: `bool`
+# Fusion consumes the stored plan and writes generated payloads.
+generator.materialize_hybrid_samples()
 
-    If `True`, add noise to the anomaly background, which is otherwise usually completely black.
+hybrid_dataset = generator.datasets.hybrid_samples(
+    load_to_ram=False,
+    numpy_mode=True,
+)
+evaluation = evaluate_study(config)
+config.save_config_file()
+run_hybrid_visualizer(config)
+```
 
-- `extraction_min_anomaly_coverage_ratio`
+Ingest is the only phase that accepts the source dataloader. Extraction and
+planning select anomalous or normal originals by database fields.
+Repository-backed phases need no load step: a new
+`HybridDataGenerator(config)` can immediately continue from persisted records.
+Only the generator model has to be loaded explicitly before producing new
+variants, because it is an in-memory runtime component. The classical fusion
+backend is created on demand from the validated fusion parameters.
+Save the configuration before opening the visualizer: its configuration view
+reads the saved JSON, and the GUI call blocks until the window closes.
 
-    Type: `float`
+Run the bundled examples from the repository root so their package imports are
+resolved consistently:
 
-    Recommendation: `0.01 - 0.05`
+```bash
+python -m examples.image_2d.main
+python -m examples.nifti_3d.main
+python -m examples.mvtec_ad2.main
+```
 
-    Omit anomalies, whose coverage of `Configuration.anomaly_size` is less than this value.
+## Input data
 
-- `extraction_fixed_roi_size`
+The pipeline accepts channel-first arrays:
 
-    Type: `tuple[int, int, int] | tuple[int, int] | None`
+- 2D: `(C, H, W)`
+- 3D: `(C, D, H, W)`
 
-    Recommendation: `None`
+A single dataloader yields all originals: annotated anomaly sources and normal
+controls. Controls use an empty segmentation; unannotated samples may use
+`None`. A dataloader may yield the compact tuple
+`(image, segmentation, source_name)`.
+For unambiguous source identity and provenance, yield `InputSample` records or
+implement `iter_input_samples()`:
 
-    Set a fixed size for the region of interest.
+```python
+from hybrid_sample_generator.domain.input_sample import InputSample
 
-- `extraction_min_roi_padding`
+yield InputSample(
+    image=image,
+    segmentation=mask,
+    source_name="sample-001",
+    source_image_path="/dataset/images/sample-001.png",
+    source_segmentation_path="/dataset/masks/sample-001.png",
+)
+```
 
-    Type: `tuple[int, int, int] | tuple[int, int] | None`
+Each `source_name` must be unique within an import, even when samples have
+different `source_image_path` values. Resolved source identities must also be
+unique. A positive segmentation marks an anomalous original; an empty mask marks
+an annotated control, and `None` marks an unannotated control.
 
-    Recommendation: `(20, 20)` or `(20, 20, 20)`
+An annotated mask must have the same spatial shape as its image and either one
+channel or the same channel count as the image. The spatial dimensions in
+`config.extraction.anomaly_size` must match the input data; tuple order is
+`(C, H, W)` for 2D and `(C, D, H, W)` for 3D.
 
-    Only applied if `extraction_fixed_roi_size` is `None`.
+The bundled image, NIfTI and MVTec AD 2 loaders expose this typed boundary.
+`ingest_dataset()` validates, classifies and snapshots the complete supplied
+dataset on each call, replacing the previous input catalog and derived records.
+All later phases select their inputs from the repository and never iterate the
+original dataloader again.
 
-    Set the minimum amount of padding for each axis.
-    The value is the amount of total padding on this axis, so each side will receive about half of the padding.
+## Data model and study storage
 
-- `extraction_roi_padding_ratio`
+Study metadata and relationships are stored in `artifacts.sqlite`. NumPy arrays
+remain normal files below `artifacts/`; the database stores paths relative to
+the study folder.
 
-    Type: `tuple[float, float, float] | tuple[float, float] | None`
+A **record** is a small, structured description of one study entity, such as an
+original sample, a real or synthetic anomaly, a hybrid sample, or a placement.
+Records contain identifiers, metadata, artifact paths, and links to related
+records; the image and segmentation arrays themselves remain separate `.npy`
+files. In Python, these records are immutable dataclasses defined in
+`hybrid_sample_generator/domain/records.py` and persisted in `artifacts.sqlite`.
 
-    Recommendation: `(0.5, 0.5)` or `(0.5, 0.5, 0.5)`
+```text
+OriginalSample  1 ── 0..n  RealAnomaly  1 ── 0..n  SyntheticAnomaly
+     1 │                                                    │ 1
+       └── 0..n  HybridSample  1 ── 1..n  Placement  0..n ──┘
+```
 
-    Only applied if `extraction_fixed_roi_size` is `None`.
+A placement is an independent record. It identifies one synthetic anomaly,
+one hybrid sample, an insertion order, a matching method and score, and an
+explicit normalized center position. Positions use `(y, x)` for 2D and
+`(z, y, x)` for 3D. This removes the old one-to-one and filename-based
+relationship between anomalies and generated samples.
 
-    Set the ratio between the padding and the region of interest for each axis.
-    The target padding for each axis is calculated by multiplying the value by the size of the ROI.
-    After `extraction_min_roi_padding` is applied, each side of the ROI receives about half of the padding.
+Database constraints enforce unique component/variant/order combinations and
+foreign-key integrity. Original IDs are deterministic hashes of the resolved
+absolute `source_image_path`, falling back to `source_name` when no path is
+provided. Derived IDs use parent IDs and component, variant or placement-order
+indices. Relationships are stored explicitly rather than inferred from artifact
+filenames. Changing the source path, or the fallback name, changes its ID.
 
----
+One study has this layout:
 
-### Matching logic
-  Pair control samples and synthetic anomalies for fusion and save the results in matching_dict.csv: control, [(anomaly, fusion_position), ...]
+```text
+study/
+  configuration.json
+  artifacts.sqlite
+  <study_name>.db                  # Optuna trials and model checkpoint references
+  trained_models/
+  artifacts/
+    original_samples/<id>/{image,segmentation}.npy
+    real_anomalies/<id>/{image,segmentation,roi_image,roi_segmentation}.npy
+    synthetic_anomalies/<id>/{image,segmentation}.npy
+    hybrid_samples/<id>/{image,segmentation}.npy
+    placements/<id>/{roi_image,roi_segmentation}.npy
+  evaluation_results/
+  exports/
+    images/
+    segmentations/
+```
 
-  Choose one of four possible matching_routines:
+Files appear as their pipeline phases run. Unannotated originals have no
+segmentation artifact; hybrid images and masks are written during materialization.
+Placement ROI images and masks are optional backend outputs. Loading a trained
+generator requires its Optuna database and the referenced model checkpoint.
 
-  Matching count parameters used by local and global:
-  - fusions_per_control:
-      Target number of synthetic ROIs that should be matched with one control sample.
-      With fusions_per_control = 1, each control receives one anomaly if a valid match is found.
-      With higher values, several non-overlapping anomalies can be fused into the same control sample.
-  - max_fusions_per_control_deviation:
-      Adds a random integer deviation in [-max_fusions_per_control_deviation, +max_fusions_per_control_deviation] to fusions_per_control for each control sample.
-      The result is clipped to at least 1.
-      Example: fusions_per_control = 2 and max_fusions_per_control_deviation = 1 produces 1, 2 or 3 requested fusions per control.
-      Use 0 for a fixed number of fusions per control.
+## Continuing a study and repeating phases
 
-  Matching score parameters used by local and global:
-  - matching_intensity_weight:
-      Weight for the standard intensity-based template matching score. Default: 0.5.
-  - matching_gradient_weight:
-      Weight for the gradient-magnitude template matching score. Default: 0.5.
-      The gradient score is computed from the spatial gradient magnitude of ROI and control sample and is only used when the gradient images contain usable structure.
-      If the gradient score is not usable, matching falls back to the available score components.
+For a study with synthetic variants and a saved hybrid plan, continue directly
+with materialization:
 
-  For local and global matching, the final similarity map is a weighted combination of intensity matching and gradient-magnitude matching.
-  This helps prefer insertion positions that match both local brightness/texture and local edge structure.
-  If a ROI is larger than the control sample in any spatial dimension, it is skipped and no template matching is computed for that pair.
+```python
+from hybrid_sample_generator.configuration.root import load_config_file
+from hybrid_sample_generator.pipeline.hybrid_data_generator import HybridDataGenerator
 
-  - local: (pairing not optimal, but fast)  
-      `Fusion synthetic anomaly into a random control sample, finds best position within the sample.`  
-      Iterates through every control sample and attempts to find the configured number of ROI matches.
-      Always only checks the next ROI from the dataloader (until enough matches were found).
-      Uses the combined intensity and gradient-magnitude template matching score to find the best position for a given ROI within the control sample.
-      ROIs matched with the same control sample can not spatially overlap.
-      If a ROI does not fit in the current control (ROI bigger than control or overlap), it is added to skipped_rois.
-      Before loading new ROIs, the routine always checks skipped_rois to see if they fit the current control sample.
-      If all new ROIs are exhausted and anomaly_duplicates is enabled, the routine restarts from the beginning of the ROI list.
-      If the target number of matches cannot be reached, it issues a warning and moves to the next control sample.
+config = load_config_file("results/study-01/configuration.json")
+generator = HybridDataGenerator(config)
+generator.materialize_hybrid_samples()
+```
 
-  - global: (optimal pairing, but slow)  
-      `Fusion synthetic anomaly into the best control sample within the dataset + finds best position within the sample.`  
-      Iterates through every control sample and attempts to find the configured number of ROI matches.
-      Performs combined intensity and gradient-magnitude template matching for all available ROIs against the current control sample to find the best possible positions for every ROI and save info in all_matches list.
-      ROIs matched with the same control sample can not spatially overlap.
-      Prioritizes matches based on the highest similarity score (sort all_matches by similarity descending and then always try to match the next index until no further matches are needed)
-      ROIs that have been successfully matched are added to excluded_roi_samples and are excluded from future controls to avoid reuse.
-      If no more matches are possible for the current control and anomaly_duplicates is enabled, also check excluded_roi_samples and select those with highest similarity.
-      If all available ROIs have been excluded and anomaly_duplicates is enabled, the exclusion list is cleared to allow a full restart of the ROI pool.
-      If the target number of matches cannot be reached, it issues a warning and moves to the next control sample.
+To build a new plan from existing synthetic variants, call
+`generator.plan_hybrid_samples()` before materialization. To regenerate synthetic
+variants with a saved generator, call `generator.load_generator(trial_id=-1)`
+followed by `generator.generate_synthetic_anomalies()`; `-1` selects the best
+Optuna trial, `-2` the newest trial, and a nonnegative number a specific trial.
 
-  - fixed_from_extraction_control_fusion: (if images/dataset are aligned and homogeneous)  
-      `Fusion synthetic anomaly into a random control sample at extraction position.`  
-      Iterates through every control sample and pairs it with exactly one ROI from the dataloader in a sequential 1:1 relationship.
-      Retrieves the exact fusion positions (centroids) from the metadata.
-      If the ROI dataloader is exhausted and anomaly_duplicates is enabled, the routine restarts from the beginning of the ROI list to continue pairing.
-      If the ROI dataloader is exhausted and anomaly_duplicates is disabled, the process stops entirely.
-      Bypasses similarity scores, assuming the pre-extracted anomalies are already valid for the target control.
+Repeating a phase has the following effects:
 
-  - fixed_from_extraction_anomaly_fusion: (if no control samples exists)  
-      `Fusion synthetic anomaly into the original anomaly sample directly over the extracted real anomaly.`  
-      Iterates through every control sample and attempts to find a specific set of synthetic ROIs pre-assigned to it.
-      Uses a naming convention (control_filename + index) to identify and load matching ROI files.
-      Retrieves the exact fusion positions (centroids) from the metadata.
-      Continues to load and append ROIs for a single control sample until no further matching filenames are found.
-      Bypasses overlap checks and similarity scores, assuming the pre-extracted anomalies are already valid for the target control.
+| Phase | Effect on existing results |
+|---|---|
+| `ingest_dataset()` | Replaces all originals and removes real/synthetic anomalies, hybrids, placements and matching-cache entries. |
+| `extract_anomalies()` | Replaces real anomalies and removes synthetic anomalies, hybrids, placements and matching-cache entries. |
+| `generate_synthetic_anomalies()` | Replaces synthetic variants and removes hybrids and placements; the real-ROI matching cache remains available. |
+| `plan_hybrid_samples()` | Replaces all hybrid and placement records, including generated statuses and their artifact references; retains and updates the matching cache. |
+| `materialize_hybrid_samples()` | Processes every stored hybrid, including already generated or failed ones, and rewrites its generated outputs. |
 
-  Matching Summary:
-    After the matching process, the system provides a summary to evaluate the efficiency of the chosen routine and parameters:
-    Utilization Rate: Tracks how many of the available synthetic ROIs were actually fused into control samples.
-    Unused ROIs: If some ROIs were never matched, the system calculates a suggested fusions_per_control value.
-    Optimization Tip: To achieve a ~100% utilization rate, the summary suggests increasing the fusions_per_control based on the ratio of available ROIs to processed control samples.
+These resets remove database records; old array files can remain on disk without
+repository references. Repeating a phase is not an incremental append or an
+automatic skip of completed work. After changing generated data, rerun evaluation
+to replace its previous CSV results.
 
----
+## Configuration
 
-### Fusion logic
-  Fusion inserts the matched synthetic anomaly into the target control sample at the position stored in matching_dict.csv and creates the corresponding segmentation mask.
-  Before blending, the anomaly is cropped to the foreground defined by its target_mask, rescaled with the saved scale_factor and locally intensity-normalized to the insertion region of the control sample.
-  Local intensity normalization uses median/IQR statistics to reduce the impact of outliers and bright edges.
-  If `fusion_restore_anomaly_bg_relation` is enabled, a finite local normalization border is used, and the original anomaly ROI plus ROI mask are available, fusion estimates the original anomaly/context relation from that ROI at fusion time and restores it in the new local context. The normalization is alpha-aware, so the target median/IQR is compensated before blending by the maximum alpha value in the active mask.
-  The actual fusion derives the alpha mask from the target mask by default and uses a distance transform to shape a stronger anomaly interior and softer boundary. If `fusion_use_sobel_for_alpha_mask` is enabled, Sobel edges plus morphological cleanup are used first to refine the mask before the distance transform.
+`Configuration` contains requested behavior only. Generated entities, matching
+results and extraction metadata live in the study repository.
 
-  Fusion parameters are stored in `config.fusion_params` for the selected fusion backend and can be changed with `config.fusion_params.set_fusion_params(...)`:
-  - max_alpha:
-      Controls the maximum blending weight of the anomaly. For example, max_alpha = 0.8 means that fully weighted pixels use 0.8 * anomaly intensity + 0.2 * background intensity.
-  - sq / steepness_factor:
-      Shape the alpha falloff from anomaly interior to boundary.
-  - upsampling_factor:
-      Increases mask resolution during distance-transform computation for smoother alpha masks.
-  - sobel_threshold:
-      Controls which gradients are treated as anomaly edges when `fusion_use_sobel_for_alpha_mask` is enabled.
-  - dilation_size / shave_pixels:
-      Used only in the optional Sobel alpha-mask path: dilation_size closes edge gaps and shave_pixels optionally erodes boundary pixels to reduce visible blending artifacts.
-  - fusion_variation:
-      If enabled, max_alpha, sq and steepness_factor are sampled around their configured values for each fusion.
-  - alpha_variation / sq_variation / steepness_variation:
-      Define the allowed one-sided deviation used for gaussian sampling when fusion_variation is enabled.
-  - selected_confidence:
-      Converts the variation values into standard deviations; for example, selected_confidence = "90%" means samples stay within the configured one-sided deviation in about 90% of cases.
-  - background_threshold:
-      Used upstream when creating foreground masks for extracted/generated anomaly artifacts. During fusion, alpha-mask creation uses the saved target mask directly.
-  - fusion_normalization_border_width:
-      Background region used to estimate control intensity for anomaly normalization. None disables fusion-time intensity normalization; -1 uses the entire image; values >= 0 use a local dilation ring around the anomaly mask. If the ring is smaller than fusion_relation_min_context_size, fusion falls back to all target-mask-outside context pixels in the local insertion patch; with 0 this fallback is the effective context.
-  - fusion_keep_bg / fusion_bg_value / fusion_relative_bg_threshold / fusion_bg_exterior_only:
-      If fusion_keep_bg is enabled, detected control-background regions are kept unchanged after fusion. fusion_bg_value sets a fixed low background reference; if it is None, the reference is estimated per channel from the control border. fusion_relative_bg_threshold expands that reference by a relative fraction of the channel intensity range. fusion_bg_exterior_only limits background detection to regions connected to the control-image border.
-  - fusion_restore_anomaly_bg_relation:
-      If enabled, local border normalization preserves the extracted median/IQR intensity relation between anomaly and original surrounding context. Disable it to normalize only against the local fusion context without using the original ROI relation.
-  - fusion_relation_mode:
-      Selects how the anomaly/context median relation is transferred. `delta` preserves the intensity difference; `ratio` preserves the intensity ratio (use only if medians are not around 0 and intensities are strictly positive).
-  - fusion_relation_norm_classes_separately:
-      False normalizes the complete multiclass anomaly mask once against the outer ring around all classes. True normalizes every anomaly class against its own local ring, with other anomaly classes excluded from the context.
-  - fusion_relation_min_context_size:
-      Minimum number of pixels/voxels required for a context estimate. When estimating the original ROI relation, if the local ring is too small, fusion falls back to background outside all anomaly classes; if that is still too small, no relation is used. During fusion, if a local or class-specific ring is too small, normalization falls back to all target-mask-outside context pixels in the local insertion patch; if that is still too small, that class/scope is skipped.
+```text
+config.study        identity, location, reproducibility seed
+config.extraction   cutout, normalization and ROI rules
+config.augmentation target-mask and training augmentation
+config.generation   model sampling, feedback and variant count
+config.matching     hybrid count, placement count and reuse policies
+config.training     optimizer and dataloader behavior
+config.evaluation   metric/outlier settings
+config.model        generator choice and model-specific parameters
+config.fusion       fusion backend and backend-specific parameters
+```
 
----
+The current configuration schema is version 6 and the artifact database schema
+is version 2. Older study databases and filename/CSV layouts are intentionally
+unsupported; recreate the study and run `ingest_dataset()` again.
 
-### Evaluation details
-  Pairwise comparison of real vs synthetic samples (pairing VAE Input with corresponding generated Output):
+`config.matching.seed` initially copies `config.study.seed`, but the two fields
+are independent afterward. Set both explicitly when changing the study and
+matching seeds together:
 
-  - Textural Comparison: GLCM-based features (Contrast, Homogeneity, Energy, Correlation).
+```python
+config.study.seed = 123
+config.matching.seed = 123
+```
 
-    GLCM (Gray-Level Co-occurrence Matrix):
-        - encodes spatial relationships between intensity values by counting how often pairs of gray levels occur at given directional offsets (2D: 4 directions, 3D: 13 directions)
-        - in this case, a distance of 1 is used, so only immediate neighbors are considered
-        - a GLCM is computed separately for each channel by aggregating over all directional offsets after quantizing intensity values into discrete gray levels
-    
-    Computing differences between real and synthetic anomaly cutouts and between real and synthetic ROIs.
-        Contrast:     Measures local intensity variations; high values indicate sharp edges or coarse textures.
-        Homogeneity:  Measures the similarity of neighboring pixels; high values indicate smooth transitions.
-        Energy:       Measures textural uniformity and order; high values indicate constant or repetitive patterns.
-        Correlation:  Measures the linear dependency of neighboring gray levels; high levels indicate a strong linear relationship.
+### Supported generator models
 
-  - Morphological Comparison: Volume and Center of Mass (CoM). Computing differences between real and synthetic anomaly cutouts.
-        Volume:       Sum of voxels within the segmentation mask to ensure size-preservation during synthesis.
-        CoM:          The spatial centroid of the anomaly, used to detect positional shifts or shape-asymmetry. Calculated separately for each dimension.
+The stable registry contains 2D and 3D variants of `VAE_ResNet`,
+`VAE_ConvNeXt` and the mask-conditioned `cVAE_ConvNeXt`. Use their registered
+names, for example `VAE_ResNet_2D`, `VAE_ConvNeXt_3D` or
+`cVAE_ConvNeXt_2D`, as the second `Configuration` argument. Diffusion models
+are experimental and are not available through the stable registry.
 
-  - Outlier Detection: (Optional) automated removal of low-quality synthetic anomalies and synthetic ROIs (statistical outliers or based on optional fixed thresholds in config).
-      Manual removal of synthetic samples, synthetic ROIs, real anomalies + ROIs and whole generated hybrid samples + segmentations also possible within the Outlier Viewer.
+### Extraction
 
-  - Execution Summary: Outputs key statistics to the console like metric averages for real and synthetic datasets, per-metric outlier counts,
-      and the intersection of outliers across different metrics (outlier overlaps).
+Extraction finds connected components in the positive segmentation, crops each
+component, downscales it only when it exceeds the configured target size, and
+center-pads it to `config.extraction.anomaly_size`. The original ROI, mask,
+normalized source center, scale factors and normalization metadata are retained
+with the resulting `RealAnomaly` record.
 
-  - Saves results to the evaluation_results directory within study_folder:
-      metric_diffs.csv containing all computed metric difference values
-      Histograms (distributions of the metric differences) for every metric, grouped into three .png files: GLCM on cutouts, Volume (morphological metrics) on cutouts, and GLCM on ROIs
+The principal settings are:
 
----
+- `config.extraction.separate_components`: extract connected components as
+  separate real anomalies. When disabled, the positive mask is handled as one
+  region.
+- `config.extraction.min_coverage_ratio`: discard components smaller than this
+  fraction of the target spatial cutout area/volume. The default is `0.05`.
+- `config.extraction.add_background_noise`: add a small noise floor to otherwise
+  constant cutout background.
+- `config.extraction.normalization`: `"z-score"` (mean/std),
+  `"zscore_median"` (median/MAD), or `None`.
+- `config.extraction.roi.fixed_size`: fixed spatial ROI size, or `None` for a
+  dynamic ROI.
+- `config.extraction.roi.min_padding` and `padding_ratio`: for a dynamic ROI,
+  its size on each axis is the anomaly extent plus the larger of the absolute
+  padding and proportional padding.
+- `config.extraction.roi.min_size`: scalar or per-axis lower bound for a dynamic
+  ROI.
 
-### Visualize and Debug anomalies
-  To fine-tune the configuration, debug the generation pipeline or delete samples, you can use the Outlier Viewer.
+ROI tuples contain spatial axes only: `(H, W)` for 2D and `(D, H, W)` for 3D.
 
-  **Key Capabilities:**
-  - Hierarchical Navigation: parent-child relationship between generated hybrid samples and fused anomalies within them (treeview).
-      Navigate between samples (and Slices (Depth) in case of 3D) with on-screen buttons or keyboard arrow keys.
-      Shows generated hybrid sample + segmentation if control name is selected in treeview.
-      Shows synthetic and real anomalies and ROIs if anomaly name (within a control) is selected in treeview.
+### Synthetic variants
 
-  - Metric-based filtering and sorting: dynamically filter and sort dataset by selecting different metrics via checkboxes and adjusting the outlier threshold t via a mouse-draggable slider.
-      Filtering: For each selected metric, only anomalies that fall within the top t% of highest differences of the metric are included in the tree view.
-      Sorting: Ranks samples in descending order (average of their min-max normalized differences across all checked metrics). -> highest differences first
+`config.generation.variants_per_real_anomaly` controls how many children are
+generated for every `RealAnomaly`. Each child has its own deterministic ID,
+variant index, seed, image and target mask. Feedback generation is bounded by
+`config.generation.feedback.max_attempts`.
 
-  - Deletion:
-      Delete button; always asks for confirmation before deletion
-      Delete whole generated hybrid sample + segmentation and all its ROIs if control name is selected in treeview
-      If anomaly name is selected in treeview the delete button opens a window with checkboxes where you can check what you want to delete:
-          Real Anomaly (VAE input) + real ROI
-          Synthetic ROI (just this fusion)
-          Synthetic Anomaly + all its ROIs (may affect other fusions)
-          Hybrid Sample + all ROIs inside
+### Hybrid planning
 
-  - Extra Features: 
-      Contrast control via a mouse-draggable slider
-      Slices (Depth) navigation via mouse wheel scrolling
+- `hybrids_per_original`: requested number of hybrid variants per eligible
+  target original.
+- `anomalies_per_hybrid`: target placement count in each hybrid.
+- `max_anomalies_per_hybrid_deviation`: deterministic random deviation around
+  the placement count.
+- `reuse_synthetic_across_hybrids`: whether the same synthetic ID may be used
+  by more than one hybrid.
+- `allow_sibling_variants_in_same_hybrid`: whether variants with the same real
+  parent may occur together in one hybrid.
+- `intensity_weight` and `gradient_weight`: weights for template matching.
+- `seed`: reproducibility seed owned by the matching phase.
 
-  >The viewer expects .npy arrays with shape (C, D, H, W) or (C, H, W). It loads data directly from the study_folder where it was saved during the generation process.
+`local`, `global`, `batchwise` and `fixed_from_extraction_control_fusion` target
+originals with `has_anomaly=False`. `fixed_from_extraction_anomaly_fusion` targets
+anomalous originals. Only real anomalies with synthetic variants are candidates.
+A hybrid can contain fewer placements than requested; if no eligible placement
+is found, that hybrid is omitted entirely.
 
----
+`local` assigns real anomaly ROIs sequentially across hybrids and controls.
+It searches the full control image only for the next ROI with an eligible
+synthetic variant, trying another ROI if the match is invalid or overlaps an
+existing placement. Matching stops as soon as the requested placement count is
+reached. Each hybrid tries at most one pass through the ROI pool; unused ROIs
+are not loaded or matched. The ROI sequence restarts on each planning run.
 
-### Cite this work
-```tex
+`global` evaluates all real anomaly ROIs for each control and selects placements
+in descending match-score order. `batchwise` evaluates and ranks only a seeded
+subset of at most `batch_size` ROIs per control.
+
+All three modes prepare control and ROI gradients on demand and reuse them
+within the planning run. Pair results, including rejected pairs, are cached in
+SQLite by matcher signature. Repeated planning with unchanged inputs and weights
+reuses evaluated pairs, including when changing modes; new pairs are computed
+only as needed. `fixed_from_extraction_control_fusion` reuses source centers on
+arbitrary controls;
+`fixed_from_extraction_anomaly_fusion` joins originals and real anomalies by
+foreign key and places variants back at their extraction positions.
+
+### Classical fusion
+
+`config.fusion.parameters` is the selected backend's parameter dataclass.
+Configure its fields directly; the former `set_fusion_params(...)` wrapper is
+removed:
+
+```python
+config.fusion.set_backend("classical")  # stable default backend
+
+config.fusion.parameters.sq = 0.1
+config.fusion.parameters.steepness_factor = 5.0
+config.fusion.parameters.upsampling_factor = 2
+config.fusion.parameters.dilation_size = 1
+config.fusion.parameters.shave_pixels = 0
+config.fusion.parameters.max_alpha = 0.9  # default: classical backend
+config.fusion.parameters.fusion_variation = False
+
+config.validate()
+```
+
+The registry creates the matching dataclass and validates parameter types,
+ranges and backend compatibility. Validation also runs when saving/loading a
+configuration and creating a backend. JSON stores backend parameters directly
+under `fusion.parameters`; unknown parameter names are rejected.
+
+The classical backend crops the generated anomaly to its target mask, restores
+its saved extraction scale, matches its intensity to the target context and
+alpha-blends it at the planned normalized center. It returns the fused image, a
+label mask in control coordinates and optional placement ROI artifacts. Multiple
+placements are materialized in their stored order and their label masks are
+combined.
+
+Important classical parameters include:
+
+- `max_alpha`, `sq`, `steepness_factor` and `upsampling_factor`, which control
+  the maximum anomaly contribution and the distance-transform alpha falloff.
+- `fusion_use_sobel_for_alpha_mask`, `sobel_threshold`, `dilation_size` and
+  `shave_pixels`, which enable and tune the optional edge-refined alpha path.
+- `fusion_variation` plus `alpha_variation`, `sq_variation`,
+  `steepness_variation` and `selected_confidence`, which sample blending
+  parameters per placement.
+- `fusion_normalization_border_width`: `None` disables fusion-time intensity
+  normalization, `-1` uses the whole control, `0` uses the available fallback
+  context, and a positive value uses a local ring around the target mask.
+- `fusion_restore_anomaly_bg_relation`, `fusion_relation_mode`,
+  `fusion_relation_norm_classes_separately` and
+  `fusion_relation_min_context_size`, which control whether the original
+  anomaly/context relation is restored and how multiclass context is estimated.
+- `fusion_keep_bg`, `fusion_bg_value`, `fusion_relative_bg_threshold` and
+  `fusion_bg_exterior_only`, which can preserve detected control-background
+  pixels unchanged.
+
+Local normalization uses robust median/IQR context statistics. Relation mode
+`delta` preserves the original median difference; `ratio` preserves the median
+ratio and is intended for strictly positive intensities away from zero. If a
+local or class-specific ring contains too few values, the backend falls back to
+available target-mask-outside context; if that is still insufficient, the scope
+is left unnormalized.
+
+## Repository-backed datasets
+
+`StudyDatasets` creates short-lived `OriginalSampleDataset`,
+`RealAnomalyDataset`, `SyntheticAnomalyDataset` and `HybridSampleDataset` views
+over repository records. Original views can filter `has_anomaly` and
+`is_annotated`. They do not scan folders or align files by basename. Dataset
+objects are not persistent state of `HybridDataGenerator`; callers choose
+explicitly whether a view should load arrays into RAM.
+
+## Evaluation
+
+Evaluation joins each synthetic anomaly to its real parent through
+`real_anomaly_id`. Placement ROI comparisons use the full
+Original → Hybrid → Placement → Synthetic → Real join. The CSV output contains
+all relevant IDs, so multiple variants cannot overwrite or masquerade as one
+pair.
+
+`evaluate_study(config)` compares each explicit real/synthetic cutout pair using
+GLCM contrast, homogeneity, energy and correlation, plus mask volume and center
+of mass. GLCMs quantize each channel to 32 levels and aggregate immediate-neighbor
+pairs over four 2D or thirteen 3D directions. When placement ROI artifacts are
+available, the same GLCM features are also compared between the original real
+ROI and the fused placement ROI.
+
+For every metric the evaluator records the absolute pair difference. Outliers
+default to the `1.5 * IQR` rule and can be overridden per metric with
+`config.evaluation.outlier_thresholds`. Each run replaces
+`evaluation_results/metric_diffs.csv`, writes up to three histogram images
+(cutout texture, cutout morphology and placement-ROI texture), prints real and
+synthetic means, and summarizes outlier overlaps.
+
+Evaluation reads the normalized repository relations directly and does not
+construct a generation orchestrator.
+
+## Visualization
+
+`run_hybrid_visualizer(config)` opens a repository-backed study browser with
+six views: study overview, datasource originals, real/synthetic anomaly variants,
+hybrid samples and their placements, metric-based evaluation, and the complete
+normalized data structure. The Datasource tab lists all ingested originals with
+source-name/ID search and filters for anomalous/control and annotated/unannotated
+samples. Images use automatic RGB display for three-channel arrays; channel,
+slice, contrast and mask overlays remain selectable for grayscale and 3D data.
+In every image view, use the mouse wheel to zoom around the pointer and drag with
+the left mouse button to pan. Double-click a panel or use **Reset zoom** to fit
+images again. Zoom persists across contrast, channel, mask and slice changes;
+selecting another sample resets it. Use Shift+wheel, the slice slider, or Up/Down
+keys to navigate 3D slices.
+The Evaluation tab also previews linked fused placement ROIs for cutout metrics.
+Use **Placement ROI preview** to choose among multiple placements of the same
+synthetic anomaly; available ROI files are preferred initially. Placement metrics
+always show their evaluated placement, and selecting a preview leaves the metrics
+and evaluation scope unchanged.
+Artifacts are loaded lazily and cached only while they are inspected. The data
+structure view can preview dependent records before moving their files into a
+recoverable `.trash` folder and removing the corresponding database records.
+
+The visualizer can also be started for an existing study folder:
+
+```bash
+python -m hybrid_sample_generator.visualization /path/to/study --channel auto
+```
+
+## Experimental prototypes
+
+Unsupported diffusion and learned residual-alpha fusion prototypes are isolated
+under `experiments/`. They are excluded from the stable package API and
+registries and require the optional dependencies in
+`experiments/requirements.txt`. Their APIs, configuration formats and
+checkpoints may change without notice; see `experiments/README.md` for their
+current status.
+
+Install and test them separately only when working on the prototypes:
+
+```bash
+python -m pip install -e ".[experiments]"
+python -m unittest discover -s experiments/tests -v
+```
+
+## Tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The integration tests cover the one-time mixed dataset ingest, multiple real
+components, multiple synthetic and hybrid variants, normalized multi-placement
+records, unique artifacts, foreign-key traversal, 2D/3D coordinates,
+materialization, FK-based evaluation and cached full-image `local` matching.
+
+## Project structure
+
+- `pyproject.toml` — package metadata, stable dependencies and experimental extras
+- `hybrid_sample_generator/configuration/` — validated, section-based configuration
+- `hybrid_sample_generator/domain/` — input and persisted study records
+- `hybrid_sample_generator/persistence/` — repository, study paths and artifacts
+- `hybrid_sample_generator/pipeline/` — ingestion and the public orchestration facade
+- `hybrid_sample_generator/imaging/` — shared image, similarity and mask operations
+- `hybrid_sample_generator/extraction/` — extraction service and 2D/3D implementations
+- `hybrid_sample_generator/matching/` — hybrid planning and matching cache
+- `hybrid_sample_generator/generation/` — generation service, model registry,
+  training and supported VAEs
+- `hybrid_sample_generator/fusion/` — fusion service, shared preprocessing and
+  the classical backend
+- `hybrid_sample_generator/evaluation/` — pairwise metrics, outliers and reports
+- `hybrid_sample_generator/datasets/` — repository-backed training datasets
+- `hybrid_sample_generator/visualization/` — study browser and maintenance UI
+- `examples/` — shared example helpers plus 2D image, 3D NIfTI and MVTec AD 2 workflows
+- `tests/` — tests grouped by the same feature boundaries
+- `experiments/` — unsupported prototypes, optional dependencies and isolated tests
+
+## Cite this work
+
+```bibtex
 @INPROCEEDINGS{11159383,
   author={Pfleiderer, Adrian and Bauer, Bernhard},
-  booktitle={2025 International Conference on Advanced Machine Learning and Data Science (AMLDS)}, 
-  title={Fused Hybrid Training Samples through Synthetic Anomaly Generation for Optimized Model Training}, 
+  booktitle={2025 International Conference on Advanced Machine Learning and Data Science (AMLDS)},
+  title={Fused Hybrid Training Samples through Synthetic Anomaly Generation for Optimized Model Training},
   year={2025},
   pages={248-256},
-  doi={10.1109/AMLDS63918.2025.11159383}}
+  doi={10.1109/AMLDS63918.2025.11159383}
+}
 ```
 
+## License
 
-### License
-This project is licensed under the GNU General Public License v3.0.
+This project is licensed under the GNU General Public License v3.0. See
+`LICENSE` for the complete terms.
