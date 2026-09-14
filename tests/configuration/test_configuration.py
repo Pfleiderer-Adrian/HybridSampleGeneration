@@ -25,6 +25,8 @@ class ConfigurationTests(unittest.TestCase):
             config.matching.anomalies_per_hybrid = 2
             config.generation.variants_per_real_anomaly = 5
             config.training.batch_size = 8
+            config.training.num_trials = 4
+            config.training.trial_selection = 2
 
             path = Path(config.save_config_file())
             serialized = json.loads(path.read_text(encoding="utf-8"))
@@ -37,6 +39,8 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(serialized["matching"]["anomalies_per_hybrid"], 2)
             self.assertEqual(serialized["matching"]["hybrids_per_original"], 3)
             self.assertEqual(serialized["generation"]["variants_per_real_anomaly"], 5)
+            self.assertEqual(serialized["training"]["num_trials"], 4)
+            self.assertEqual(serialized["training"]["trial_selection"], 2)
             self.assertEqual(loaded.to_dict(), config.to_dict())
             self.assertIsInstance(
                 loaded.augmentation.mask_transforms,
@@ -76,6 +80,24 @@ class ConfigurationTests(unittest.TestCase):
     def test_matching_configuration_rejects_invalid_counts(self):
         with self.assertRaises(ValueError):
             MatchingConfiguration(hybrids_per_original=0).validate()
+
+    def test_training_configuration_rejects_invalid_trial_settings(self):
+        config = Configuration(
+            "training-config-test",
+            "VAE_ResNet_2D",
+            (1, 8, 8),
+            study_folder="/tmp/training-config-test",
+        )
+
+        config.training.num_trials = 0
+        with self.assertRaisesRegex(ValueError, "num_trials"):
+            config.training.validate()
+
+        config.training.num_trials = 1
+        for selection in ("newest", -1, True):
+            config.training.trial_selection = selection
+            with self.assertRaisesRegex(ValueError, "trial_selection"):
+                config.training.validate()
 
 
 if __name__ == "__main__":

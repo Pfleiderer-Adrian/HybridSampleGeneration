@@ -89,16 +89,15 @@ class HybridDataGenerator:
         self._log_step("Extracting real anomalies into normalized study records.")
         return self._extraction_service.extract()
 
-    def train_generator(self, no_of_trials):
+    def train_generator(self):
         self._log_step("Training generator model.")
-        self._generation_service.train(no_of_trials)
-        return self.load_generator(trial_id=-1 if no_of_trials > 1 else -2)
+        self._generation_service.train()
+        return self.load_generator()
 
-    def load_generator(self, path_to_db_file=None, trial_id=-1):
+    def load_generator(self, path_to_db_file=None):
         self._log_step("Loading generator model.")
         return self._generation_service.load(
             path_to_db_file=path_to_db_file,
-            trial_id=trial_id,
         )
 
     def generate_synthetic_anomalies(self) -> list[SyntheticAnomaly]:

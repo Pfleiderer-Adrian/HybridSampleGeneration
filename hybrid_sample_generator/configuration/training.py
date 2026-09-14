@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import torch
+
+
+TrialSelection = Literal["best", "last"] | int
 
 
 @dataclass
 class TrainingConfiguration:
     """Model-independent optimization and stopping settings."""
 
+    num_trials: int = 1
+    trial_selection: TrialSelection = "best"
     validation_ratio: float = 0.2
     batch_size: int = 64
     epochs: int = 3000
@@ -30,6 +35,21 @@ class TrainingConfiguration:
     )
 
     def validate(self) -> None:
+        if isinstance(self.num_trials, bool) or not isinstance(self.num_trials, int):
+            raise ValueError("training.num_trials must be an integer.")
+        if self.num_trials <= 0:
+            raise ValueError("training.num_trials must be positive.")
+        if isinstance(self.trial_selection, bool) or not (
+            self.trial_selection in ("best", "last")
+            or (
+                isinstance(self.trial_selection, int)
+                and self.trial_selection >= 0
+            )
+        ):
+            raise ValueError(
+                "training.trial_selection must be 'best', 'last', or a "
+                "non-negative trial ID."
+            )
         if not 0.0 <= float(self.validation_ratio) < 1.0:
             raise ValueError("training.validation_ratio must be in [0, 1).")
         if int(self.batch_size) <= 0 or int(self.epochs) <= 0:

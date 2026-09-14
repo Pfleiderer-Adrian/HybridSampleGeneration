@@ -8,6 +8,7 @@ import torch
 from tqdm import tqdm
 
 from hybrid_sample_generator.configuration.root import Configuration
+from hybrid_sample_generator.configuration.training import TrialSelection
 from hybrid_sample_generator.datasets.study_datasets import StudyDatasets
 from hybrid_sample_generator.domain.records import SyntheticAnomaly
 from hybrid_sample_generator.generation.interfaces import GenerativeBackend
@@ -45,11 +46,15 @@ class GenerationService:
     def model(self) -> GenerativeBackend | None:
         return self._model
 
-    def train(self, no_of_trials: int) -> None:
+    def train(self) -> None:
         """Optimize generator hyperparameters using persisted real anomalies."""
-        optimize(no_of_trials, self.config, self._training_dataset())
+        optimize(
+            self.config.training.num_trials,
+            self.config,
+            self._training_dataset(),
+        )
 
-    def load(self, path_to_db_file=None, trial_id: int = -1) -> GenerativeBackend:
+    def load(self, path_to_db_file=None) -> GenerativeBackend:
         """Build and load the generator referenced by an Optuna trial."""
         storage = (
             self.config.study.paths.optuna_storage_url
@@ -60,7 +65,7 @@ class GenerationService:
             study_name=self.config.study.name,
             storage=storage,
         )
-        trial = _select_trial(study, trial_id)
+        trial = _select_trial(study, self.config.training.trial_selection)
 
         model = get_model_spec(trial.user_attrs["model_name"]).build(
             trial.user_attrs["params"]
@@ -210,20 +215,20 @@ class GenerationService:
         return best
 
 
-def _select_trial(study, trial_id: int):
-    if trial_id == -1:
+def _select_trial(study, selection: TrialSelection):
+    if selection == "best":
         return study.best_trial
 
     trials = study.get_trials()
-    if trial_id == -2:
+    if selection == "last":
         return max(trials, key=lambda value: value.number)
 
     trial = next(
-        (value for value in trials if value.number == trial_id),
+        (value for value in trials if value.number == selection),
         None,
     )
     if trial is None:
-        raise ValueError(f"Optuna trial {trial_id} does not exist.")
+        raise ValueError(f"Optuna trial {selection} does not exist.")
     return trial
 
 

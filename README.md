@@ -40,6 +40,8 @@ config = Configuration(
 )
 
 config.generation.variants_per_real_anomaly = 5
+config.training.num_trials = 5
+config.training.trial_selection = "best"
 config.matching.hybrids_per_original = 3
 config.matching.anomalies_per_hybrid = 2
 config.matching.reuse_synthetic_across_hybrids = True
@@ -49,7 +51,7 @@ config.matching.routine = "local"
 generator = HybridDataGenerator(config)
 summary = generator.ingest_dataset(all_samples_dataloader)
 generator.extract_anomalies()
-generator.train_generator(no_of_trials=5)
+generator.train_generator()
 generator.generate_synthetic_anomalies()
 
 # Planning writes HybridSample/Placement records and updates the matching cache.
@@ -201,9 +203,10 @@ generator.materialize_hybrid_samples()
 
 To build a new plan from existing synthetic variants, call
 `generator.plan_hybrid_samples()` before materialization. To regenerate synthetic
-variants with a saved generator, call `generator.load_generator(trial_id=-1)`
-followed by `generator.generate_synthetic_anomalies()`; `-1` selects the best
-Optuna trial, `-2` the newest trial, and a nonnegative number a specific trial.
+variants with a saved generator, set `config.training.trial_selection` to
+`"best"`, `"last"`, or a concrete nonnegative trial ID and call
+`generator.load_generator()` followed by
+`generator.generate_synthetic_anomalies()`.
 
 Repeating a phase has the following effects:
 

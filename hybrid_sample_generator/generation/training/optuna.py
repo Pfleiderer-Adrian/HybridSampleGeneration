@@ -16,7 +16,7 @@ from hybrid_sample_generator.generation.training.augmentation import (
 from hybrid_sample_generator.generation.training.loop import train
 
 
-def optimize(no_of_trials, config: Configuration, dataset):
+def optimize(num_trials: int, config: Configuration, dataset):
     """Run or resume an Optuna study for the configured generator model."""
     paths = config.study.paths
     os.makedirs(paths.study_folder, exist_ok=True)
@@ -27,7 +27,7 @@ def optimize(no_of_trials, config: Configuration, dataset):
         storage=paths.optuna_storage_url,
     )
     study.optimize(
-        lambda trial: objective(trial, config, dataset), n_trials=no_of_trials
+        lambda trial: objective(trial, config, dataset), n_trials=num_trials
     )
     print("Study statistics: ")
     print("Number of finished trials: ", len(study.trials))

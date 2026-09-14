@@ -76,11 +76,12 @@ class GenerationServiceTests(unittest.TestCase):
             Mock(),
             datasets,
         )
+        config.training.num_trials = 3
 
         with patch(
             "hybrid_sample_generator.generation.service.optimize"
         ) as optimize:
-            service.train(3)
+            service.train()
 
         optimize.assert_called_once_with(3, config, dataset)
         self.assertEqual(
@@ -105,6 +106,7 @@ class GenerationServiceTests(unittest.TestCase):
                 (1, 8, 8),
                 study_folder=str(Path(root) / "study"),
             )
+            config.training.trial_selection = 7
             trial = SimpleNamespace(
                 number=7,
                 user_attrs={
@@ -139,7 +141,7 @@ class GenerationServiceTests(unittest.TestCase):
                 ),
                 patch("torch.cuda.is_available", return_value=False),
             ):
-                loaded = service.load(database, trial_id=7)
+                loaded = service.load(database)
 
             self.assertIs(loaded, model)
             self.assertIs(service.model, model)
@@ -155,7 +157,7 @@ class GenerationServiceTests(unittest.TestCase):
             )
             self.assertEqual(model.checkpoint, "model.pth")
 
-    def test_trial_selection_supports_best_latest_and_explicit_ids(self):
+    def test_trial_selection_supports_best_last_and_explicit_ids(self):
         first = SimpleNamespace(number=1)
         latest = SimpleNamespace(number=4)
         study = SimpleNamespace(
@@ -163,8 +165,8 @@ class GenerationServiceTests(unittest.TestCase):
             get_trials=lambda: [latest, first],
         )
 
-        self.assertIs(_select_trial(study, -1), first)
-        self.assertIs(_select_trial(study, -2), latest)
+        self.assertIs(_select_trial(study, "best"), first)
+        self.assertIs(_select_trial(study, "last"), latest)
         self.assertIs(_select_trial(study, 1), first)
         with self.assertRaisesRegex(ValueError, "does not exist"):
             _select_trial(study, 99)

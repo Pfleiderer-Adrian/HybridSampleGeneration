@@ -8,21 +8,26 @@ from examples.mvtec_ad2.settings import MVTECAD2_ROOT, MVTECAD2_SAVE
 
 
 def main() -> None:
-    categories = ("can",)
+    categories = (    "can",
+    "fabric",
+    "fruit_jelly",
+    "rice",
+    "sheet_metal",
+    "vial",
+    "wallplugs",
+    "walnuts")
     run_hybrid_sample_generation_for_all_usecases(
         root=MVTECAD2_ROOT,
         categories=categories,
-        no_of_trials=1,
         steps=(
-            #"ingest",
-            #"extract",
-            #"train",
-            #"generate_synth",
-            #"plan",
+            "ingest",
+            "extract",
+            "train",
+            "generate_synth",
+            "plan",
             "materialize",
             "save",
         ),
-        generator_trial_id=-2,
         save_path=MVTECAD2_SAVE,
     )
     run_evaluation_and_visualization_for_all_usecases(

@@ -99,13 +99,11 @@ def run_hybrid_sample_generation_for_usecase(
     use_case: MVTecAD2UseCase,
     *,
     steps: str | Iterable[str] | None = None,
-    no_of_trials: int = 1,
     train_generator: bool = True,
     load_existing_generator: bool = False,
     generate_synthetic_anomalies: bool = True,
     plan_hybrids: bool = True,
     generator_db_path: Path | str | None = None,
-    generator_trial_id: int = -1,
 ) -> Configuration:
     """
     Execute HybridSampleGeneration for one prepared MVTec AD 2 use case.
@@ -116,8 +114,8 @@ def run_hybrid_sample_generation_for_usecase(
     steps can be used to run only selected generation steps. Examples:
     ("ingest", "extract", "train", "generate_synth"),
     ("plan", "materialize") for already persisted synthetic anomalies.
-    generator_trial_id selects the model to load: -1 best model, -2 newest model,
-    otherwise the concrete Optuna trial/model number.
+    config.training.trial_selection selects the model to load: "best", "last",
+    or a concrete non-negative Optuna trial number.
     """
 
     print(f"\n========== MVTec AD 2 use case: {use_case.category} ==========")
@@ -139,11 +137,10 @@ def run_hybrid_sample_generation_for_usecase(
         generator.extract_anomalies()
 
     if "train_generator" in selected_steps:
-        generator.train_generator(no_of_trials=no_of_trials)
+        generator.train_generator()
     elif "load_generator" in selected_steps or _needs_generator_loaded(selected_steps):
         generator.load_generator(
             path_to_db_file=None if generator_db_path is None else str(generator_db_path),
-            trial_id=generator_trial_id,
         )
 
     if "generate_synthetic_anomalies" in selected_steps:
