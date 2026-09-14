@@ -16,6 +16,8 @@ def main() -> None:
 
     # Define a basic configuration
     config = Configuration("brain_T1", "VAE_ConvNeXt_3D", (1, 32, 96, 96))
+    config.training.num_trials = 1
+    config.training.trial_selection = "best"
 
     generator = HybridDataGenerator(config)
     # 1) Persist and classify every original exactly once
@@ -25,7 +27,7 @@ def main() -> None:
     generator.extract_anomalies()
 
     # 3) Train generator via Optuna
-    generator.train_generator(no_of_trials=1)
+    generator.train_generator()
     # To reuse a trained model instead: omit training and call generator.load_generator().
 
     # 4) Generate synthetic anomalies

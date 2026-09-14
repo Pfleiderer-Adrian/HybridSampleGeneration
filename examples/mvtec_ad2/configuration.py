@@ -162,6 +162,8 @@ def configure_mvtecad2_defaults(config: Configuration):
     config.fusion.parameters.steepness_variation = 1.0
     config.fusion.parameters.selected_confidence = "90%"
     # Training settings
+    config.training.num_trials = 10
+    config.training.trial_selection = "best"
     config.training.validation_ratio = 0.1
     config.training.batch_size = 8
     config.training.epochs = 1000
