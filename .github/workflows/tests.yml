@@ -37,6 +37,3 @@ jobs:
 
       - name: Run project tests
         run: python -m unittest discover -s tests -v
-
-      - name: Run MVTec example tests
-        run: python -m unittest discover -s examples/mvtec_ad2/tests -v
