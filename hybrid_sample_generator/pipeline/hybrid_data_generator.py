@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
-
 from hybrid_sample_generator.datasets.study_datasets import StudyDatasets
 from hybrid_sample_generator.extraction.service import ExtractionService
 from hybrid_sample_generator.fusion.interfaces import FusionBackend
@@ -38,8 +36,7 @@ class HybridDataGenerator:
         fusion_backend: FusionBackend | None = None,
     ) -> None:
         config.validate()
-        self.config = deepcopy(config)
-        config = self.config
+        self.config = config
         paths = config.study.paths
         self.repository = StudyRepository(paths.artifact_database)
         self.artifact_store = ArtifactStore(paths.study_folder)
