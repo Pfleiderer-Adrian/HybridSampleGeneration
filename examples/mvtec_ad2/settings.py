@@ -13,7 +13,7 @@ MVTECAD2_ROOT = Path(
     os.environ.get("MVTECAD2_ROOT", "/mnt/results/mvtec2/mvtec_ad_2")
 )
 MVTECAD2_SAVE = Path(
-    os.environ.get("MVTECAD2_SAVE", "/mnt/results/mvtec2/experiments/test_datarepo_v6")
+    os.environ.get("MVTECAD2_SAVE", "/mnt/results/mvtec2/experiments/test_datarepo_v7")
 )
 
 EXPERIMENT = Experiment(
