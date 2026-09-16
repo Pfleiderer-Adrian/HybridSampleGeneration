@@ -15,12 +15,9 @@ from tests.pipeline.support import _FakeGenerator
 class PipelineMaterializationTests(unittest.TestCase):
     def test_sibling_variants_can_share_a_hybrid_with_classical_fusion(self):
         with tempfile.TemporaryDirectory() as root:
-            config = Configuration(
-                "sibling-variant-study",
-                "VAE_ResNet_2D",
-                (3, 8, 8),
-                study_folder=str(Path(root) / "study"),
-            )
+            config = Configuration("sibling-variant-study", study_folder=str(Path(root) / "study"))
+            config.extraction.anomaly_size = (3, 8, 8)
+            config.model.set_model("VAE_ResNet_2D")
             config.extraction.min_coverage_ratio = 0.0
             config.extraction.add_background_noise = False
             config.extraction.normalization = None

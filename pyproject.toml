@@ -1,20 +1,40 @@
 [build-system]
-requires = ["setuptools>=77"]
+requires = ["setuptools>=77", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "hybrid-sample-generator"
-version = "1.0.0"
 description = "Generate hybrid samples by extracting, synthesizing, and fusing anomalies."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 authors = [
   { name = "Adrian Pfleiderer" },
 ]
-dynamic = ["dependencies"]
+keywords = ["anomaly-detection", "deep-learning", "image-segmentation", "synthetic-data"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dynamic = ["dependencies", "version"]
+
+[project.urls]
+Homepage = "https://github.com/Pfleiderer-Adrian/HybridSampleGeneration"
+Issues = "https://github.com/Pfleiderer-Adrian/HybridSampleGeneration/issues"
+Repository = "https://github.com/Pfleiderer-Adrian/HybridSampleGeneration"
 
 [project.optional-dependencies]
+examples = [
+  "nibabel>=5.2",
+  "Pillow>=10",
+]
 experiments = [
   "accelerate>=1.1.0",
   "diffusers>=0.35.1",
@@ -29,3 +49,6 @@ dependencies = { file = ["requirements.txt"] }
 
 [tool.setuptools.packages.find]
 include = ["hybrid_sample_generator*"]
+
+[tool.setuptools_scm]
+version_file = "hybrid_sample_generator/_version.py"

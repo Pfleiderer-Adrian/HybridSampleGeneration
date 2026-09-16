@@ -6,9 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from hybrid_sample_generator.configuration.root import Configuration
-
 if TYPE_CHECKING:
+    from examples.mvtec_ad2.configuration import Configuration
     from examples.mvtec_ad2.dataloader import MVTecAD2Dataloader
 
 
@@ -22,8 +21,15 @@ class MVTecAD2Sample:
 
 
 @dataclass(frozen=True)
-class MVTecAD2UseCase:
+class MVTecAD2Study:
     category: str
-    category_root: Path
+    category_root: Path | None
     config: Configuration
-    sample_dataloader: "MVTecAD2Dataloader"
+    sample_dataloader: "MVTecAD2Dataloader | None"
+    split_manifest: dict | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowResult:
+    study_folder: Path
+    downstream_run_folder: Path | None = None

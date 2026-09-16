@@ -39,12 +39,9 @@ class _LoadedModel:
 
 class GenerationServiceTests(unittest.TestCase):
     def test_generate_requires_a_model_before_reading_records(self):
-        config = Configuration(
-            "service-test",
-            "VAE_ResNet_2D",
-            (1, 8, 8),
-            study_folder="/tmp/service-test",
-        )
+        config = Configuration("service-test", study_folder="/tmp/service-test")
+        config.extraction.anomaly_size = (1, 8, 8)
+        config.model.set_model("VAE_ResNet_2D")
         service = GenerationService(
             config,
             Mock(),
@@ -56,12 +53,9 @@ class GenerationServiceTests(unittest.TestCase):
             service.generate()
 
     def test_training_prepares_conditional_class_count_and_dataset(self):
-        config = Configuration(
-            "conditional-service-test",
-            "cVAE_ConvNeXt_2D",
-            (1, 8, 8),
-            study_folder="/tmp/conditional-service-test",
-        )
+        config = Configuration("conditional-service-test", study_folder="/tmp/conditional-service-test")
+        config.extraction.anomaly_size = (1, 8, 8)
+        config.model.set_model("cVAE_ConvNeXt_2D")
         repository = Mock()
         repository.list_real_anomalies.return_value = [
             SimpleNamespace(metadata={"label": 2}),
@@ -100,12 +94,9 @@ class GenerationServiceTests(unittest.TestCase):
 
     def test_load_selects_trial_builds_model_and_owns_it(self):
         with tempfile.TemporaryDirectory() as root:
-            config = Configuration(
-                "load-service-test",
-                "VAE_ResNet_2D",
-                (1, 8, 8),
-                study_folder=str(Path(root) / "study"),
-            )
+            config = Configuration("load-service-test", study_folder=str(Path(root) / "study"))
+            config.extraction.anomaly_size = (1, 8, 8)
+            config.model.set_model("VAE_ResNet_2D")
             config.training.trial_selection = 7
             trial = SimpleNamespace(
                 number=7,

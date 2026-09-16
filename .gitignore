@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+hybrid_sample_generator/_version.py
 
 .venv/
 venv/
@@ -26,3 +27,7 @@ checkpoint.pt
 Thumbs.db
 
 test/
+
+build/
+dist/
+*.egg-info/

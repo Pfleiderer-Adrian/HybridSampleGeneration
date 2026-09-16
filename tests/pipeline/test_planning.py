@@ -17,12 +17,9 @@ from tests.pipeline.support import _FakeGenerator
 class PipelinePlanningTests(unittest.TestCase):
     def test_local_matching_reuses_cached_full_image_results(self):
         with tempfile.TemporaryDirectory() as root:
-            config = Configuration(
-                "local-cache-study",
-                "VAE_ResNet_2D",
-                (1, 8, 8),
-                study_folder=str(Path(root) / "study"),
-            )
+            config = Configuration("local-cache-study", study_folder=str(Path(root) / "study"))
+            config.extraction.anomaly_size = (1, 8, 8)
+            config.model.set_model("VAE_ResNet_2D")
             config.extraction.min_coverage_ratio = 0.0
             config.extraction.add_background_noise = False
             config.extraction.normalization = None
@@ -91,12 +88,9 @@ class PipelinePlanningTests(unittest.TestCase):
             self.assertEqual(planner.repository.count_match_candidates(), 0)
     def test_3d_placements_use_explicit_zyx_columns(self):
         with tempfile.TemporaryDirectory() as root:
-            config = Configuration(
-                "three-dimensional-study",
-                "VAE_ResNet_3D",
-                (1, 4, 4, 4),
-                study_folder=str(Path(root) / "study"),
-            )
+            config = Configuration("three-dimensional-study", study_folder=str(Path(root) / "study"))
+            config.extraction.anomaly_size = (1, 4, 4, 4)
+            config.model.set_model("VAE_ResNet_3D")
             config.extraction.min_coverage_ratio = 0.0
             config.extraction.add_background_noise = False
             config.extraction.normalization = None

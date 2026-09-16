@@ -15,7 +15,9 @@ def main() -> None:
     dataloader_all_samples = ImageDataloader(path_to_img, path_to_seg)
 
     # Define a basic configuration
-    config = Configuration("images", "cVAE_ConvNeXt_2D", (3, 32, 32))
+    config = Configuration("images")
+    config.extraction.anomaly_size = (3, 32, 32)
+    config.model.set_model("cVAE_ConvNeXt_2D")
     config.training.num_trials = 1
     config.training.trial_selection = "best"
 

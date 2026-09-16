@@ -15,7 +15,9 @@ def main() -> None:
     dataloader_all_samples = NiftiDataloader(path_to_img, path_to_seg, "t1")
 
     # Define a basic configuration
-    config = Configuration("brain_T1", "VAE_ConvNeXt_3D", (1, 32, 96, 96))
+    config = Configuration("brain_T1")
+    config.extraction.anomaly_size = (1, 32, 96, 96)
+    config.model.set_model("VAE_ConvNeXt_3D")
     config.training.num_trials = 1
     config.training.trial_selection = "best"
 

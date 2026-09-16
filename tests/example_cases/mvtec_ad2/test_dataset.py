@@ -10,7 +10,7 @@ import numpy as np
 from examples.mvtec_ad2.dataloader import MVTecAD2Dataloader
 from examples.mvtec_ad2.discovery import discover_mvtecad2_categories
 from examples.mvtec_ad2.records import MVTecAD2Sample
-from examples.mvtec_ad2.runner import _segmentation_for_png
+from examples.mvtec_ad2.export import segmentation_for_png
 
 
 class MVTecModuleBoundaryTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class MVTecModuleBoundaryTests(unittest.TestCase):
 
             self.assertEqual(discover_mvtecad2_categories(root), ["can"])
 
-    def test_dataloader_exposes_legacy_tuple_and_input_sample_views(self):
+    def test_dataloader_exposes_tuple_and_input_sample_views(self):
         sample = MVTecAD2Sample(
             image_path=Path("sample.png"),
             mask_path=None,
@@ -49,7 +49,7 @@ class MVTecModuleBoundaryTests(unittest.TestCase):
 
     def test_segmentation_export_is_binary_and_channel_first(self):
         segmentation = np.array([[[0, 2], [-1, 3]]], dtype=np.float32)
-        exported = _segmentation_for_png(segmentation)
+        exported = segmentation_for_png(segmentation)
 
         self.assertEqual(exported.dtype, np.uint8)
         self.assertTrue(np.array_equal(exported, [[[0, 255], [0, 255]]]))

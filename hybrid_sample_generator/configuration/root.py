@@ -30,6 +30,8 @@ class Configuration:
 
     This object contains requested pipeline behavior only. Generated entities,
     relationships and anomaly metadata live in the study repository.
+    Set extraction.anomaly_size and call model.set_model(name) before customizing
+    model parameters. Full validation happens at serialization or facade creation.
     """
 
     SCHEMA_VERSION = 7
@@ -37,16 +39,10 @@ class Configuration:
     def __init__(
         self,
         study_name: str,
-        model_name: str,
-        anomaly_size,
         save_path=None,
         *,
         study_folder=None,
     ) -> None:
-        if model_name not in ALLOWED_MODELS:
-            raise ValueError(
-                f"Model {model_name!r} is not supported. Currently supported: {ALLOWED_MODELS}"
-            )
         if save_path is not None and study_folder is not None:
             raise ValueError("Use either save_path or study_folder, not both.")
 
@@ -54,21 +50,16 @@ class Configuration:
             root = os.getcwd() if save_path is None else os.fspath(save_path)
             study_folder = os.path.join(root, "results", study_name)
 
-        model_spec = get_model_spec(model_name)
         self.schema_version = self.SCHEMA_VERSION
         self.study = StudyConfiguration(name=study_name, folder=study_folder)
-        self.extraction = ExtractionConfiguration(anomaly_size=tuple(anomaly_size))
+        self.extraction = ExtractionConfiguration()
         self.augmentation = AugmentationConfiguration()
         self.generation = GenerationConfiguration()
         self.matching = MatchingConfiguration(seed=self.study.seed)
         self.training = TrainingConfiguration()
         self.evaluation = EvaluationConfiguration()
-        self.model = GeneratorModelSettings(
-            name=model_name,
-            parameters=model_spec.build_configuration(int(anomaly_size[0])),
-        )
+        self.model = GeneratorModelSettings(self.extraction)
         self.fusion = FusionSettings.for_backend("classical")
-        self.validate()
 
     def validate(self) -> None:
         if self.model.name not in ALLOWED_MODELS:
@@ -147,8 +138,6 @@ class Configuration:
         model_values = dict(values["model"])
         config = cls(
             study_values["name"],
-            model_values["name"],
-            extraction_values["anomaly_size"],
             study_folder=study_values["folder"],
         )
         config.schema_version = values["schema_version"]
@@ -159,7 +148,7 @@ class Configuration:
         config.matching = MatchingConfiguration(**values["matching"])
         config.training = TrainingConfiguration.from_dict(values["training"])
         config.evaluation = EvaluationConfiguration.from_dict(values["evaluation"])
-        config.model = GeneratorModelSettings.from_dict(model_values)
+        config.model = GeneratorModelSettings.from_dict(model_values, extraction=config.extraction)
         config.fusion = FusionSettings.from_dict(values["fusion"])
         config.validate()
         return config
