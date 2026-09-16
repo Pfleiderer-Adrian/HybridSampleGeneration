@@ -1,5 +1,5 @@
 # Hybrid Sample Generation
-![Python](https://img.shields.io/badge/Python-14354C?style=flat&logo=python&logoColor=green) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![DOI:AMLDS63918.2025.11159383](http://img.shields.io/badge/DOI-AMLDS63918.2025.11159383-B31B1B.svg)](https://doi.org/10.1109/AMLDS63918.2025.11159383) [![Tests](https://github.com/Pfleiderer-Adrian/HybridSampleGeneration/actions/workflows/tests.yml/badge.svg)](https://github.com/Pfleiderer-Adrian/HybridSampleGeneration/actions/workflows/tests.yml)
+![Python](https://img.shields.io/badge/Python-14354C?style=flat&logo=python&logoColor=green) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![Tests](https://github.com/Pfleiderer-Adrian/HybridSampleGeneration/actions/workflows/tests.yml/badge.svg)](https://github.com/Pfleiderer-Adrian/HybridSampleGeneration/actions/workflows/tests.yml) [![DOI:AMLDS63918.2025.11159383](http://img.shields.io/badge/DOI-AMLDS63918.2025.11159383-B31B1B.svg)](https://doi.org/10.1109/AMLDS63918.2025.11159383)
 
 This project extracts real anomalies from labelled 2D images or 3D volumes,
 trains a generative model, creates multiple synthetic variants and places them
