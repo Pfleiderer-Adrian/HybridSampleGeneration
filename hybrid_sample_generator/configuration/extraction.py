@@ -38,7 +38,7 @@ class RoiConfiguration:
 class ExtractionConfiguration:
     """Settings used only while extracting real anomaly artifacts."""
 
-    anomaly_size: tuple[int, ...]
+    anomaly_size: tuple[int, ...] = (3, 64, 64)
     separate_components: bool = True
     min_coverage_ratio: float = 0.05
     add_background_noise: bool = True

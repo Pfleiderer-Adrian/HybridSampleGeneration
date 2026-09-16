@@ -20,12 +20,9 @@ from tests.pipeline.support import (
 class PipelineEndToEndTests(unittest.TestCase):
     def test_multiple_variants_and_normalized_placements_end_to_end(self):
         with tempfile.TemporaryDirectory() as root:
-            config = Configuration(
-                "normalized-study",
-                "VAE_ResNet_2D",
-                (1, 8, 8),
-                study_folder=str(Path(root) / "study"),
-            )
+            config = Configuration("normalized-study", study_folder=str(Path(root) / "study"))
+            config.extraction.anomaly_size = (1, 8, 8)
+            config.model.set_model("VAE_ResNet_2D")
             config.extraction.min_coverage_ratio = 0.0
             config.extraction.add_background_noise = False
             config.extraction.normalization = None

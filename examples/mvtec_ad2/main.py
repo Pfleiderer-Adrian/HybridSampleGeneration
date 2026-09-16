@@ -1,40 +1,15 @@
-"""Executable MVTec AD 2 example workflow."""
+"""Run a new experiment using settings.py and the shared/category presets."""
 
-from examples.mvtec_ad2.runner import (
-    run_evaluation_and_visualization_for_all_usecases,
-    run_hybrid_sample_generation_for_all_usecases,
-)
-from examples.mvtec_ad2.settings import MVTECAD2_ROOT, MVTECAD2_SAVE
+from examples.mvtec_ad2.pipeline import FULL_EXPERIMENT, run_new_experiment
+from examples.mvtec_ad2.settings import EXPERIMENT
+
+# Select GENERATE_HYBRIDS or an explicit step tuple for a partial workflow.
+STEPS = FULL_EXPERIMENT
 
 
 def main() -> None:
-    categories = (    "can",
-    "fabric",
-    "fruit_jelly",
-    "rice",
-    "sheet_metal",
-    "vial",
-    "wallplugs",
-    "walnuts")
-    run_hybrid_sample_generation_for_all_usecases(
-        root=MVTECAD2_ROOT,
-        categories=categories,
-        steps=(
-            "ingest",
-            "extract",
-            "train",
-            "generate_synth",
-            "plan",
-            "materialize",
-            "save",
-        ),
-        save_path=MVTECAD2_SAVE,
-    )
-    run_evaluation_and_visualization_for_all_usecases(
-        root=MVTECAD2_ROOT,
-        categories=categories,
-        save_path=MVTECAD2_SAVE,
-    )
+    for result in run_new_experiment(EXPERIMENT, steps=STEPS):
+        print(f"Study: {result.study_folder}; downstream run: {result.downstream_run_folder}")
 
 
 if __name__ == "__main__":

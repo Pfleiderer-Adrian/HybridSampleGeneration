@@ -34,10 +34,10 @@ from hybrid_sample_generator.visualization import run_hybrid_visualizer
 
 config = Configuration(
     "study-01",
-    "cVAE_ConvNeXt_2D",
-    anomaly_size=(1, 32, 32),
     study_folder="results/study-01",
 )
+config.extraction.anomaly_size = (1, 32, 32)
+config.model.set_model("cVAE_ConvNeXt_2D")
 
 config.generation.variants_per_real_anomaly = 5
 config.training.num_trials = 5
@@ -87,6 +87,9 @@ python -m examples.image_2d.main
 python -m examples.nifti_3d.main
 python -m examples.mvtec_ad2.main
 ```
+
+The [MVTec AD 2 guide](examples/mvtec_ad2/README.md) describes shared/category
+presets and commands for generation, continuation, review and downstream evaluation.
 
 ## Input data
 
@@ -258,8 +261,27 @@ config.matching.seed = 123
 The stable registry contains 2D and 3D variants of `VAE_ResNet`,
 `VAE_ConvNeXt` and the mask-conditioned `cVAE_ConvNeXt`. Use their registered
 names, for example `VAE_ResNet_2D`, `VAE_ConvNeXt_3D` or
-`cVAE_ConvNeXt_2D`, as the second `Configuration` argument. Diffusion models
+`cVAE_ConvNeXt_2D`, with `config.model.set_model(name)`. Diffusion models
 are experimental and are not available through the stable registry.
+
+`Configuration(study_name, save_path=None, *, study_folder=None)` only accepts
+study identity and storage location. New configurations default to
+`cVAE_ConvNeXt_2D` and `config.extraction.anomaly_size = (3, 64, 64)`.
+Set the anomaly size and select the model before customizing its parameter space:
+
+```python
+config = Configuration("volume-study")
+config.extraction.anomaly_size = (1, 32, 64, 64)
+config.model.set_model("VAE_ConvNeXt_3D")
+config.model.parameters.set_model_param("z_channels", 32)
+```
+
+`set_model` initializes a fresh model-specific parameter space, replacing previous
+hyperparameter overrides. Assigning `config.model.name` has the same effect.
+Changes to the anomaly channel count update derived `in_channels` on parameter
+access, preserving all other hyperparameters. Model dimensionality and the full
+configuration are validated when constructing `HybridDataGenerator`, serializing,
+or explicitly calling `config.validate()`. Both 2D and 3D examples use this API.
 
 ### Extraction
 
@@ -524,3 +546,19 @@ materialization, FK-based evaluation and cached full-image `local` matching.
 
 This project is licensed under the GNU General Public License v3.0. See
 `LICENSE` for the complete terms.
+
+## Package versions and releases
+
+Package versions are derived from Git tags by `setuptools-scm`; there is no
+version field to update in `pyproject.toml`. Use PEP 440-compatible release tags
+such as `v1.0.1`. A build from that exact tag has version `1.0.1`; commits after
+the tag receive a development version and must not be uploaded as that release.
+
+Before creating a release, commit all changes, run the tests and create the next
+tag through a GitHub Release. PyPI versions are immutable, so every release needs
+a new tag/version. The core installation contains only the library runtime
+dependencies. Dependencies used by the repository examples can be installed with:
+
+```bash
+python -m pip install -e ".[examples]"
+```

@@ -14,12 +14,9 @@ from hybrid_sample_generator.pipeline.hybrid_data_generator import HybridDataGen
 class PipelineIngestionTests(unittest.TestCase):
     def test_ingest_classifies_unannotated_controls(self):
         with tempfile.TemporaryDirectory() as root:
-            config = Configuration(
-                "unannotated-control-study",
-                "VAE_ResNet_2D",
-                (1, 8, 8),
-                study_folder=str(Path(root) / "study"),
-            )
+            config = Configuration("unannotated-control-study", study_folder=str(Path(root) / "study"))
+            config.extraction.anomaly_size = (1, 8, 8)
+            config.model.set_model("VAE_ResNet_2D")
             image = np.zeros((1, 16, 16), dtype=np.float32)
             mask = np.zeros_like(image, dtype=np.uint8)
             mask[:, 3:6, 3:6] = 1

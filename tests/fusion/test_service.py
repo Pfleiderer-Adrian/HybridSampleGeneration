@@ -50,12 +50,9 @@ class _RecordingBackend:
 
 class FusionServiceTests(unittest.TestCase):
     def setUp(self):
-        self.config = Configuration(
-            "fusion-service-test",
-            "VAE_ResNet_2D",
-            (1, 8, 8),
-            study_folder="/tmp/fusion-service-test",
-        )
+        self.config = Configuration("fusion-service-test", study_folder="/tmp/fusion-service-test")
+        self.config.extraction.anomaly_size = (1, 8, 8)
+        self.config.model.set_model("VAE_ResNet_2D")
         self.repository = Mock()
         self.artifact_store = Mock()
         self.artifact_store.save_entity_array.side_effect = (

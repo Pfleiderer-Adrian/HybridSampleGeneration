@@ -17,7 +17,9 @@ class FusionConfigurationTests(unittest.TestCase):
             ('classical', ClassicalConfig, 'max_alpha', 0.7),
         ):
             with self.subTest(backend=backend), tempfile.TemporaryDirectory() as root:
-                config = Configuration('fusion-test', 'VAE_ResNet_2D', (1, 16, 16), save_path=root)
+                config = Configuration('fusion-test', save_path=root)
+                config.extraction.anomaly_size = (1, 16, 16)
+                config.model.set_model('VAE_ResNet_2D')
                 config.fusion.set_backend(backend)
                 setattr(config.fusion.parameters, field, value)
                 loaded = load_config_file(config.save_config_file())
@@ -58,7 +60,9 @@ class FusionConfigurationTests(unittest.TestCase):
 
     def test_service_rebuilds_backend_after_settings_change(self):
         with tempfile.TemporaryDirectory() as root:
-            config = Configuration('cache-test', 'VAE_ResNet_2D', (1, 16, 16), save_path=root)
+            config = Configuration('cache-test', save_path=root)
+            config.extraction.anomaly_size = (1, 16, 16)
+            config.model.set_model('VAE_ResNet_2D')
             service = FusionService(
                 config.fusion,
                 config.extraction,

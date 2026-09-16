@@ -6,16 +6,15 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from examples.common.image_io import IMAGE_EXTENSIONS
-from examples.mvtec_ad2.configuration import canonical_category, safe_name
+from examples.mvtec_ad2.presets import canonical_category, safe_name, CATEGORY_PRESETS
 from examples.mvtec_ad2.records import MVTecAD2Sample
-from examples.mvtec_ad2.settings import MVTECAD2_ROOT
 
 CONTROL_SPLITS = ("train", "validation", "val")
 ANOMALY_SPLIT = "test_public"
 ANOMALY_LABEL = "bad"
 NORMAL_LABEL = "good"
 
-def discover_mvtecad2_categories(root: Path | str = MVTECAD2_ROOT) -> list[str]:
+def discover_mvtecad2_categories(root: Path | str) -> list[str]:
     """
     Discover available MVTec AD 2 categories under the dataset root.
     """
@@ -28,25 +27,22 @@ def discover_mvtecad2_categories(root: Path | str = MVTECAD2_ROOT) -> list[str]:
     return categories
 
 
-def _normalize_categories(
-    root: Path,
-    categories: str | Iterable[str] | None,
-) -> list[str]:
-    if categories is None:
-        return discover_mvtecad2_categories(root)
-
-    if isinstance(categories, str):
-        raw_categories = [categories]
-    else:
-        raw_categories = list(categories)
-
-    normalized_categories = []
-    for category in raw_categories:
+def normalize_categories(categories: str | Iterable[str]) -> list[str]:
+    """Resolve aliases and reject unknown or repeated categories before any writes."""
+    raw = [categories] if isinstance(categories, str) else list(categories)
+    names = []
+    for category in raw:
         if not isinstance(category, str):
-            raise TypeError(f"MVTec AD 2 category names must be strings, got {type(category).__name__}.")
-        normalized_categories.append(canonical_category(category))
-
-    return normalized_categories
+            raise TypeError("MVTec AD 2 category names must be strings.")
+        name = canonical_category(category)
+        if name not in CATEGORY_PRESETS:
+            raise ValueError(f"Unknown MVTec AD 2 category: {category!r}")
+        if name in names:
+            raise ValueError(f"Duplicate MVTec AD 2 category: {name!r}")
+        names.append(name)
+    if not names:
+        raise ValueError("Select at least one MVTec AD 2 category.")
+    return names
 
 
 def _collect_public_anomaly_samples(category_root: Path) -> list[MVTecAD2Sample]:

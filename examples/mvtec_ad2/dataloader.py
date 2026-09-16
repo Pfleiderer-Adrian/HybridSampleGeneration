@@ -30,18 +30,8 @@ class MVTecAD2Dataloader:
         return len(self.samples)
 
     def __iter__(self) -> Iterator[tuple[np.ndarray, np.ndarray, str]]:
-        for sample in self.samples:
-            img = ensure_chw(load_image_array(str(sample.image_path))).astype(np.float32, copy=False)
-
-            if sample.mask_path is None:
-                seg = np.zeros((1, img.shape[1], img.shape[2]), dtype=np.float32)
-            else:
-                seg = ensure_chw(load_image_array(str(sample.mask_path))).astype(np.float32, copy=False)
-                if seg.shape[0] > 1:
-                    seg = seg[:1]
-                seg = np.where(seg > 0, 1.0, 0.0).astype(np.float32, copy=False)
-
-            yield img, seg, sample.sample_id
+        for sample in self.iter_input_samples():
+            yield sample.image, sample.segmentation, sample.source_name
 
     def iter_input_samples(self) -> Iterator[InputSample]:
         for sample in self.samples:

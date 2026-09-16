@@ -1,19 +1,53 @@
 """Typed settings and serialization for generator models."""
 
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, is_dataclass
 
 
 DEFAULT_INPUT_ARTEFACTS = ("img", "fname")
 IMMUTABLE_MODEL_PARAMS = {"in_channels"}
 
 
-@dataclass
 class GeneratorModelSettings:
-    """Selected generator implementation and its model-specific parameters."""
+    """Model selection with parameters initialized from the extraction settings.
 
-    name: str
-    parameters: "ModelHyperparameterSpace"
+    Selecting a model resets its search space. Changing anomaly channels only
+    updates the derived in_channels parameter and preserves other customizations.
+    """
+
+    def __init__(self, extraction):
+        self._extraction = extraction
+        self.set_model("cVAE_ConvNeXt_2D")
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @name.setter
+    def name(self, name: str) -> None:
+        self.set_model(name)
+
+    def set_model(self, name: str) -> None:
+        """Select a registered model and initialize a fresh parameter space."""
+        from hybrid_sample_generator.generation.registry import get_model_spec
+
+        spec = get_model_spec(name)
+        self._extraction.validate()
+        channels = int(self._extraction.anomaly_size[0])
+        parameters = spec.build_configuration(channels)
+        self._name = name
+        self._parameters = parameters
+        self._input_channels = channels
+
+    @property
+    def parameters(self) -> "ModelHyperparameterSpace":
+        self._extraction.validate()
+        channels = int(self._extraction.anomaly_size[0])
+        if channels != self._input_channels:
+            self._parameters.min["in_channels"] = channels
+            self._parameters.max["in_channels"] = channels
+            self._input_channels = channels
+        return self._parameters
 
     def to_dict(self):
         return {
@@ -22,11 +56,11 @@ class GeneratorModelSettings:
         }
 
     @classmethod
-    def from_dict(cls, values):
-        return cls(
-            name=values["name"],
-            parameters=ModelHyperparameterSpace.from_value(values["parameters"]),
-        )
+    def from_dict(cls, values, *, extraction):
+        settings = cls(extraction)
+        settings.set_model(values["name"])
+        settings._parameters = ModelHyperparameterSpace.from_value(values["parameters"])
+        return settings
 
 
 class ModelHyperparameterSpace:
