@@ -255,11 +255,13 @@ config.matching.seed = 123
 
 ### Supported generator models
 
-The stable registry contains 2D and 3D variants of `VAE_ResNet`,
-`VAE_ConvNeXt` and the mask-conditioned `cVAE_ConvNeXt`. Use their registered
-names, for example `VAE_ResNet_2D`, `VAE_ConvNeXt_3D` or
-`cVAE_ConvNeXt_2D`, with `config.model.set_model(name)`. Diffusion models
-are experimental and are not available through the stable registry.
+The stable registry contains 2D and 3D entries for `VAE_ResNet`,
+`VAE_ConvNeXt` and the mask-conditioned `cVAE_ConvNeXt`. The 2D and 3D entries
+share one dimension-independent model implementation per architecture while
+selecting dimension-specific defaults. Use registered names such as
+`VAE_ResNet_2D`, `VAE_ConvNeXt_3D` or `cVAE_ConvNeXt_2D` with
+`config.model.set_model(name)`. Diffusion models are experimental and are not
+available through the stable registry.
 
 `Configuration(study_name, save_path=None, *, study_folder=None)` only accepts
 study identity and storage location. New configurations default to
@@ -281,12 +283,14 @@ Import `IntRange`, `FloatRange`, and `Choice` from
 `hybrid_sample_generator.generation.model_settings`. Parameters absent from
 `config.model.search` remain fixed for every trial. Use `clear()` to make every
 parameter fixed and, for example, `del config.model.search.dropout` to remove
-one distribution. `set_model` initializes fresh
-model-specific parameters and a default search space. Runtime values such as the
-input channel count and number of anomaly classes are derived from the extracted
-data and are not part of the saved model parameters. Model dimensionality and the
-full configuration are validated when constructing `HybridDataGenerator`,
-serializing, or explicitly calling `config.validate()`.
+one distribution. Each model module owns a concrete `Config` dataclass plus
+factories for its dimension-specific defaults and search space. `set_model`
+uses those factories to initialize fresh model parameters and a validated
+`SearchSpace` bound to them. Runtime values such as the input channel count and
+number of anomaly classes are derived from the extracted data and are not part
+of the saved model parameters. Model dimensionality and the full configuration
+are validated when constructing `HybridDataGenerator`, serializing, or
+explicitly calling `config.validate()`.
 
 ### Extraction
 
@@ -521,7 +525,7 @@ materialization, FK-based evaluation and cached full-image `local` matching.
 - `hybrid_sample_generator/persistence/` — repository, study paths and artifacts
 - `hybrid_sample_generator/pipeline/` — ingestion and the public orchestration facade
 - `hybrid_sample_generator/imaging/` — shared image, similarity and mask operations
-- `hybrid_sample_generator/extraction/` — extraction service and 2D/3D implementations
+- `hybrid_sample_generator/extraction/` — dimension-independent anomaly extraction
 - `hybrid_sample_generator/matching/` — hybrid planning and matching cache
 - `hybrid_sample_generator/generation/` — generation service, model registry,
   training and supported VAEs
