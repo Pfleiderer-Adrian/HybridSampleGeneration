@@ -1,14 +1,10 @@
-"""Edit shared settings here, then override only category-specific differences."""
-
-from collections.abc import Callable
-from dataclasses import dataclass
-from pathlib import Path
-import re
-
-from examples.mvtec_ad2.configuration import Configuration
+"""Shared configuration values; category scripts contain the actual workflow."""
+from examples.mvtec_ad2.downstream.configuration import DownstreamConfiguration
+from examples.mvtec_ad2.settings import TEXTURE_ROOT, study_folder
+from hybrid_sample_generator.configuration.root import Configuration
 
 
-def apply_global_defaults(config: Configuration) -> None:
+def apply_generator_defaults(config: Configuration) -> None:
     """
     Shared MVTec AD 2 defaults for all categories.
     """
@@ -128,88 +124,31 @@ def apply_global_defaults(config: Configuration) -> None:
             "skip_alpha": 0.20,
         },
     )
-    # Downstream settings share this defaults/override chain with the generator.
-    config.downstream.seed = 42
-    config.downstream.data.hybrid_fraction = 0.5
-    config.downstream.data.normal_fraction = 0.5
-    config.downstream.data.samples_per_epoch = 1000
-    config.downstream.data.mode = "patch"
-    config.downstream.data.patch_size = (512, 512)
-    config.downstream.data.patch_overlap = 0.5
-    config.downstream.data.texture_root = None
-    config.downstream.data.image_scale = 255.0
-    config.downstream.training.epochs = 100
-    config.downstream.training.batch_size = 8
-    config.downstream.training.learning_rate = 1e-4
-    config.downstream.training.num_workers = 0
-    config.downstream.training.device = "auto"
-    config.downstream.training.reconstruction_width = 128
-    config.downstream.training.segmentation_width = 64
 
-
-def configure_can(config: Configuration) -> None:
-    config.generation.variation_strength = 1.5
-    config.fusion.parameters.max_alpha = 0.9
-    config.fusion.parameters.sobel_threshold = 0.05
-    config.extraction.roi.min_size = (256, 256)
-
-
-def configure_fabric(config: Configuration) -> None:
-    config.extraction.roi.min_size = (128, 128)
-
-
-@dataclass(frozen=True)
-class CategoryPreset:
-    anomaly_shape: tuple[int, int, int] = (3, 64, 64)
-    generation_model: str = "cVAE_ConvNeXt_2D"
-    configure: Callable[[Configuration], None] | None = None
-
-
-CATEGORY_PRESETS = {
-    "can": CategoryPreset(configure=configure_can),
-    "fabric": CategoryPreset(configure=configure_fabric),
-    "fruit_jelly": CategoryPreset(),
-    "rice": CategoryPreset(),
-    "sheet_metal": CategoryPreset((1, 64, 64)),
-    "vial": CategoryPreset((1, 64, 64)),
-    "wallplugs": CategoryPreset((1, 64, 64)),
-    "walnuts": CategoryPreset(),
-}
-MVTECAD2_CATEGORIES = tuple(CATEGORY_PRESETS)
-CATEGORY_ALIASES = {"wall_plugs": "wallplugs", "wall plugs": "wallplugs"}
-
-
-def canonical_category(category: str) -> str:
-    category = category.strip().lower()
-    return CATEGORY_ALIASES.get(category, category)
-
-
-def safe_name(value: str) -> str:
-    value = value.strip().lower().replace(" ", "_").replace("-", "_")
-    value = re.sub(r"[^a-z0-9_]+", "_", value)
-    value = re.sub(r"_+", "_", value).strip("_")
-    return value or "sample"
-
-
-def create_configuration(
-    category: str, *, save_path: Path | str | None = None,
-    apply_category_overrides: bool = True,
-) -> Configuration:
-    """Build an independent config: library defaults, shared defaults, category."""
-    category = canonical_category(category)
-    if category not in CATEGORY_PRESETS:
-        raise ValueError(f"Unknown MVTec AD 2 category: {category!r}")
-    preset = CATEGORY_PRESETS[category]
-    config = Configuration(f"mvtecad2_{safe_name(f'{category}_{preset.generation_model}')}", save_path=save_path)
-    config.extraction.anomaly_size = preset.anomaly_shape
-    config.model.set_model(preset.generation_model)
-    apply_global_defaults(config)
-    if apply_category_overrides and preset.configure is not None:
-        preset.configure(config)
-    config.validate()
+def create_generator_configuration(category: str, anomaly_size: tuple[int, int, int]) -> Configuration:
+    config = Configuration(f"mvtecad2_{category}", study_folder=study_folder(category))
+    config.extraction.anomaly_size = anomaly_size
+    config.model.set_model("cVAE_ConvNeXt_2D")
+    apply_generator_defaults(config)
     return config
 
 
-def apply_downstream_preset(config: Configuration, category: str) -> None:
-    """Explicitly replace only downstream settings with the current category preset."""
-    config.downstream = create_configuration(category).downstream
+def create_downstream_configuration() -> DownstreamConfiguration:
+    config = DownstreamConfiguration()
+    config.seed = 42
+    config.data.hybrid_fraction = 0.5
+    config.data.normal_fraction = 0.5
+    config.data.samples_per_epoch = 1000
+    config.data.mode = "patch"
+    config.data.patch_size = (512, 512)
+    config.data.patch_overlap = 0.5
+    config.data.texture_root = TEXTURE_ROOT
+    config.data.image_scale = 255.0
+    config.training.epochs = 100
+    config.training.batch_size = 8
+    config.training.learning_rate = 1e-4
+    config.training.num_workers = 0
+    config.training.device = "auto"
+    config.training.reconstruction_width = 128
+    config.training.segmentation_width = 64
+    return config

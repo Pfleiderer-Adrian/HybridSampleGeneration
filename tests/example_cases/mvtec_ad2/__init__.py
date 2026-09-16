@@ -1,1 +1,1 @@
-"""MVTec workflow and downstream integration tests."""
+"""MVTec dataset, split and downstream integration tests."""

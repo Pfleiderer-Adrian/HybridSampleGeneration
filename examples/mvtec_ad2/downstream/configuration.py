@@ -1,9 +1,10 @@
-"""DRAEM configuration types and backwards-compatible run snapshots."""
+"""DRAEM configuration types and run snapshots."""
 
-from dataclasses import asdict, dataclass, field
 import json
 import math
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
 
 @dataclass
 class DataConfiguration:
@@ -76,10 +77,6 @@ class DownstreamConfiguration:
     @classmethod
     def from_dict(cls, values):
         values = dict(values)
-        # Existing run snapshots used whole-image resizing. Preserve their
-        # evaluation protocol; new configs and category presets default to patches.
-        if "image_size" in values.get("data", {}) and "mode" not in values["data"]:
-            values["data"] = {**values["data"], "mode": "image"}
         for key, kind in (("data", DataConfiguration), ("training", TrainingConfiguration)):
             values[key] = kind(**values.get(key, {}))
         result = cls(**values)

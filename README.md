@@ -85,11 +85,11 @@ resolved consistently:
 ```bash
 python -m examples.image_2d.main
 python -m examples.nifti_3d.main
-python -m examples.mvtec_ad2.main
+python -m examples.mvtec_ad2.categories.can
 ```
 
-The [MVTec AD 2 guide](examples/mvtec_ad2/README.md) describes shared/category
-presets and commands for generation, continuation, review and downstream evaluation.
+The [MVTec AD 2 guide](examples/mvtec_ad2/README.md) describes the category recipes,
+persisted data splits, hybrid generation, and downstream DRAEM evaluation.
 
 ## Input data
 
@@ -180,9 +180,6 @@ study/
     hybrid_samples/<id>/{image,segmentation}.npy
     placements/<id>/{roi_image,roi_segmentation}.npy
   evaluation_results/
-  exports/
-    images/
-    segmentations/
 ```
 
 Files appear as their pipeline phases run. Unannotated originals have no

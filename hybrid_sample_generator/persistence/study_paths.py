@@ -3,6 +3,7 @@
 import os
 from dataclasses import dataclass
 
+
 @dataclass
 class StudyPaths:
     """
@@ -67,14 +68,6 @@ class StudyPaths:
     @property
     def trained_models(self):
         return self._join("trained_models")
-
-    @property
-    def generated_images(self):
-        return self._join("exports", "images")
-
-    @property
-    def generated_segmentations(self):
-        return self._join("exports", "segmentations")
 
     @property
     def evaluation_results(self):
