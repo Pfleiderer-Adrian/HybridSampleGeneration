@@ -1,7 +1,6 @@
-"""Two-dimensional ResNet variational autoencoder."""
+"""Dimension-independent ResNet variational autoencoder."""
 
 from __future__ import annotations
-from dataclasses import dataclass
 from typing import Optional, Tuple, Dict, Union
 import math
 import numpy as np
@@ -9,77 +8,20 @@ import torch
 import torch.nn as nn
 
 from hybrid_sample_generator.generation.vae.base import HybridVAEBase
+from .configuration import Config
 from hybrid_sample_generator.imaging.masks.transform_generator import TransformGenerator
 
 
-from .layers_2d import ResNetDecoder2D, ResNetEncoder2D
+from .layers import ResNetDecoder, ResNetEncoder
 
 # -------------------------
-# VAE 2D
+# VAE
 # -------------------------
-@dataclass
-class Config:
+
+
+class ResNetVAE(HybridVAEBase):
     """
-    Hyperparameters for ResNetVAE2D.
-
-    Mirrors the 3D config for easier swapping.
-
-    Fields
-    ------
-    n_res_blocks:
-        Number of residual blocks per resolution level.
-    n_levels:
-        Number of down/up-sampling stages.
-    z_channels:
-        Channels in the latent feature map (before FC bottleneck).
-    bottleneck_dim:
-        Dimension of the VAE bottleneck vector (mu/logvar dimension).
-    use_multires_skips:
-        Enable multi-resolution skips in encoder/decoder.
-    recon_weight:
-        Weight for reconstruction loss term.
-    beta_kl:
-        Weight for KL divergence term.
-    recon_loss:
-        Reconstruction loss: "smoothl1" or "mse".
-    recon_smoothl1_beta:
-        Beta (delta) parameter for SmoothL1.
-    use_transpose_conv:
-        If True, decoder uses ConvTranspose2d for upsampling. If False, uses Upsample+Conv2d.
-    fg_weight:
-        Foreground weight for reconstruction loss (background weight is 1.0).
-    fg_threshold:
-        Foreground threshold on |x| used to build the weighting mask.
-    """
-    in_channels: int = None
-    n_res_blocks: int = 8
-    n_levels: int = 4
-    z_channels: int = 250
-    bottleneck_dim: int = 250
-    use_multires_skips: bool = True
-    recon_weight: float = 100.0
-    beta_kl: float = 1.0
-    beta_kl_start: float = 0.0
-    beta_kl_max: float = 0.03
-    beta_kl_warmup_start: int = 20
-    beta_kl_warmup_epochs: int = 30
-    free_bits: float = 0.0
-
-    # --- continuous-intensity reconstruction (Option B) ---
-    # Default: SmoothL1 (Huber) is typically more robust for MRI intensities than BCE.
-    # Supported: "smoothl1" | "mse"
-    recon_loss: str = "smoothl1"
-    # Only used when recon_loss == "smoothl1". (PyTorch calls this parameter "beta".)
-    recon_smoothl1_beta: float = 1.0
-    # If True, decoder uses ConvTranspose2d for upsampling. If False, uses Upsample(bilinear)+Conv2d.
-    use_transpose_conv: bool = True
-    fg_weight: float = 1.0
-    fg_threshold: float = 0.0
-
-
-class ResNetVAE2D(HybridVAEBase):
-    """
-    2D ResNet-VAE.
+    ResNet-VAE.
 
     Expected input:
       - x: (B, C, H, W), float (continuous intensities; e.g. MRI)
@@ -91,7 +33,7 @@ class ResNetVAE2D(HybridVAEBase):
       - mu/logvar: (B,bottleneck_dim)
       - x_ref: (B,C,H,W) reference input for recon loss
     """
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, *, in_channels: int, spatial_dims: int):
         """
         Initialize the VAE.
 
@@ -108,40 +50,45 @@ class ResNetVAE2D(HybridVAEBase):
             Initializes encoder/decoder and sets up lazy FC layers (created on first forward).
         """
         super().__init__()
+        if spatial_dims not in (2, 3):
+            raise ValueError(f"spatial_dims must be 2 or 3, got {spatial_dims}.")
+        self.spatial_dims = spatial_dims
         self.cfg = cfg
-        self.in_channels = cfg.in_channels
+        self.in_channels = int(in_channels)
 
-        # 2D encoder outputs a latent feature map h
-        self.encoder = ResNetEncoder2D(
-            in_channels=cfg.in_channels,
+        # encoder outputs a latent feature map h
+        self.encoder = ResNetEncoder(
+            in_channels=self.in_channels,
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
             use_multires_skips=cfg.use_multires_skips,
+            spatial_dims=spatial_dims,
         )
 
-        # 2D decoder reconstructs from latent feature map
-        self.decoder = ResNetDecoder2D(
-            out_channels=cfg.in_channels,
+        # decoder reconstructs from latent feature map
+        self.decoder = ResNetDecoder(
+            out_channels=self.in_channels,
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
             use_multires_skips=cfg.use_multires_skips,
             use_transpose_conv=cfg.use_transpose_conv,
+            spatial_dims=spatial_dims,
         )
 
         self.fc_mu: Optional[nn.Linear] = None
         self.fc_logvar: Optional[nn.Linear] = None
         self.fc_decode: Optional[nn.Linear] = None
-        self._latent_hw: Optional[Tuple[int, int]] = None
+        self._latent_shape: Optional[Tuple[int, ...]] = None
 
-    def _ensure_fcs(self, latent_hw: Tuple[int, int], device: torch.device):
+    def _ensure_fcs(self, latent_shape: Tuple[int, ...], device: torch.device):
         """
         Lazily create (or re-create) the bottleneck fully-connected layers when latent spatial size changes.
 
         Inputs
         ------
-        latent_hw:
+        latent_shape:
             Tuple (h', w') of encoder output spatial size.
         device:
             Device to place FC layers on.
@@ -151,11 +98,11 @@ class ResNetVAE2D(HybridVAEBase):
         None
             Side effect: initializes self.fc_mu, self.fc_logvar, self.fc_decode.
         """
-        if self._latent_hw == latent_hw and self.fc_mu is not None:
+        if self._latent_shape == latent_shape and self.fc_mu is not None:
             return
 
-        self._latent_hw = latent_hw
-        flat = int(self.cfg.z_channels * math.prod(latent_hw))
+        self._latent_shape = latent_shape
+        flat = int(self.cfg.z_channels * math.prod(latent_shape))
 
         # Map latent feature map (flattened) -> bottleneck vector
         self.fc_mu = nn.Linear(flat, self.cfg.bottleneck_dim).to(device)
@@ -181,8 +128,8 @@ class ResNetVAE2D(HybridVAEBase):
           - x_ref: torch.Tensor (B,C,H,W) reference input (cropped/padded)
         """
         # Validate shape
-        if x.ndim != 4:
-            raise ValueError(f"Expected (B,C,H,W), got {tuple(x.shape)}")
+        if x.ndim != self.spatial_dims + 2:
+            raise ValueError(f"Expected a batch, channel, and {self.spatial_dims} spatial dimensions, got {tuple(x.shape)}")
         if x.shape[1] != self.in_channels:
             raise ValueError(f"Expected C={self.in_channels}, got C={x.shape[1]}")
 
@@ -191,7 +138,7 @@ class ResNetVAE2D(HybridVAEBase):
 
         device = x.device
         B = x.shape[0]
-        ref_hw = tuple(x.shape[-2:])
+        spatial_shape = tuple(x.shape[-self.spatial_dims:])
 
         # Pad spatial dims so they are divisible by 2**n_levels (required by stride-2 downsamples)
         multiple = 2 ** self.cfg.n_levels
@@ -199,10 +146,10 @@ class ResNetVAE2D(HybridVAEBase):
 
         # Encode into latent feature map
         h = self.encoder(x_pad)  # (B, z_channels, h', w')
-        latent_hw = tuple(h.shape[-2:])
+        latent_shape = tuple(h.shape[-self.spatial_dims:])
 
         # Ensure FCs exist for this latent size
-        self._ensure_fcs(latent_hw, device)
+        self._ensure_fcs(latent_shape, device)
 
         # Flatten and produce mu/logvar
         h_flat = h.reshape(B, -1)
@@ -213,14 +160,14 @@ class ResNetVAE2D(HybridVAEBase):
         z = self.reparameterize(mu, logvar)
 
         # Decode: bottleneck -> latent feature map -> decoder -> recon
-        h_dec = self.fc_decode(z).reshape(B, self.cfg.z_channels, *latent_hw)
+        h_dec = self.fc_decode(z).reshape(B, self.cfg.z_channels, *latent_shape)
         # Linear reconstruction head (no sigmoid) for continuous intensities.
         recon = self.decoder(h_dec)
 
         # Crop recon back to original spatial size
-        recon = self._crop_like(recon, ref_hw)
+        recon = self._crop_like(recon, spatial_shape)
         # x_ref is the reference input used for loss (cropped/padded consistently)
-        x_ref = self._crop_like(x_pad, ref_hw) if sum(pad) else x
+        x_ref = self._crop_like(x_pad, spatial_shape) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
 
@@ -325,13 +272,13 @@ class ResNetVAE2D(HybridVAEBase):
         x = self._extract_x(sample)
 
         single = False
-        if x.ndim == 3:  # (C,H,W) -> (1,C,H,W)
+        if x.ndim == self.spatial_dims + 1:
             x = x.unsqueeze(0)
             single = True
-        elif x.ndim == 4:
+        elif x.ndim == self.spatial_dims + 2:
             pass
         else:
-            raise ValueError(f"Expected (C,H,W) or (B,C,H,W), got {tuple(x.shape)}")
+            raise ValueError(f"Expected channel-first input with or without a batch, got {tuple(x.shape)}")
 
         x = x.float()
 
@@ -344,13 +291,13 @@ class ResNetVAE2D(HybridVAEBase):
         x = x.to(device)
 
         with torch.no_grad():
-            ref_hw = tuple(x.shape[-2:])
+            spatial_shape = tuple(x.shape[-self.spatial_dims:])
             multiple = 2 ** self.cfg.n_levels
             x_pad, _ = self._pad_to_multiple(x, multiple)
 
             h = model.encoder(x_pad)
-            latent_hw = tuple(h.shape[-2:])
-            model._ensure_fcs(latent_hw, device)
+            latent_shape = tuple(h.shape[-self.spatial_dims:])
+            model._ensure_fcs(latent_shape, device)
 
             B = x.shape[0]
             h_flat = h.reshape(B, -1)
@@ -364,14 +311,14 @@ class ResNetVAE2D(HybridVAEBase):
                 eps = torch.randn((B, n, mu.shape[-1]), device=device, dtype=mu.dtype)
                 z = (mu.unsqueeze(1) + float(variation_strength) * std.unsqueeze(1) * eps).reshape(B * n, -1)
 
-            h_dec = model.fc_decode(z).reshape(B * n, self.cfg.z_channels, *latent_hw)
+            h_dec = model.fc_decode(z).reshape(B * n, self.cfg.z_channels, *latent_shape)
             recon = model.decoder(h_dec)
-            recon = self._crop_like(recon, ref_hw)
+            recon = self._crop_like(recon, spatial_shape)
 
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)
 
-            recon = recon.view(B, n, self.cfg.in_channels, *ref_hw)
+            recon = recon.view(B, n, self.in_channels, *spatial_shape)
             if single:
                 recon = recon.squeeze(0).squeeze(0)
 
@@ -388,129 +335,79 @@ class ResNetVAE2D(HybridVAEBase):
         self,
         sample: Union[dict, np.ndarray, torch.Tensor, None] = None,
         *,
-        out_hw: tuple[int, int] | None = None,
+        output_shape: tuple[int, ...] | None = None,
         variation_strength: float = 1.0,
         device: str | torch.device = "cuda" if torch.cuda.is_available() else "cpu",
         clamp_01: bool = True,
         target_mask_generator: Optional[TransformGenerator] = None,
         return_torch: bool = False,
     ) -> np.ndarray | torch.Tensor:
-        """
-        Generate ONE synthetic sample via prior sampling.
-
-        Samples:
-            z ~ N(0, I) scaled by variation_strength, then decodes to image space.
-
-        Parameters:
-        - out_hw: output (H, W). If None and sample is given, uses sample spatial size.
-        - variation_strength: prior diversity strength.
-        - clamp_01: clamp outputs to [0,1].
-        - return_torch: return torch.Tensor instead of np.ndarray.
-
-        Output:
-        - (C, H, W)
-        """
+        """Generate one sample by decoding a standard-normal latent vector."""
         if variation_strength < 0:
             raise ValueError(f"variation_strength must be >= 0, got {variation_strength}")
-
-        if out_hw is None and sample is not None:
-            out_hw = tuple(self._extract_x(sample).shape[-2:])
-        if not (isinstance(out_hw, (tuple, list)) and len(out_hw) == 2):
-            raise ValueError(f"out_hw must be (H,W), got {out_hw}")
-
-        H, W = int(out_hw[0]), int(out_hw[1])
-        if H <= 0 or W <= 0:
-            raise ValueError(f"out_hw must be positive, got {out_hw}")
+        if output_shape is None and sample is not None:
+            output_shape = tuple(self._extract_x(sample).shape[-self.spatial_dims:])
+        if not isinstance(output_shape, (tuple, list)) or len(output_shape) != self.spatial_dims:
+            raise ValueError(
+                f"output_shape must contain {self.spatial_dims} values, got {output_shape}"
+            )
+        output_shape = tuple(int(value) for value in output_shape)
+        if min(output_shape) <= 0:
+            raise ValueError(f"output_shape must be positive, got {output_shape}")
 
         device = torch.device(device)
         model = self.to(device)
         model.eval()
-
         down = 2 ** int(self.cfg.n_levels)
-        pad_h = (down - (H % down)) % down
-        pad_w = (down - (W % down)) % down
-        H_pad, W_pad = H + pad_h, W + pad_w
-        latent_hw = (H_pad // down, W_pad // down)
-
-        z_dim = int(self.cfg.bottleneck_dim)
+        padded_shape = tuple(size + (down - size % down) % down for size in output_shape)
+        latent_shape = tuple(size // down for size in padded_shape)
 
         with torch.no_grad():
-            model._ensure_fcs(latent_hw, device)
-
+            model._ensure_fcs(latent_shape, device)
             if variation_strength == 0.0:
-                z = torch.zeros((1, z_dim), device=device)
+                z = torch.zeros((1, int(self.cfg.bottleneck_dim)), device=device)
             else:
-                z = torch.randn((1, z_dim), device=device) * float(variation_strength)
-
-            h_dec = model.fc_decode(z).reshape(1, int(self.cfg.z_channels), *latent_hw)
-            recon = model.decoder(h_dec)
-            recon = recon[..., :H, :W].squeeze(0)
-
+                z = torch.randn((1, int(self.cfg.bottleneck_dim)), device=device)
+                z = z * float(variation_strength)
+            decoded = model.fc_decode(z).reshape(
+                1, int(self.cfg.z_channels), *latent_shape
+            )
+            recon = model.decoder(decoded)
+            recon = self._crop_like(recon, output_shape).squeeze(0)
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)
 
         if target_mask_generator is None:
             target_mask_generator = TransformGenerator()
-
         if return_torch:
-            return recon, target_mask_generator.create_target_mask(synth_anomaly_image=recon)
-
+            return recon, target_mask_generator.create_target_mask(
+                synth_anomaly_image=recon
+            )
         recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
-        return recon_np, target_mask_generator.create_target_mask(synth_anomaly_image=recon_np)
+        return recon_np, target_mask_generator.create_target_mask(
+            synth_anomaly_image=recon_np
+        )
 
     def warmup(self, shape, device=None, dtype=None, config=None):
-        """
-        Warm up the model to initialize lazy FC layers (fc_mu, fc_logvar, fc_decode).
-
-        This is necessary because FC layers depend on the latent spatial size which depends on input size.
-
-        Inputs
-        ------
-        shape:
-            Tuple/list (C, H, W) used to create a dummy batch (1,C,H,W).
-        device:
-            Optional device to run warmup on. If None, uses the model's device.
-        dtype:
-            Optional dtype. If None, uses model parameter dtype.
-
-        Outputs
-        -------
-        self:
-            Returns self for chaining.
-        """
-        if not (isinstance(shape, (tuple, list)) and len(shape) == 3):
-            raise ValueError(f"shape must be (C,H,W), got: {shape}")
-
-        C, H, W = map(int, shape)
-        if min(C, H, W) <= 0:
+        """Initialize shape-dependent fully connected layers."""
+        if not isinstance(shape, (tuple, list)) or len(shape) != self.spatial_dims + 1:
+            raise ValueError(
+                f"shape must contain channels and {self.spatial_dims} spatial values, got {shape}"
+            )
+        shape = tuple(int(value) for value in shape)
+        if min(shape) <= 0:
             raise ValueError(f"All dimensions must be > 0, got: {shape}")
-
         try:
-            p = next(self.parameters())
-            model_device = p.device
-            model_dtype = p.dtype
+            parameter = next(self.parameters())
+            model_device, model_dtype = parameter.device, parameter.dtype
         except StopIteration:
-            model_device = torch.device("cpu")
-            model_dtype = torch.float32
-
-        if device is None:
-            device = model_device
-        else:
-            device = torch.device(device)
-
-        if dtype is None:
-            dtype = model_dtype
-
-        # Remember training mode, run dummy forward in eval/no_grad
+            model_device, model_dtype = torch.device("cpu"), torch.float32
+        device = model_device if device is None else torch.device(device)
+        dtype = model_dtype if dtype is None else dtype
         was_training = self.training
         self.eval()
-
         with torch.no_grad():
-            x = torch.zeros((1, C, H, W), device=device, dtype=dtype)
-            _ = self(x)
-
-        # Restore mode
+            self(torch.zeros((1, *shape), device=device, dtype=dtype))
         if was_training:
             self.train()
-
         return self

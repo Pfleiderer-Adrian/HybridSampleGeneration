@@ -38,6 +38,8 @@ def plan_hybrid_samples(
     repository: StudyRepository,
     artifact_store: ArtifactStore,
     config: MatchingConfiguration,
+    *,
+    seed: int,
 ) -> list[HybridSample]:
     """Create normalized hybrid and placement records without performing fusion."""
     started_at = perf_counter()
@@ -111,7 +113,7 @@ def plan_hybrid_samples(
             hybrid_id = stable_id("hybrid", original.id, hybrid_index)
             desired_count = _placement_count(
                 config,
-                stable_seed(config.seed, original.id, hybrid_index, "placement_count"),
+                stable_seed(seed, original.id, hybrid_index, "placement_count"),
             )
             if local_matcher is not None:
                 options = local_rois.options(
@@ -236,7 +238,7 @@ def _match_real_anomalies(
 
     pool = list(real_anomalies)
     if routine == "batchwise" and len(pool) > int(config.batch_size):
-        rng = np.random.default_rng(stable_seed(config.seed, original.id, "batchwise"))
+        rng = np.random.default_rng(stable_seed(seed, original.id, "batchwise"))
         indices = sorted(
             rng.choice(len(pool), size=int(config.batch_size), replace=False).tolist()
         )

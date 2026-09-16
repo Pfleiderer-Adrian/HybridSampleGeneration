@@ -11,11 +11,7 @@ from hybrid_sample_generator.fusion.classical.alpha import (
 from hybrid_sample_generator.fusion.classical.configuration import Config
 from hybrid_sample_generator.fusion.classical.spatial import fuse_spatial
 from hybrid_sample_generator.fusion.interfaces import FusionOutput
-from hybrid_sample_generator.imaging.roi import (
-    crop_cube_clip,
-    crop_square_clip,
-    dynamic_roi_size,
-)
+from hybrid_sample_generator.imaging.roi import crop_spatial_clip, dynamic_roi_size
 
 
 class ClassicalFusionBackend:
@@ -67,39 +63,25 @@ class ClassicalFusionBackend:
         anomaly_roi = sample["anomaly_roi"]
         anomaly_roi_mask = sample["anomaly_roi_mask"]
 
-        if control.ndim == 3:
-            return fuse_spatial(
-                control,
-                anomaly,
-                anomaly_meta,
-                position,
-                target_mask,
-                extraction_config,
-                params=self.params,
-                spatial_ndim=2,
-                crop_roi=crop_square_clip,
-                dynamic_roi_size=dynamic_roi_size,
-                alpha_builder=get_alpha_mask_2d,
-                anomaly_roi=anomaly_roi,
-                anomaly_roi_mask=anomaly_roi_mask,
+        if control.ndim not in (3, 4):
+            raise ValueError(
+                f"Unexpected shape: {control.shape}, supported shapes are "
+                "(C,H,W) and (C,D,H,W)."
             )
-        if control.ndim == 4:
-            return fuse_spatial(
-                control,
-                anomaly,
-                anomaly_meta,
-                position,
-                target_mask,
-                extraction_config,
-                params=self.params,
-                spatial_ndim=3,
-                crop_roi=crop_cube_clip,
-                dynamic_roi_size=dynamic_roi_size,
-                alpha_builder=get_alpha_mask_3d,
-                anomaly_roi=anomaly_roi,
-                anomaly_roi_mask=anomaly_roi_mask,
-            )
-        raise ValueError(
-            f"Unexpected shape: {control.shape}, Supported: (C, H, W) or "
-            "(C, D, H, W)"
+        spatial_dims = control.ndim - 1
+        alpha_builder = get_alpha_mask_2d if spatial_dims == 2 else get_alpha_mask_3d
+        return fuse_spatial(
+            control,
+            anomaly,
+            anomaly_meta,
+            position,
+            target_mask,
+            extraction_config,
+            params=self.params,
+            spatial_ndim=spatial_dims,
+            crop_roi=crop_spatial_clip,
+            dynamic_roi_size=dynamic_roi_size,
+            alpha_builder=alpha_builder,
+            anomaly_roi=anomaly_roi,
+            anomaly_roi_mask=anomaly_roi_mask,
         )

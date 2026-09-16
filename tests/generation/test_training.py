@@ -14,13 +14,20 @@ from hybrid_sample_generator.generation.training.metrics import (
     metric_value,
 )
 from hybrid_sample_generator.generation.training.optuna import sample_model_params
+from hybrid_sample_generator.generation.model_settings import (
+    Choice,
+    FloatRange,
+    IntRange,
+    SearchSpace,
+)
+from hybrid_sample_generator.generation.vae.resnet.configuration import Config
 
 
 class _Trial:
-    def suggest_int(self, _name, low, _high):
+    def suggest_int(self, _name, low, _high, **_kwargs):
         return low
 
-    def suggest_float(self, _name, low, _high):
+    def suggest_float(self, _name, low, _high, **_kwargs):
         return low
 
     def suggest_categorical(self, _name, choices):
@@ -44,12 +51,24 @@ class TrainingModuleTests(unittest.TestCase):
         image = torch.ones(1, 3, 3)
         self.assertIs(RandomSpatialOffset()(image), image)
 
-    def test_hyperparameter_sampling_keeps_fixed_values(self):
-        params = sample_model_params(
-            _Trial(),
-            {"min": {"depth": 2}, "max": {"depth": 2}},
+    def test_hyperparameter_sampling_changes_only_searched_values(self):
+        parameters = Config(
+            n_res_blocks=7,
+            z_channels=48,
+            recon_weight=25.0,
+            recon_loss="mse",
         )
-        self.assertEqual(params, {"depth": 2})
+        search = SearchSpace(parameters)
+        search.n_res_blocks = IntRange(2, 4)
+        search.z_channels = Choice((16, 32))
+        search.recon_weight = FloatRange(1.0, 10.0)
+        sampled = sample_model_params(_Trial(), parameters, search)
+        self.assertIsNot(sampled, parameters)
+        self.assertEqual(sampled.n_res_blocks, 2)
+        self.assertEqual(sampled.z_channels, 16)
+        self.assertEqual(sampled.recon_weight, 1.0)
+        self.assertEqual(sampled.recon_loss, "mse")
+        self.assertEqual(parameters.n_res_blocks, 7)
 
 
 if __name__ == "__main__":

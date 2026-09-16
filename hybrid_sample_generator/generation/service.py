@@ -48,10 +48,12 @@ class GenerationService:
 
     def train(self) -> None:
         """Optimize generator hyperparameters using persisted real anomalies."""
+        dataset, num_anomaly_classes = self._training_dataset()
         optimize(
             self.config.training.num_trials,
             self.config,
-            self._training_dataset(),
+            dataset,
+            num_anomaly_classes=num_anomaly_classes,
         )
 
     def load(self, path_to_db_file=None) -> GenerativeBackend:
@@ -68,7 +70,9 @@ class GenerationService:
         trial = _select_trial(study, self.config.training.trial_selection)
 
         model = get_model_spec(trial.user_attrs["model_name"]).build(
-            trial.user_attrs["params"]
+            trial.user_attrs["params"],
+            in_channels=trial.user_attrs["in_channels"],
+            num_anomaly_classes=trial.user_attrs["num_anomaly_classes"],
         )
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model.to(device)
@@ -153,21 +157,20 @@ class GenerationService:
         if not records:
             raise ValueError("No real anomalies found. Run extract_anomalies first.")
 
-        if get_model_spec(self.config.model.name).uses_masks:
-            max_class = max(
+        spec = get_model_spec(self.config.model.name)
+        num_anomaly_classes = None
+        if spec.uses_masks:
+            num_anomaly_classes = max(
                 int(round(float(record.metadata.get("label", 0))))
                 for record in records
             )
-            self.config.model.parameters.set_model_param(
-                "num_anomaly_classes",
-                max_class,
-            )
 
-        return self.datasets.real_anomalies(
-            return_artifacts=self.config.model.parameters.input_artefacts,
+        dataset = self.datasets.real_anomalies(
+            return_artifacts=spec.input_artefacts,
             load_to_ram=True,
             dtype=torch.float32,
         )
+        return dataset, num_anomaly_classes
 
     def _generate_variant(
         self,

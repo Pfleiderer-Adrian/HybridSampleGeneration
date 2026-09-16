@@ -1,24 +1,8 @@
-"""ConvNeXt2D-U-Net conditional VAE
-
-Features:
-- mask (one-hot encoded) concatenated to corresponding input
-- ConvNeXt2D blocks (depthwise conv + pointwise MLP)
-- GroupNorm instead of BatchNorm (stable for small batch sizes)
-- True U-Net skip connections (feature concatenation)
-- SPADE blocks for mask integration in decoder
-- Posterior sampling for *lightly varied* variants around a given input
-
-Shapes:
-- Input x: (B, C, H, W)
-- Input mask: (B, 1, H, W) or (B, H, W)
-- Output recon: (B, C, H, W)
-
-"""
+"""Dimension-independent conditional ConvNeXt variational autoencoder."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, Union, List
+from typing import Optional, Tuple, Dict, Union
 import math
 import numpy as np
 
@@ -26,67 +10,43 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from hybrid_sample_generator.generation.vae.base import HybridVAEBase
-from hybrid_sample_generator.imaging.masks.encoding import to_one_hot_2D
+from .configuration import Config
+from hybrid_sample_generator.imaging.masks.encoding import to_one_hot
 from hybrid_sample_generator.imaging.masks.transform_generator import TransformGenerator
 
 
-from hybrid_sample_generator.generation.vae.convnext.layers_2d import ConvNeXtUNetEncoder2D
-from .spade_2d import ConvNeXtSPADEUNetDecoder2D
+from hybrid_sample_generator.generation.vae.convnext.layers import ConvNeXtUNetEncoder
+from .spade import ConvNeXtSPADEUNetDecoder
 
 # -------------------------
 # VAE 2D conditional
 # -------------------------
 
-@dataclass
-class Config:
-    """Hyperparameters for ConvNeXtcVAE2D."""
-    in_channels: int = None
-    num_anomaly_classes: int = None
-    n_res_blocks: int = 8
-    n_spade_blocks: int = 2 # how many of the res blocks should use spade per upscale level
-    n_levels: int = 4
-    z_channels: int = 250
-    bottleneck_dim: int = 250
-    recon_weight: float = 100.0
-    beta_kl: float = 1.0
-    beta_kl_start: float = 0.0
-    beta_kl_max: float = 0.03
-    beta_kl_warmup_start: int = 20
-    beta_kl_warmup_epochs: int = 30
-    free_bits: float = 0.0
-
-    recon_loss: str = "smoothl1"  # 'smoothl1' or 'mse'
-    recon_smoothl1_beta: float = 1.0
-    use_transpose_conv: bool = True
-    fg_weight: float = 1.0
-    fg_threshold: float = 0.0
-
-    # Regularization
-    drop_path_rate: float = 0.10  # Stochastic depth max rate (0.0 disables)
-    dropout: float = 0.05         # Dropout inside MLP (0.0 disables)
-
-    # Skip regularization (helps force latent usage)
-    skip_dropout_p: float = 0.0  # Drop entire skip-tensors per sample during training (0.0 disables)
-    # Optional per-resolution skip dropout values in encoder order: [highest resolution, ..., deepest].
-    # If set, this overrides skip_dropout_p for individual skip levels.
-    skip_dropout_ps: Optional[List[float]] = None
-    skip_alpha: float = 1.0      # Scale skips (0.0 disables skips, 0.2 keeps small guidance)
 
 
-class ConvNeXtcVAE2D(HybridVAEBase):
-    """2D ConvNeXt-U-Net VAE with SPADE for conditional generation."""
+class ConditionalConvNeXtVAE(HybridVAEBase):
+    """Conditional ConvNeXt U-Net VAE with SPADE for conditional generation."""
 
-    def __init__(self, cfg: Config):
+    def __init__(
+        self,
+        cfg: Config,
+        *,
+        in_channels: int,
+        num_anomaly_classes: int,
+        spatial_dims: int,
+    ):
         super().__init__()
-        if cfg.num_anomaly_classes is None:
-            raise ValueError("Config.num_anomaly_classes must be set for ConvNeXtcVAE2D.")
+        if spatial_dims not in (2, 3):
+            raise ValueError(f"spatial_dims must be 2 or 3, got {spatial_dims}.")
+        self.spatial_dims = spatial_dims
         self.cfg = cfg
-        self.in_channels = cfg.in_channels
+        self.in_channels = int(in_channels)
+        self.num_anomaly_classes = int(num_anomaly_classes)
 
         # encoder gets real mask as additional input (concatenated)
-        enc_in_channels = cfg.in_channels + cfg.num_anomaly_classes
+        enc_in_channels = self.in_channels + self.num_anomaly_classes
 
-        self.encoder = ConvNeXtUNetEncoder2D(
+        self.encoder = ConvNeXtUNetEncoder(
             in_channels=enc_in_channels,
             n_res_blocks=cfg.n_res_blocks,
             n_levels=cfg.n_levels,
@@ -95,34 +55,36 @@ class ConvNeXtcVAE2D(HybridVAEBase):
             dropout=cfg.dropout,
             skip_dropout_p=cfg.skip_dropout_p,
             skip_alpha=cfg.skip_alpha,
+            spatial_dims=spatial_dims,
         )
 
-        self.decoder = ConvNeXtSPADEUNetDecoder2D(
-            out_channels=cfg.in_channels,
+        self.decoder = ConvNeXtSPADEUNetDecoder(
+            out_channels=self.in_channels,
             n_res_blocks=cfg.n_res_blocks,
             n_spade_blocks=cfg.n_spade_blocks,
             n_levels=cfg.n_levels,
             z_channels=cfg.z_channels,
-            num_anomaly_classes=cfg.num_anomaly_classes,
+            num_anomaly_classes=self.num_anomaly_classes,
             use_transpose_conv=cfg.use_transpose_conv,
             drop_path_rate=cfg.drop_path_rate,
             dropout=cfg.dropout,
             skip_dropout_p=cfg.skip_dropout_p,
             skip_dropout_ps=cfg.skip_dropout_ps,
             skip_alpha=cfg.skip_alpha,
+            spatial_dims=spatial_dims,
         )
 
         self.fc_mu: Optional[nn.Linear] = None
         self.fc_logvar: Optional[nn.Linear] = None
         self.fc_decode: Optional[nn.Linear] = None
-        self._latent_hw: Optional[Tuple[int, int]] = None
+        self._latent_shape: Optional[Tuple[int, ...]] = None
 
-    def _ensure_fcs(self, latent_hw: Tuple[int, int], device: torch.device):
-        if self._latent_hw == latent_hw and self.fc_mu is not None:
+    def _ensure_fcs(self, latent_shape: Tuple[int, ...], device: torch.device):
+        if self._latent_shape == latent_shape and self.fc_mu is not None:
             return
 
-        self._latent_hw = latent_hw
-        flat = int(self.cfg.z_channels * math.prod(latent_hw))
+        self._latent_shape = latent_shape
+        flat = int(self.cfg.z_channels * math.prod(latent_shape))
 
         self.fc_mu = nn.Linear(flat, self.cfg.bottleneck_dim).to(device)
         self.fc_logvar = nn.Linear(flat, self.cfg.bottleneck_dim).to(device)
@@ -132,18 +94,18 @@ class ConvNeXtcVAE2D(HybridVAEBase):
         if tgt_mask is None:
             tgt_mask = ori_mask
             
-        ori_mask = to_one_hot_2D(ori_mask, self.cfg.num_anomaly_classes)
-        tgt_mask = to_one_hot_2D(tgt_mask, self.cfg.num_anomaly_classes)
+        ori_mask = to_one_hot(ori_mask, self.num_anomaly_classes, spatial_dims=self.spatial_dims)
+        tgt_mask = to_one_hot(tgt_mask, self.num_anomaly_classes, spatial_dims=self.spatial_dims)
         
-        if x.ndim != 4 or ori_mask.ndim != 4 or tgt_mask.ndim != 4:
-            raise ValueError(f"Expected (B,C,H,W), got {tuple(x.shape)}")
-        if x.shape[1] != self.cfg.in_channels:
-            raise ValueError(f"Expected C={self.cfg.in_channels}, got C={x.shape[1]}")
+        if any(value.ndim != self.spatial_dims + 2 for value in (x, ori_mask, tgt_mask)):
+            raise ValueError(f"Expected a batch, channel, and {self.spatial_dims} spatial dimensions, got {tuple(x.shape)}")
+        if x.shape[1] != self.in_channels:
+            raise ValueError(f"Expected C={self.in_channels}, got C={x.shape[1]}")
 
         x = x.float()
         device = x.device
         B = x.shape[0]
-        ref_hw = tuple(x.shape[-2:])
+        spatial_shape = tuple(x.shape[-self.spatial_dims:])
 
         multiple = 2 ** self.cfg.n_levels
         x_pad, pad = self._pad_to_multiple(x, multiple)
@@ -157,9 +119,9 @@ class ConvNeXtcVAE2D(HybridVAEBase):
         # Encode -> (latent feature map, skips)
         enc_in = torch.cat([x_pad, ori_mask_pad], dim=1)
         h, skips = self.encoder(enc_in)
-        latent_hw = tuple(h.shape[-2:])
+        latent_shape = tuple(h.shape[-self.spatial_dims:])
 
-        self._ensure_fcs(latent_hw, device)
+        self._ensure_fcs(latent_shape, device)
 
         h_flat = h.reshape(B, -1)
         mu = self.fc_mu(h_flat)
@@ -168,13 +130,13 @@ class ConvNeXtcVAE2D(HybridVAEBase):
         z = self.reparameterize(mu, logvar)
 
         # Decode
-        h_dec = self.fc_decode(z).reshape(B, self.cfg.z_channels, *latent_hw)
+        h_dec = self.fc_decode(z).reshape(B, self.cfg.z_channels, *latent_shape)
         self.decoder.set_skips(skips)
         
         recon = self.decoder(h_dec, tgt_mask_pad)
 
-        recon = self._crop_like(recon, ref_hw)
-        x_ref = self._crop_like(x_pad, ref_hw) if sum(pad) else x
+        recon = self._crop_like(recon, spatial_shape)
+        x_ref = self._crop_like(x_pad, spatial_shape) if sum(pad) else x
 
         return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
 
@@ -255,22 +217,22 @@ class ConvNeXtcVAE2D(HybridVAEBase):
         tgt_mask_return = tgt_mask
 
         single = False
-        if x.ndim == 3:
+        if x.ndim == self.spatial_dims + 1:
             x = x.unsqueeze(0)  # (1,C,H,W)
             single = True
-        elif x.ndim != 4:
-            raise ValueError(f"Expected (C,H,W) or (B,C,H,W), got {tuple(x.shape)}")
+        elif x.ndim != self.spatial_dims + 2:
+            raise ValueError(f"Expected channel-first input with or without a batch, got {tuple(x.shape)}")
 
         if clamp_01:
             x = x.clamp(0.0, 1.0)
 
         x = x.to(device)
         
-        ori_mask = to_one_hot_2D(ori_mask.to(device), self.cfg.num_anomaly_classes)
-        tgt_mask = to_one_hot_2D(tgt_mask.to(device), self.cfg.num_anomaly_classes)
+        ori_mask = to_one_hot(ori_mask.to(device), self.num_anomaly_classes, spatial_dims=self.spatial_dims)
+        tgt_mask = to_one_hot(tgt_mask.to(device), self.num_anomaly_classes, spatial_dims=self.spatial_dims)
 
         with torch.no_grad():
-            ref_hw = tuple(x.shape[-2:])
+            spatial_shape = tuple(x.shape[-self.spatial_dims:])
             multiple = 2 ** self.cfg.n_levels
             x_pad, pad = self._pad_to_multiple(x, multiple)
             if sum(pad) > 0:
@@ -282,8 +244,8 @@ class ConvNeXtcVAE2D(HybridVAEBase):
 
             enc_in = torch.cat([x_pad, ori_mask_pad], dim=1)
             h, skips = model.encoder(enc_in)
-            latent_hw = tuple(h.shape[-2:])
-            model._ensure_fcs(latent_hw, device)
+            latent_shape = tuple(h.shape[-self.spatial_dims:])
+            model._ensure_fcs(latent_shape, device)
 
             B = x.shape[0]
             h_flat = h.reshape(B, -1)
@@ -297,7 +259,7 @@ class ConvNeXtcVAE2D(HybridVAEBase):
                 eps = torch.randn((B, n, mu.shape[-1]), device=device, dtype=mu.dtype)
                 z = (mu.unsqueeze(1) + (variation_strength * std).unsqueeze(1) * eps).reshape(B * n, -1)
 
-            h_dec = model.fc_decode(z).reshape(B * n, self.cfg.z_channels, *latent_hw)
+            h_dec = model.fc_decode(z).reshape(B * n, self.cfg.z_channels, *latent_shape)
 
             alpha_skips = float(self.cfg.skip_alpha)
             if alpha_skips <= 0:
@@ -310,12 +272,12 @@ class ConvNeXtcVAE2D(HybridVAEBase):
 
             tgt_mask_pad_rep = tgt_mask_pad.repeat_interleave(n, dim=0)
             recon = model.decoder(h_dec, tgt_mask_pad_rep)
-            recon = self._crop_like(recon, ref_hw)
+            recon = self._crop_like(recon, spatial_shape)
 
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)
 
-            recon = recon.view(B, n, self.cfg.in_channels, *ref_hw)
+            recon = recon.view(B, n, self.in_channels, *spatial_shape)
 
             if single:
                 recon = recon.squeeze(0)
@@ -329,40 +291,30 @@ class ConvNeXtcVAE2D(HybridVAEBase):
         return recon_np, tgt_mask_np
 
     def warmup(self, shape, device=None, dtype=None, config=None):
-        if not (isinstance(shape, (tuple, list)) and len(shape) == 3):
-            raise ValueError(f"shape must be (C,H,W), got: {shape}")
-
-        C, H, W = map(int, shape)
-        if min(C, H, W) <= 0:
+        """Initialize shape-dependent fully connected layers."""
+        if not isinstance(shape, (tuple, list)) or len(shape) != self.spatial_dims + 1:
+            raise ValueError(
+                f"shape must contain channels and {self.spatial_dims} spatial values, got {shape}"
+            )
+        shape = tuple(int(value) for value in shape)
+        if min(shape) <= 0:
             raise ValueError(f"All dimensions must be > 0, got: {shape}")
-
         try:
-            p = next(self.parameters())
-            model_device = p.device
-            model_dtype = p.dtype
+            parameter = next(self.parameters())
+            model_device, model_dtype = parameter.device, parameter.dtype
         except StopIteration:
-            model_device = torch.device("cpu")
-            model_dtype = torch.float32
-
-        if device is None:
-            device = model_device
-        else:
-            device = torch.device(device)
-
-        if dtype is None:
-            dtype = model_dtype
-
+            model_device, model_dtype = torch.device("cpu"), torch.float32
+        device = model_device if device is None else torch.device(device)
+        dtype = model_dtype if dtype is None else dtype
         was_training = self.training
         self.eval()
-
+        spatial_shape = shape[1:]
         with torch.no_grad():
-            x = torch.zeros((1, C, H, W), device=device, dtype=dtype)
-            mask = torch.zeros((1, 1, H, W), device=device, dtype=torch.long)
-            _ = self(x, mask)
-
+            image = torch.zeros((1, *shape), device=device, dtype=dtype)
+            mask = torch.zeros((1, 1, *spatial_shape), device=device, dtype=torch.long)
+            self(image, mask)
         if was_training:
             self.train()
-
         return self
 
     def _generate_prior(
@@ -375,78 +327,57 @@ class ConvNeXtcVAE2D(HybridVAEBase):
         target_mask_generator: Optional[TransformGenerator] = None,
         return_torch: bool = False,
     ) -> Union[np.ndarray, torch.Tensor]:
+        """Generate one sample from a target mask and a standard-normal latent vector."""
         if variation_strength < 0:
             raise ValueError(f"variation_strength must be >= 0, got {variation_strength}")
-
         device = torch.device(device)
         model = self.to(device)
         model.eval()
-
-        if isinstance(sample, dict):
-            target_mask = sample.get("tgt_mask")
-            original_mask = sample.get("ori_mask", sample.get("mask"))
-            if target_mask is None and target_mask_generator is not None:
-                target_mask = target_mask_generator.create_target_mask(original_mask=original_mask, conditional=True)
-            if target_mask is None:
-                target_mask = original_mask
-            if target_mask is None:
-                raise KeyError("Conditional prior sample dict must contain 'tgt_mask' or 'ori_mask'.")
-
-        tgt_mask = torch.as_tensor(target_mask)
-        tgt_mask_return = tgt_mask
-        single = False
-
-        if tgt_mask.ndim in [2, 3]:
-            # if 2D (H,W) or 3D (1, H, W) -> make it batched
-            if tgt_mask.ndim == 2:
-                tgt_mask = tgt_mask.unsqueeze(0)
-            tgt_mask = tgt_mask.unsqueeze(0)
-            single = True
-        elif tgt_mask.ndim == 4:
-            pass
-        else:
-            raise ValueError(f"Expected target_mask (H,W), (C,H,W) or (B,C,H,W), got {tuple(tgt_mask.shape)}")
-
-        tgt_mask = tgt_mask.to(device)
-        tgt_mask_oh = to_one_hot_2D(tgt_mask, self.cfg.num_anomaly_classes)
-
-        model.decoder.set_skips(None)
-
-        with torch.no_grad():
-            ref_hw = tuple(tgt_mask_oh.shape[-2:])
-            multiple = 2 ** self.cfg.n_levels
-            
-            tgt_mask_pad, pad = self._pad_to_multiple(tgt_mask_oh, multiple)
-
-            latent_hw = (
-                tgt_mask_pad.shape[2] // multiple,
-                tgt_mask_pad.shape[3] // multiple
+        if not isinstance(sample, dict):
+            raise TypeError("Conditional prior generation requires a sample dictionary.")
+        target_mask = sample.get("tgt_mask")
+        original_mask = sample.get("ori_mask", sample.get("mask"))
+        if target_mask is None and target_mask_generator is not None:
+            target_mask = target_mask_generator.create_target_mask(
+                original_mask=original_mask, conditional=True
             )
-            
-            model._ensure_fcs(latent_hw, device)
+        if target_mask is None:
+            target_mask = original_mask
+        if target_mask is None:
+            raise KeyError("Conditional prior sample must contain 'tgt_mask' or 'ori_mask'.")
 
-            B = tgt_mask_oh.shape[0]
-            z_dim = int(self.cfg.bottleneck_dim)
-
+        target_mask = torch.as_tensor(target_mask)
+        returned_mask = target_mask
+        single = target_mask.ndim <= self.spatial_dims + 1
+        target_one_hot = to_one_hot(
+            target_mask.to(device),
+            self.num_anomaly_classes,
+            spatial_dims=self.spatial_dims,
+        )
+        model.decoder.set_skips(None)
+        with torch.no_grad():
+            output_shape = tuple(target_one_hot.shape[2:])
+            multiple = 2 ** self.cfg.n_levels
+            padded_mask, _ = self._pad_to_multiple(target_one_hot, multiple)
+            latent_shape = tuple(size // multiple for size in padded_mask.shape[2:])
+            model._ensure_fcs(latent_shape, device)
+            batch_size = target_one_hot.shape[0]
             if variation_strength == 0.0:
-                z = torch.zeros((B, z_dim), device=device)
+                z = torch.zeros((batch_size, int(self.cfg.bottleneck_dim)), device=device)
             else:
-                z = torch.randn((B, z_dim), device=device) * float(variation_strength)
-
-            h_dec = model.fc_decode(z).reshape(B, int(self.cfg.z_channels), *latent_hw)
-
-            recon = model.decoder(h_dec, tgt_mask_pad)
-            recon = self._crop_like(recon, ref_hw)
-
+                z = torch.randn((batch_size, int(self.cfg.bottleneck_dim)), device=device)
+                z = z * float(variation_strength)
+            decoded = model.fc_decode(z).reshape(
+                batch_size, int(self.cfg.z_channels), *latent_shape
+            )
+            recon = self._crop_like(model.decoder(decoded, padded_mask), output_shape)
             if clamp_01:
                 recon = recon.clamp(0.0, 1.0)
-
             if single:
                 recon = recon.squeeze(0)
-
         if return_torch:
-            return recon, tgt_mask_return.to(recon.device)
-
-        recon_np = recon.detach().cpu().numpy().astype(np.float32, copy=False)
-        tgt_mask_np = tgt_mask_return.cpu().numpy().astype(np.uint8, copy=False)
-        return recon_np, tgt_mask_np
+            return recon, returned_mask.to(recon.device)
+        return (
+            recon.detach().cpu().numpy().astype(np.float32, copy=False),
+            returned_mask.cpu().numpy().astype(np.uint8, copy=False),
+        )

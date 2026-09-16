@@ -77,17 +77,14 @@ class GenerationServiceTests(unittest.TestCase):
         ) as optimize:
             service.train()
 
-        optimize.assert_called_once_with(3, config, dataset)
-        self.assertEqual(
-            config.model.parameters.min["num_anomaly_classes"],
-            5,
-        )
-        self.assertEqual(
-            config.model.parameters.max["num_anomaly_classes"],
-            5,
+        optimize.assert_called_once_with(
+            3,
+            config,
+            dataset,
+            num_anomaly_classes=5,
         )
         datasets.real_anomalies.assert_called_once_with(
-            return_artifacts=config.model.parameters.input_artefacts,
+            return_artifacts=("img", "fname", "ori_mask"),
             load_to_ram=True,
             dtype=torch.float32,
         )
@@ -102,7 +99,9 @@ class GenerationServiceTests(unittest.TestCase):
                 number=7,
                 user_attrs={
                     "model_name": "VAE_ResNet_2D",
-                    "params": {"in_channels": 1},
+                    "params": {"z_channels": 32},
+                    "in_channels": 1,
+                    "num_anomaly_classes": None,
                     "model_path": "model.pth",
                 },
             )
@@ -140,7 +139,11 @@ class GenerationServiceTests(unittest.TestCase):
                 study_name=config.study.name,
                 storage="sqlite:///" + str(database),
             )
-            spec.build.assert_called_once_with({"in_channels": 1})
+            spec.build.assert_called_once_with(
+                {"z_channels": 32},
+                in_channels=1,
+                num_anomaly_classes=None,
+            )
             self.assertEqual(model.device, torch.device("cpu"))
             self.assertEqual(
                 model.warmup_call[0],

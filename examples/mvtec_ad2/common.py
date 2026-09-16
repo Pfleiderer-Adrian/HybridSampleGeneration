@@ -2,6 +2,7 @@
 from examples.mvtec_ad2.downstream.configuration import DownstreamConfiguration
 from examples.mvtec_ad2.settings import TEXTURE_ROOT, study_folder
 from hybrid_sample_generator.configuration.root import Configuration
+from hybrid_sample_generator.generation.model_settings import Choice, FloatRange, IntRange
 
 
 def apply_generator_defaults(config: Configuration) -> None:
@@ -75,55 +76,31 @@ def apply_generator_defaults(config: Configuration) -> None:
         "threshold": 1e-5,
     }
 
-    # Model hyperparameter search space for Optuna. The min and max dicts together define the search space.
-    config.model.parameters.set_hyperparameter_space(
-        # min_config
-        {
-            "n_res_blocks": 2,
-            "n_levels": 3,
-            "z_channels": 16,
-            "bottleneck_dim": 32,
-            "recon_weight": 4.0,
-            "beta_kl": 0.03,
-            "beta_kl_start": 0.0,
-            "beta_kl_max": 0.06,
-            "beta_kl_warmup_start": 0,
-            "beta_kl_warmup_epochs": 150,
-            "free_bits": 0.0,
-            "recon_loss": "smoothl1",
-            "recon_smoothl1_beta": 0.35,
-            "use_transpose_conv": False,
-            "fg_weight": 0.8,
-            "fg_threshold": 0.0,
-            "drop_path_rate": 0.0,
-            "dropout": 0.01,
-            "skip_dropout_p": 0.75,
-            "skip_alpha": 0.0,
-        },
-        # max_config
-        {
-            "n_res_blocks": 4,
-            "n_levels": 4,
-            "z_channels": 96,
-            "bottleneck_dim": 160,
-            "recon_weight": 24.0,
-            "beta_kl": 0.08,
-            "beta_kl_start": 0.0,
-            "beta_kl_max": 0.25,
-            "beta_kl_warmup_start": 0,
-            "beta_kl_warmup_epochs": 900,
-            "free_bits": 0.01,
-            "recon_loss": "smoothl1",
-            "recon_smoothl1_beta": 1.25,
-            "use_transpose_conv": False,
-            "fg_weight": 1.5,
-            "fg_threshold": 0.0,
-            "drop_path_rate": 0.08,
-            "dropout": 0.20,
-            "skip_dropout_p": 1.0,
-            "skip_alpha": 0.20,
-        },
-    )
+    # Fixed model parameters. Only entries in model.search vary between trials.
+    parameters = config.model.parameters
+    parameters.recon_weight = 10.0
+    parameters.beta_kl_start = 0.0
+    parameters.beta_kl_max = 0.08
+    parameters.beta_kl_warmup_start = 0
+    parameters.beta_kl_warmup_epochs = 900
+    parameters.free_bits = 0.001
+    parameters.recon_loss = "smoothl1"
+    parameters.recon_smoothl1_beta = 0.75
+    parameters.use_transpose_conv = False
+    parameters.fg_weight = 1.0
+    parameters.fg_threshold = 0.0
+    parameters.drop_path_rate = 0.04
+    parameters.dropout = 0.05
+    parameters.skip_dropout_p = 0.85
+    parameters.skip_alpha = 0.1
+
+    search = config.model.search
+    search.clear()
+    search.n_res_blocks = IntRange(2, 4)
+    search.n_levels = IntRange(3, 4)
+    search.z_channels = Choice((16, 32, 64, 96))
+    search.bottleneck_dim = Choice((32, 64, 128, 160))
+    search.dropout = FloatRange(0.01, 0.20)
 
 def create_generator_configuration(category: str, anomaly_size: tuple[int, int, int]) -> Configuration:
     config = Configuration(f"mvtecad2_{category}", study_folder=study_folder(category))

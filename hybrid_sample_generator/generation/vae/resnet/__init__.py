@@ -1,6 +1,5 @@
-"""Two- and three-dimensional ResNet VAEs."""
+"""Dimension-independent ResNet VAE."""
 
-from .model_2d import ResNetVAE2D
-from .model_3d import ResNetVAE3D
+from .model import ResNetVAE
 
-__all__ = ["ResNetVAE2D", "ResNetVAE3D"]
+__all__ = ["ResNetVAE"]

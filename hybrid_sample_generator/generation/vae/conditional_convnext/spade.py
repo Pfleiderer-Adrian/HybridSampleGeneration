@@ -1,4 +1,4 @@
-"""SPADE layers for the two-dimensional conditional ConvNeXt VAE."""
+"""Dimension-independent SPADE layers for conditional ConvNeXt VAEs."""
 
 from __future__ import annotations
 
@@ -10,35 +10,44 @@ import torch.nn.functional as F
 
 from hybrid_sample_generator.generation.vae.base import HybridVAEBase
 
-from hybrid_sample_generator.generation.vae.convnext.layers_2d import (
-    ConvNeXtBlock2D,
+from hybrid_sample_generator.generation.vae.convnext.layers import (
+    ConvNeXtBlock,
     DropPath,
     _best_gn_groups,
-    _upsample_block2d,
+    _upsample_block,
 )
 
 
-class SPADE2D(nn.Module):
-    """Spatially-Adaptive Normalization (SPADE) for 2D data."""
-    def __init__(self, norm_nc: int, label_nc: int, hidden_nc: int=128, kernel_size: int=3):
+def _conv(spatial_dims: int):
+    if spatial_dims == 2:
+        return nn.Conv2d
+    if spatial_dims == 3:
+        return nn.Conv3d
+    raise ValueError(f"spatial_dims must be 2 or 3, got {spatial_dims}.")
+
+
+class SPADE(nn.Module):
+    """Spatially-Adaptive Normalization (SPADE) for spatial data."""
+    def __init__(self, norm_nc: int, label_nc: int, hidden_nc: int=128, kernel_size: int=3, *, spatial_dims: int):
         super().__init__()
+        Conv = _conv(spatial_dims)
         # layer norm -> norm over all channels; affine=False: no params here as params should only come from SPADE
         self.no_param_instance_norm = nn.GroupNorm(num_groups=1, num_channels=norm_nc, affine=False)
 
         pw = kernel_size // 2
         self.mlp_shared = nn.Sequential(
-            nn.Conv2d(label_nc, hidden_nc, kernel_size=kernel_size, padding=pw),
+            Conv(label_nc, hidden_nc, kernel_size=kernel_size, padding=pw),
             nn.GELU()
         )
-        self.mlp_gamma = nn.Conv2d(hidden_nc, norm_nc, kernel_size=kernel_size, padding=pw)
-        self.mlp_beta = nn.Conv2d(hidden_nc, norm_nc, kernel_size=kernel_size, padding=pw)
+        self.mlp_gamma = Conv(hidden_nc, norm_nc, kernel_size=kernel_size, padding=pw)
+        self.mlp_beta = Conv(hidden_nc, norm_nc, kernel_size=kernel_size, padding=pw)
     
     def forward(self, x: torch.Tensor, tgt_mask: torch.Tensor) -> torch.Tensor:
         normalized = self.no_param_instance_norm(x)
 
         # scale mask to x's resolution, use 'nearest' if mask is one-hot encoded
-        if tgt_mask.shape[-2:] != x.shape[-2:]:
-            tgt_mask = F.interpolate(tgt_mask, size=x.shape[-2:], mode='nearest')
+        if tgt_mask.shape[2:] != x.shape[2:]:
+            tgt_mask = F.interpolate(tgt_mask, size=x.shape[2:], mode='nearest')
 
         activation = self.mlp_shared(tgt_mask)
         gamma = self.mlp_gamma(activation)
@@ -47,8 +56,8 @@ class SPADE2D(nn.Module):
         return normalized * (1 + gamma) + beta
 
 
-class ConvNeXtSPADEBlock2D(nn.Module):
-    """ConvNeXt-style block for 2D images (channels-first).
+class ConvNeXtSPADEBlock(nn.Module):
+    """ConvNeXt-style block for spatial data (channels-first).
     SPADE instead of GroupNorm.
     """
 
@@ -59,10 +68,13 @@ class ConvNeXtSPADEBlock2D(nn.Module):
         mlp_ratio: float = 4.0,
         drop_path: float = 0.0,
         dropout: float = 0.0,
+        *,
+        spatial_dims: int,
     ):
         super().__init__()
+        Conv = _conv(spatial_dims)
 
-        self.dwconv = nn.Conv2d(
+        self.dwconv = Conv(
             channels,
             channels,
             kernel_size=7,
@@ -71,13 +83,13 @@ class ConvNeXtSPADEBlock2D(nn.Module):
             bias=True,
         )
 
-        self.spade = SPADE2D(norm_nc=channels, label_nc=num_anomaly_classes)
+        self.spade = SPADE(norm_nc=channels, label_nc=num_anomaly_classes, spatial_dims=spatial_dims)
 
         hidden = int(channels * mlp_ratio)
-        self.pwconv1 = nn.Conv2d(channels, hidden, kernel_size=1, bias=True)
+        self.pwconv1 = Conv(channels, hidden, kernel_size=1, bias=True)
         self.act = nn.GELU()
         self.drop = nn.Dropout(p=float(dropout)) if dropout and dropout > 0 else nn.Identity()
-        self.pwconv2 = nn.Conv2d(hidden, channels, kernel_size=1, bias=True)
+        self.pwconv2 = Conv(hidden, channels, kernel_size=1, bias=True)
 
         self.drop_path = DropPath(drop_path) if drop_path and drop_path > 0 else nn.Identity()
 
@@ -93,8 +105,8 @@ class ConvNeXtSPADEBlock2D(nn.Module):
         return residual + x
 
 
-class ConvNeXtSPADEUNetDecoder2D(nn.Module):
-    """ConvNeXtSPADE2D decoder with U-Net skips."""
+class ConvNeXtSPADEUNetDecoder(nn.Module):
+    """ConvNeXtSPADE decoder with U-Net skips."""
     
     def __init__(
         self,
@@ -111,8 +123,12 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
         skip_dropout_p: float = 0.0,
         skip_dropout_ps: Optional[Iterable[float]] = None,
         skip_alpha: float = 1.0,
+        *,
+        spatial_dims: int,
     ):
         super().__init__()
+        Conv = _conv(spatial_dims)
+        self.spatial_dims = spatial_dims
         self.n_levels = n_levels
         self.n_spade_blocks = n_spade_blocks
         self.use_transpose_conv = use_transpose_conv
@@ -123,7 +139,7 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
 
         self.bottom_ch = 2 ** (n_levels + 3)
         self.from_z = nn.Sequential(
-            nn.Conv2d(z_channels, self.bottom_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            Conv(z_channels, self.bottom_ch, kernel_size=3, stride=1, padding=1, bias=True),
             nn.GroupNorm(num_groups=_best_gn_groups(gn_groups, self.bottom_ch), num_channels=self.bottom_ch, eps=1e-6),
             nn.GELU(),
         )
@@ -143,12 +159,12 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
         for i in range(n_levels):
             ch = 2 ** (n_levels - i + 2)
 
-            self.ups.append(_upsample_block2d(prev_ch, ch, scale=2, use_transpose_conv=use_transpose_conv, gn_groups=gn_groups))
+            self.ups.append(_upsample_block(prev_ch, ch, scale=2, use_transpose_conv=use_transpose_conv, gn_groups=gn_groups, spatial_dims=spatial_dims))
 
             skip_ch = 2 ** (n_levels - i + 2)
             self.fuse.append(
                 nn.Sequential(
-                    nn.Conv2d(ch + skip_ch, ch, kernel_size=1, stride=1, padding=0, bias=True),
+                    Conv(ch + skip_ch, ch, kernel_size=1, stride=1, padding=0, bias=True),
                     nn.GroupNorm(num_groups=_best_gn_groups(gn_groups, ch), num_channels=ch, eps=1e-6),
                     nn.GELU(),
                 )
@@ -159,19 +175,19 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
             stage = nn.ModuleList()
             for j in range(n_res_blocks):
                 if j < num_spade:
-                    stage.append(ConvNeXtSPADEBlock2D(
+                    stage.append(ConvNeXtSPADEBlock(
                         channels=ch, num_anomaly_classes=num_anomaly_classes, 
-                        mlp_ratio=4.0, drop_path=dp_rates[dp_i], dropout=dropout))
+                        mlp_ratio=4.0, drop_path=dp_rates[dp_i], dropout=dropout, spatial_dims=spatial_dims))
                 else:
-                    stage.append(ConvNeXtBlock2D(
+                    stage.append(ConvNeXtBlock(
                         channels=ch, mlp_ratio=4.0, gn_groups=gn_groups, 
-                        drop_path=dp_rates[dp_i], dropout=dropout))
+                        drop_path=dp_rates[dp_i], dropout=dropout, spatial_dims=spatial_dims))
                 dp_i += 1
             self.blocks.append(stage)
 
             prev_ch = ch
 
-        self.out = nn.Conv2d(prev_ch, out_channels, kernel_size=3, stride=1, padding=1, bias=True)
+        self.out = Conv(prev_ch, out_channels, kernel_size=3, stride=1, padding=1, bias=True)
 
     def set_skips(self, skips: Optional[List[torch.Tensor]]) -> None:
         self._skips = skips
@@ -191,7 +207,7 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
                 # No skips provided -> treat as zeros
                 skip_ch = 2 ** (self.n_levels - i + 2)
                 skip = torch.zeros(
-                    (x.shape[0], skip_ch, x.shape[-2], x.shape[-1]),
+                    (x.shape[0], skip_ch, *x.shape[2:]),
                     device=x.device,
                     dtype=x.dtype,
                 )
@@ -199,8 +215,8 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
                 skip = skips[-1 - i]
 
             # Align spatial sizes
-            if x.shape[-2:] != skip.shape[-2:]:
-                target = (min(x.shape[-2], skip.shape[-2]), min(x.shape[-1], skip.shape[-1]))
+            if x.shape[2:] != skip.shape[2:]:
+                target = tuple(min(a, b) for a, b in zip(x.shape[2:], skip.shape[2:]))
                 x = HybridVAEBase._crop_like(x, target)
                 skip = HybridVAEBase._crop_like(skip, target)
 
@@ -212,7 +228,7 @@ class ConvNeXtSPADEUNetDecoder2D(nn.Module):
             p = self.skip_dropout_ps[-1 - i]
             if p > 0.0 and self.training:
                 keep_prob = 1.0 - p
-                drop_mask = (torch.rand((skip.shape[0], 1, 1, 1), device=skip.device, dtype=skip.dtype) < keep_prob).to(skip.dtype)
+                drop_mask = (torch.rand((skip.shape[0], 1, *((1,) * self.spatial_dims)), device=skip.device, dtype=skip.dtype) < keep_prob).to(skip.dtype)
                 skip = skip * drop_mask / max(keep_prob, 1e-6)
 
             x = torch.cat([x, skip], dim=1)

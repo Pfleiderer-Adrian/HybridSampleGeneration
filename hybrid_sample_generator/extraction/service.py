@@ -5,12 +5,7 @@ from __future__ import annotations
 from hybrid_sample_generator.configuration.extraction import ExtractionConfiguration
 from hybrid_sample_generator.datasets.study_datasets import StudyDatasets
 from hybrid_sample_generator.domain.records import RealAnomaly
-from hybrid_sample_generator.extraction.extraction_2d import (
-    crop_and_center_anomaly_2d,
-)
-from hybrid_sample_generator.extraction.extraction_3d import (
-    crop_and_center_anomaly_3d,
-)
+from hybrid_sample_generator.extraction.extraction import crop_and_center_anomalies
 from hybrid_sample_generator.persistence.artifact_store import ArtifactStore
 from hybrid_sample_generator.persistence.identifiers import stable_id
 from hybrid_sample_generator.persistence.study_repository import StudyRepository
@@ -58,22 +53,11 @@ class ExtractionService:
                     f"Anomalous original {original.id} has no segmentation artifact."
                 )
 
-            if image.ndim == 3:
-                result = crop_and_center_anomaly_2d(
-                    image,
-                    segmentation,
-                    self.config,
-                )
-            elif image.ndim == 4:
-                result = crop_and_center_anomaly_3d(
-                    image,
-                    segmentation,
-                    self.config,
-                )
-            else:
-                raise ValueError(
-                    f"Unexpected shape {image.shape}; expected (C,H,W) or (C,D,H,W)."
-                )
+            result = crop_and_center_anomalies(
+                image,
+                segmentation,
+                self.config,
+            )
 
             if not result or result[0] is None:
                 continue

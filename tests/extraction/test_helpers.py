@@ -5,18 +5,18 @@ from unittest.mock import patch
 
 import numpy as np
 
+from hybrid_sample_generator.configuration.extraction import ExtractionConfiguration
+from hybrid_sample_generator.extraction.extraction import crop_and_center_anomalies
 from hybrid_sample_generator.extraction.normalization import (
     add_background_noise_floor,
     normalize_anomaly,
 )
 from hybrid_sample_generator.imaging.resampling import (
-    resize_and_pad_2d,
-    resize_and_pad_3d,
+    resize_and_pad,
     spatial_target_size,
 )
 from hybrid_sample_generator.imaging.roi import (
-    crop_cube_clip,
-    crop_square_clip,
+    crop_spatial_clip,
     dynamic_roi_size,
 )
 
@@ -33,8 +33,8 @@ class RoiTests(unittest.TestCase):
         image = np.arange(1 * 6 * 8).reshape(1, 6, 8)
         volume = np.arange(1 * 5 * 6 * 7).reshape(1, 5, 6, 7)
 
-        crop_2d = crop_square_clip(image, (0, 0), (4, 5), centroid_is_normalized=False)
-        crop_3d = crop_cube_clip(volume, (4, 5, 6), (3, 4, 5), centroid_is_normalized=False)
+        crop_2d = crop_spatial_clip(image, (0, 0), (4, 5), centroid_is_normalized=False)
+        crop_3d = crop_spatial_clip(volume, (4, 5, 6), (3, 4, 5), centroid_is_normalized=False)
 
         self.assertEqual(crop_2d.shape, (1, 4, 5))
         self.assertTrue(np.array_equal(crop_2d, image[:, :4, :5]))
@@ -47,8 +47,8 @@ class ResamplingTests(unittest.TestCase):
         image = np.arange(2 * 8 * 4, dtype=np.float32).reshape(2, 8, 4)
         volume = np.arange(2 * 6 * 4 * 2, dtype=np.float32).reshape(2, 6, 4, 2)
 
-        resized_2d, scale_2d = resize_and_pad_2d(image, (4, 6))
-        resized_3d, scale_3d = resize_and_pad_3d(volume, (3, 6, 4))
+        resized_2d, scale_2d = resize_and_pad(image, (4, 6))
+        resized_3d, scale_3d = resize_and_pad(volume, (3, 6, 4))
 
         self.assertEqual(resized_2d.shape, (2, 4, 6))
         self.assertEqual(scale_2d, (0.5, 1.0))
@@ -57,13 +57,44 @@ class ResamplingTests(unittest.TestCase):
 
     def test_foreground_mask_must_match_spatial_shape(self):
         with self.assertRaisesRegex(ValueError, "foreground_mask shape"):
-            resize_and_pad_2d(np.zeros((1, 4, 4)), (4, 4), foreground_mask=np.zeros((3, 3)))
+            resize_and_pad(np.zeros((1, 4, 4)), (4, 4), foreground_mask=np.zeros((3, 3)))
 
     def test_spatial_target_size_accepts_optional_channel_dimension(self):
         self.assertEqual(spatial_target_size((8, 9), 2), (8, 9))
         self.assertEqual(spatial_target_size((1, 8, 9), 2), (8, 9))
         with self.assertRaises(ValueError):
             spatial_target_size((1, 2, 3, 4), 2)
+
+
+class ExtractionTests(unittest.TestCase):
+    def test_connected_component_extraction_supports_2d_and_3d(self):
+        for spatial_shape in ((6, 8), (5, 6, 7)):
+            with self.subTest(spatial_shape=spatial_shape):
+                image = np.arange(np.prod(spatial_shape), dtype=np.float32).reshape(
+                    (1, *spatial_shape)
+                )
+                segmentation = np.zeros((1, *spatial_shape), dtype=np.uint8)
+                region = tuple(slice(1, 3) for _ in spatial_shape)
+                segmentation[(0, *region)] = 1
+                config = ExtractionConfiguration((1, *spatial_shape))
+                config.min_coverage_ratio = 0.0
+                config.add_background_noise = False
+                config.normalization = None
+                config.roi.fixed_size = tuple(4 for _ in spatial_shape)
+
+                anomalies, rois, masks, roi_masks = crop_and_center_anomalies(
+                    image, segmentation, config
+                )
+
+                self.assertEqual(len(anomalies), 1)
+                self.assertEqual(anomalies[0][0].shape, image.shape)
+                self.assertEqual(masks[0].shape, segmentation.shape)
+                self.assertEqual(rois[0].shape[1:], config.roi.fixed_size)
+                self.assertEqual(roi_masks[0].shape, rois[0].shape)
+                self.assertEqual(
+                    anomalies[0][1]["centroid_norm"],
+                    tuple(2 / size for size in spatial_shape),
+                )
 
 
 class NormalizationTests(unittest.TestCase):

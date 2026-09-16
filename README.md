@@ -240,7 +240,7 @@ config.model        generator choice and model-specific parameters
 config.fusion       fusion backend and backend-specific parameters
 ```
 
-The current configuration schema is version 6 and the artifact database schema
+The current configuration schema is version 9 and the artifact database schema
 is version 2. Older study databases and filename/CSV layouts are intentionally
 unsupported; recreate the study and run `ingest_dataset()` again.
 
@@ -270,15 +270,23 @@ Set the anomaly size and select the model before customizing its parameter space
 config = Configuration("volume-study")
 config.extraction.anomaly_size = (1, 32, 64, 64)
 config.model.set_model("VAE_ConvNeXt_3D")
-config.model.parameters.set_model_param("z_channels", 32)
+config.model.parameters.z_channels = 32
+config.model.search.clear()
+config.model.search.n_res_blocks = IntRange(4, 6)
+config.model.search.dropout = FloatRange(0.0, 0.2)
+config.model.search.recon_loss = Choice(("mse", "smoothl1"))
 ```
 
-`set_model` initializes a fresh model-specific parameter space, replacing previous
-hyperparameter overrides. Assigning `config.model.name` has the same effect.
-Changes to the anomaly channel count update derived `in_channels` on parameter
-access, preserving all other hyperparameters. Model dimensionality and the full
-configuration are validated when constructing `HybridDataGenerator`, serializing,
-or explicitly calling `config.validate()`. Both 2D and 3D examples use this API.
+Import `IntRange`, `FloatRange`, and `Choice` from
+`hybrid_sample_generator.generation.model_settings`. Parameters absent from
+`config.model.search` remain fixed for every trial. Use `clear()` to make every
+parameter fixed and, for example, `del config.model.search.dropout` to remove
+one distribution. `set_model` initializes fresh
+model-specific parameters and a default search space. Runtime values such as the
+input channel count and number of anomaly classes are derived from the extracted
+data and are not part of the saved model parameters. Model dimensionality and the
+full configuration are validated when constructing `HybridDataGenerator`,
+serializing, or explicitly calling `config.validate()`.
 
 ### Extraction
 

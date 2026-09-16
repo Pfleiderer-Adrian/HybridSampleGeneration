@@ -24,7 +24,7 @@ class TrainingConfiguration:
     log_every: int | None = None
     dtype: torch.dtype | None = None
     gradient_clip_norm: float | None = None
-    monitor_metric: str | None = None
+    monitor_metric: str | None = "selection"
     early_stopping_enabled: bool = True
     early_stopping: dict[str, Any] = field(
         default_factory=lambda: {"patience": 2000, "delta": 0.0001}

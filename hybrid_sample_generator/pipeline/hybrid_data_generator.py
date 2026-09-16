@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from hybrid_sample_generator.datasets.study_datasets import StudyDatasets
 from hybrid_sample_generator.extraction.service import ExtractionService
 from hybrid_sample_generator.fusion.interfaces import FusionBackend
@@ -36,7 +38,8 @@ class HybridDataGenerator:
         fusion_backend: FusionBackend | None = None,
     ) -> None:
         config.validate()
-        self.config = config
+        self.config = deepcopy(config)
+        config = self.config
         paths = config.study.paths
         self.repository = StudyRepository(paths.artifact_database)
         self.artifact_store = ArtifactStore(paths.study_folder)
@@ -111,6 +114,7 @@ class HybridDataGenerator:
             self.repository,
             self.artifact_store,
             self.config.matching,
+            seed=self.config.study.seed,
         )
         if not planned:
             raise ValueError("Matching produced no hybrid sample plans.")

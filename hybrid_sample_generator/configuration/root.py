@@ -34,7 +34,7 @@ class Configuration:
     model parameters. Full validation happens at serialization or facade creation.
     """
 
-    SCHEMA_VERSION = 7
+    SCHEMA_VERSION = 9
 
     def __init__(
         self,
@@ -55,10 +55,10 @@ class Configuration:
         self.extraction = ExtractionConfiguration()
         self.augmentation = AugmentationConfiguration()
         self.generation = GenerationConfiguration()
-        self.matching = MatchingConfiguration(seed=self.study.seed)
+        self.matching = MatchingConfiguration()
         self.training = TrainingConfiguration()
         self.evaluation = EvaluationConfiguration()
-        self.model = GeneratorModelSettings(self.extraction)
+        self.model = GeneratorModelSettings()
         self.fusion = FusionSettings.for_backend("classical")
 
     def validate(self) -> None:
@@ -72,17 +72,7 @@ class Configuration:
                 f"Model {self.model.name!r} expects {model_spec.spatial_dims} spatial "
                 f"dimensions, but extraction.anomaly_size describes {spatial_dimensions}."
             )
-        expected_channels = int(self.extraction.anomaly_size[0])
-        for bound_name, parameters in (
-            ("min", self.model.parameters.min),
-            ("max", self.model.parameters.max),
-        ):
-            configured_channels = parameters.get("in_channels")
-            if configured_channels is not None and int(configured_channels) != expected_channels:
-                raise ValueError(
-                    f"model.parameters.{bound_name}.in_channels={configured_channels} conflicts with "
-                    f"extraction.anomaly_size channels={expected_channels}."
-                )
+        self.model.validate()
         self.augmentation.validate()
         self.generation.validate()
         self.matching.validate()
@@ -148,7 +138,7 @@ class Configuration:
         config.matching = MatchingConfiguration(**values["matching"])
         config.training = TrainingConfiguration.from_dict(values["training"])
         config.evaluation = EvaluationConfiguration.from_dict(values["evaluation"])
-        config.model = GeneratorModelSettings.from_dict(model_values, extraction=config.extraction)
+        config.model = GeneratorModelSettings.from_dict(model_values)
         config.fusion = FusionSettings.from_dict(values["fusion"])
         config.validate()
         return config

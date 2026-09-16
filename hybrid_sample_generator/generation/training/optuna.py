@@ -1,6 +1,7 @@
 """Optuna study orchestration and model hyperparameter sampling."""
 
 import os
+from dataclasses import asdict, replace
 
 import optuna
 import torch
@@ -8,7 +9,12 @@ from optuna import Trial
 from torch.utils.data import DataLoader, random_split
 
 from hybrid_sample_generator.configuration.root import Configuration
-from hybrid_sample_generator.generation.model_settings import ModelHyperparameterSpace
+from hybrid_sample_generator.generation.model_settings import (
+    Choice,
+    FloatRange,
+    IntRange,
+    SearchSpace,
+)
 from hybrid_sample_generator.generation.registry import get_model_spec
 from hybrid_sample_generator.generation.training.augmentation import (
     apply_training_offset_augmentation,
@@ -16,7 +22,13 @@ from hybrid_sample_generator.generation.training.augmentation import (
 from hybrid_sample_generator.generation.training.loop import train
 
 
-def optimize(num_trials: int, config: Configuration, dataset):
+def optimize(
+    num_trials: int,
+    config: Configuration,
+    dataset,
+    *,
+    num_anomaly_classes: int | None,
+):
     """Run or resume an Optuna study for the configured generator model."""
     paths = config.study.paths
     os.makedirs(paths.study_folder, exist_ok=True)
@@ -25,9 +37,13 @@ def optimize(num_trials: int, config: Configuration, dataset):
         direction="minimize",
         load_if_exists=True,
         storage=paths.optuna_storage_url,
+        sampler=optuna.samplers.TPESampler(seed=config.study.seed),
     )
     study.optimize(
-        lambda trial: objective(trial, config, dataset), n_trials=num_trials
+        lambda trial: objective(
+            trial, config, dataset, num_anomaly_classes=num_anomaly_classes
+        ),
+        n_trials=num_trials
     )
     print("Study statistics: ")
     print("Number of finished trials: ", len(study.trials))
@@ -38,10 +54,22 @@ def optimize(num_trials: int, config: Configuration, dataset):
         print(f"    {key}: {value}")
 
 
-def objective(trial: Trial, config: Configuration, dataset):
+def objective(
+    trial: Trial,
+    config: Configuration,
+    dataset,
+    *,
+    num_anomaly_classes: int | None,
+):
     """Sample parameters, train one model, and return its best validation loss."""
-    params = sample_model_params(trial, config.model.parameters)
-    model = get_model_spec(config.model.name).build(params)
+    parameters = sample_model_params(
+        trial, config.model.parameters, config.model.search
+    )
+    model = get_model_spec(config.model.name).build(
+        parameters,
+        in_channels=config.extraction.anomaly_size[0],
+        num_anomaly_classes=num_anomaly_classes,
+    )
     training = config.training
     validation_size = int(len(dataset) * training.validation_ratio)
     training_size = len(dataset) - validation_size
@@ -80,6 +108,7 @@ def objective(trial: Trial, config: Configuration, dataset):
         anomaly_size=config.extraction.anomaly_size,
         best_model_path=model_path,
     )
+    params = asdict(parameters)
     for key, value in params.items():
         trial.set_user_attr(key, value)
     trial.set_user_attr("model_path", model_path)
@@ -87,40 +116,41 @@ def objective(trial: Trial, config: Configuration, dataset):
     trial.set_user_attr("best_val_loss", float(best_validation))
     trial.set_user_attr("params", params)
     trial.set_user_attr("model_name", config.model.name)
+    trial.set_user_attr("in_channels", int(config.extraction.anomaly_size[0]))
+    trial.set_user_attr("num_anomaly_classes", num_anomaly_classes)
     return min(validation_losses) if validation_losses else float(best_validation)
 
 
-def sample_model_params(trial: Trial, model_params):
-    """Build concrete parameters from a model hyperparameter search space."""
-    model_params = ModelHyperparameterSpace.from_value(model_params)
-    params = {}
-    for key in sorted(set(model_params.min) | set(model_params.max)):
-        minimum = model_params.min.get(key)
-        maximum = model_params.max.get(key, minimum)
-        params[key] = _sample_or_fix_param(trial, key, minimum, maximum)
-    return params
-
-
-def _sample_or_fix_param(trial, key, minimum, maximum):
-    if minimum == maximum:
-        return minimum
-    if isinstance(minimum, bool) and isinstance(maximum, bool):
-        return trial.suggest_categorical(key, _unique_choices([minimum, maximum]))
-    if isinstance(minimum, int) and isinstance(maximum, int):
-        return trial.suggest_int(key, *sorted((minimum, maximum)))
-    if isinstance(minimum, (int, float)) and isinstance(maximum, (int, float)):
-        return trial.suggest_float(key, *sorted((float(minimum), float(maximum))))
-    if isinstance(minimum, (list, tuple, set)) and maximum is None:
-        return trial.suggest_categorical(key, list(minimum))
-    return trial.suggest_categorical(key, _unique_choices([minimum, maximum]))
-
-
-def _unique_choices(values):
-    choices = []
-    for value in values:
-        if value not in choices:
-            choices.append(value)
-    return choices
+def sample_model_params(
+    trial: Trial,
+    parameters,
+    search: SearchSpace,
+):
+    """Return a fresh parameter dataclass with explicit distributions sampled."""
+    sampled = replace(parameters)
+    for name, distribution in search.items():
+        if isinstance(distribution, IntRange):
+            value = trial.suggest_int(
+                name,
+                distribution.low,
+                distribution.high,
+                step=distribution.step,
+                log=distribution.log,
+            )
+        elif isinstance(distribution, FloatRange):
+            value = trial.suggest_float(
+                name,
+                distribution.low,
+                distribution.high,
+                step=distribution.step,
+                log=distribution.log,
+            )
+        elif isinstance(distribution, Choice):
+            value = trial.suggest_categorical(name, distribution.values)
+        else:
+            raise TypeError(f"Unsupported search distribution for {name!r}.")
+        setattr(sampled, name, value)
+    return sampled
 
 
 __all__ = ["objective", "optimize", "sample_model_params"]

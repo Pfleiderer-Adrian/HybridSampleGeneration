@@ -1,8 +1,8 @@
-"""Building blocks for two-dimensional ConvNeXt VAEs."""
+"""Dimension-independent building blocks for ConvNeXt VAEs."""
 
 from __future__ import annotations
 
-from typing import List, Optional
+from collections.abc import Iterable
 
 import torch
 import torch.nn as nn
@@ -35,8 +35,16 @@ def _best_gn_groups(default_groups: int, channels: int) -> int:
     return g
 
 
-class ConvNeXtBlock2D(nn.Module):
-    """ConvNeXt-style block for 2D images (channels-first).
+def _spatial_layers(spatial_dims: int):
+    if spatial_dims == 2:
+        return nn.Conv2d, nn.ConvTranspose2d, "bilinear"
+    if spatial_dims == 3:
+        return nn.Conv3d, nn.ConvTranspose3d, "trilinear"
+    raise ValueError(f"spatial_dims must be 2 or 3, got {spatial_dims}.")
+
+
+class ConvNeXtBlock(nn.Module):
+    """ConvNeXt-style block for spatial data (channels-first).
 
     Design:
       depthwise conv (k=7 in classic ConvNeXt, here k=7) -> GroupNorm
@@ -57,10 +65,13 @@ class ConvNeXtBlock2D(nn.Module):
         dropout: float = 0.0,
         skip_dropout_p: float = 0.0,
         skip_alpha: float = 1.0,
+        *,
+        spatial_dims: int,
     ):
         super().__init__()
+        Conv, _, _ = _spatial_layers(spatial_dims)
 
-        self.dwconv = nn.Conv2d(
+        self.dwconv = Conv(
             channels,
             channels,
             kernel_size=7,
@@ -73,10 +84,10 @@ class ConvNeXtBlock2D(nn.Module):
         self.norm = nn.GroupNorm(num_groups=groups, num_channels=channels, eps=1e-6)
 
         hidden = int(channels * mlp_ratio)
-        self.pwconv1 = nn.Conv2d(channels, hidden, kernel_size=1, bias=True)
+        self.pwconv1 = Conv(channels, hidden, kernel_size=1, bias=True)
         self.act = nn.GELU()
         self.drop = nn.Dropout(p=float(dropout)) if dropout and dropout > 0 else nn.Identity()
-        self.pwconv2 = nn.Conv2d(hidden, channels, kernel_size=1, bias=True)
+        self.pwconv2 = Conv(hidden, channels, kernel_size=1, bias=True)
 
         self.drop_path = DropPath(drop_path) if drop_path and drop_path > 0 else nn.Identity()
 
@@ -92,24 +103,32 @@ class ConvNeXtBlock2D(nn.Module):
         return residual + x
 
 
-def _upsample_block2d(in_ch: int, out_ch: int, scale: int, use_transpose_conv: bool, gn_groups: int) -> nn.Sequential:
+def _upsample_block(
+    in_ch: int,
+    out_ch: int,
+    scale: int,
+    use_transpose_conv: bool,
+    gn_groups: int,
+    *,
+    spatial_dims: int,
+) -> nn.Sequential:
+    Conv, ConvTranspose, interpolation_mode = _spatial_layers(spatial_dims)
     if use_transpose_conv:
         return nn.Sequential(
-            nn.ConvTranspose2d(in_ch, out_ch, kernel_size=scale, stride=scale, padding=0, bias=True),
+            ConvTranspose(in_ch, out_ch, kernel_size=scale, stride=scale, padding=0, bias=True),
             nn.GroupNorm(num_groups=_best_gn_groups(gn_groups, out_ch), num_channels=out_ch, eps=1e-6),
             nn.GELU(),
         )
-
     return nn.Sequential(
-        nn.Upsample(scale_factor=scale, mode="bilinear", align_corners=False),
-        nn.Conv2d(in_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=True),
+        nn.Upsample(scale_factor=scale, mode=interpolation_mode, align_corners=False),
+        Conv(in_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=True),
         nn.GroupNorm(num_groups=_best_gn_groups(gn_groups, out_ch), num_channels=out_ch, eps=1e-6),
         nn.GELU(),
     )
 
 
-class ConvNeXtUNetEncoder2D(nn.Module):
-    """ConvNeXt2D encoder with U-Net skip outputs.
+class ConvNeXtUNetEncoder(nn.Module):
+    """ConvNeXt encoder with U-Net skip outputs.
 
     forward(x) returns:
       - h: deepest latent feature map (B, z_channels, h', w')
@@ -130,12 +149,16 @@ class ConvNeXtUNetEncoder2D(nn.Module):
         dropout: float = 0.0,
         skip_dropout_p: float = 0.0,
         skip_alpha: float = 1.0,
+        *,
+        spatial_dims: int,
     ):
         super().__init__()
+        Conv, _, _ = _spatial_layers(spatial_dims)
+        self.spatial_dims = spatial_dims
         self.n_levels = n_levels
 
         self.stem = nn.Sequential(
-            nn.Conv2d(in_channels, 8, kernel_size=3, stride=1, padding=1, bias=True),
+            Conv(in_channels, 8, kernel_size=3, stride=1, padding=1, bias=True),
             nn.GroupNorm(num_groups=_best_gn_groups(gn_groups, 8), num_channels=8, eps=1e-6),
             nn.GELU(),
         )
@@ -156,24 +179,24 @@ class ConvNeXtUNetEncoder2D(nn.Module):
 
             stage = []
             for _ in range(n_res_blocks):
-                stage.append(ConvNeXtBlock2D(ch, mlp_ratio=4.0, gn_groups=gn_groups, drop_path=dp_rates[dp_i], dropout=dropout))
+                stage.append(ConvNeXtBlock(ch, mlp_ratio=4.0, gn_groups=gn_groups, drop_path=dp_rates[dp_i], dropout=dropout, spatial_dims=spatial_dims))
                 dp_i += 1
             self.blocks.append(nn.Sequential(*stage))
 
             self.downs.append(
                 nn.Sequential(
-                    nn.Conv2d(ch, ch_next, kernel_size=2, stride=2, padding=0, bias=True),
+                    Conv(ch, ch_next, kernel_size=2, stride=2, padding=0, bias=True),
                     nn.GroupNorm(num_groups=_best_gn_groups(gn_groups, ch_next), num_channels=ch_next, eps=1e-6),
                     nn.GELU(),
                 )
             )
 
         bottom_ch = 2 ** (n_levels + 3)
-        self.to_z = nn.Conv2d(bottom_ch, z_channels, kernel_size=3, stride=1, padding=1, bias=True)
+        self.to_z = Conv(bottom_ch, z_channels, kernel_size=3, stride=1, padding=1, bias=True)
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, list[torch.Tensor]]:
         x = self.stem(x)
-        skips: List[torch.Tensor] = []
+        skips: list[torch.Tensor] = []
 
         for i in range(self.n_levels):
             x = self.blocks[i](x)
@@ -184,8 +207,8 @@ class ConvNeXtUNetEncoder2D(nn.Module):
         return h, skips
 
 
-class ConvNeXtUNetDecoder2D(nn.Module):
-    """ConvNeXt2D decoder with U-Net skips.
+class ConvNeXtUNetDecoder(nn.Module):
+    """ConvNeXt decoder with U-Net skips.
 
     For API compatibility, forward(z) only takes `z`.
     Skips must be set via set_skips(skips) before forward.
@@ -202,20 +225,24 @@ class ConvNeXtUNetDecoder2D(nn.Module):
         drop_path_rate: float = 0.0,
         dropout: float = 0.0,
         skip_dropout_p: float = 0.0,
-        skip_dropout_ps: Optional[Iterable[float]] = None,
+        skip_dropout_ps: Iterable[float] | None = None,
         skip_alpha: float = 1.0,
+        *,
+        spatial_dims: int,
     ):
         super().__init__()
+        Conv, _, _ = _spatial_layers(spatial_dims)
+        self.spatial_dims = spatial_dims
         self.n_levels = n_levels
         self.use_transpose_conv = use_transpose_conv
-        self._skips: Optional[List[torch.Tensor]] = None
+        self._skips: list[torch.Tensor] | None = None
         self.skip_dropout_p = float(skip_dropout_p)
         self.skip_dropout_ps = HybridVAEBase._normalize_skip_dropout_ps(skip_dropout_ps, n_levels, self.skip_dropout_p)
         self.skip_alpha = float(skip_alpha)
 
         self.bottom_ch = 2 ** (n_levels + 3)
         self.from_z = nn.Sequential(
-            nn.Conv2d(z_channels, self.bottom_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            Conv(z_channels, self.bottom_ch, kernel_size=3, stride=1, padding=1, bias=True),
             nn.GroupNorm(num_groups=_best_gn_groups(gn_groups, self.bottom_ch), num_channels=self.bottom_ch, eps=1e-6),
             nn.GELU(),
         )
@@ -237,13 +264,13 @@ class ConvNeXtUNetDecoder2D(nn.Module):
             # mirror channel schedule of encoder
             ch = 2 ** (n_levels - i + 2)
 
-            self.ups.append(_upsample_block2d(prev_ch, ch, scale=2, use_transpose_conv=use_transpose_conv, gn_groups=gn_groups))
+            self.ups.append(_upsample_block(prev_ch, ch, scale=2, use_transpose_conv=use_transpose_conv, gn_groups=gn_groups, spatial_dims=spatial_dims))
 
             # skip channels at matching resolution
             skip_ch = 2 ** (n_levels - i + 2)
             self.fuse.append(
                 nn.Sequential(
-                    nn.Conv2d(ch + skip_ch, ch, kernel_size=1, stride=1, padding=0, bias=True),
+                    Conv(ch + skip_ch, ch, kernel_size=1, stride=1, padding=0, bias=True),
                     nn.GroupNorm(num_groups=_best_gn_groups(gn_groups, ch), num_channels=ch, eps=1e-6),
                     nn.GELU(),
                 )
@@ -251,15 +278,15 @@ class ConvNeXtUNetDecoder2D(nn.Module):
 
             stage = []
             for _ in range(n_res_blocks):
-                stage.append(ConvNeXtBlock2D(ch, mlp_ratio=4.0, gn_groups=gn_groups, drop_path=dp_rates[dp_i], dropout=dropout))
+                stage.append(ConvNeXtBlock(ch, mlp_ratio=4.0, gn_groups=gn_groups, drop_path=dp_rates[dp_i], dropout=dropout, spatial_dims=spatial_dims))
                 dp_i += 1
             self.blocks.append(nn.Sequential(*stage))
 
             prev_ch = ch
 
-        self.out = nn.Conv2d(prev_ch, out_channels, kernel_size=3, stride=1, padding=1, bias=True)
+        self.out = Conv(prev_ch, out_channels, kernel_size=3, stride=1, padding=1, bias=True)
 
-    def set_skips(self, skips: Optional[List[torch.Tensor]]) -> None:
+    def set_skips(self, skips: list[torch.Tensor] | None) -> None:
         self._skips = skips
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
@@ -281,7 +308,7 @@ class ConvNeXtUNetDecoder2D(nn.Module):
                 # No skips provided -> treat as zeros (forces latent usage)
                 skip_ch = 2 ** (self.n_levels - i + 2)
                 skip = torch.zeros(
-                    (x.shape[0], skip_ch, x.shape[-2], x.shape[-1]),
+                    (x.shape[0], skip_ch, *x.shape[2:]),
                     device=x.device,
                     dtype=x.dtype,
                 )
@@ -289,8 +316,8 @@ class ConvNeXtUNetDecoder2D(nn.Module):
                 skip = skips[-1 - i]
 
             # Align spatial sizes (off-by-1 for odd inputs)
-            if x.shape[-2:] != skip.shape[-2:]:
-                target = (min(x.shape[-2], skip.shape[-2]), min(x.shape[-1], skip.shape[-1]))
+            if x.shape[2:] != skip.shape[2:]:
+                target = tuple(min(a, b) for a, b in zip(x.shape[2:], skip.shape[2:]))
                 x = HybridVAEBase._crop_like(x, target)
                 skip = HybridVAEBase._crop_like(skip, target)
 
@@ -302,7 +329,7 @@ class ConvNeXtUNetDecoder2D(nn.Module):
             p = self.skip_dropout_ps[-1 - i]
             if p > 0.0 and self.training:
                 keep_prob = 1.0 - p
-                mask = (torch.rand((skip.shape[0], 1, 1, 1), device=skip.device, dtype=skip.dtype) < keep_prob).to(skip.dtype)
+                mask = (torch.rand((skip.shape[0], 1, *((1,) * self.spatial_dims)), device=skip.device, dtype=skip.dtype) < keep_prob).to(skip.dtype)
                 skip = skip * mask / max(keep_prob, 1e-6)
 
             x = torch.cat([x, skip], dim=1)

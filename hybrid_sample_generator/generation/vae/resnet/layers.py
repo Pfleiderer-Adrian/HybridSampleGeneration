@@ -1,4 +1,4 @@
-"""Building blocks for the two-dimensional ResNet VAE."""
+"""Dimension-independent building blocks for ResNet VAEs."""
 
 from __future__ import annotations
 
@@ -6,9 +6,17 @@ import torch
 import torch.nn as nn
 
 
-class ResidualBlock2D(nn.Module):
+def _spatial_layers(spatial_dims: int):
+    if spatial_dims == 2:
+        return nn.Conv2d, nn.ConvTranspose2d, nn.BatchNorm2d, "bilinear"
+    if spatial_dims == 3:
+        return nn.Conv3d, nn.ConvTranspose3d, nn.BatchNorm3d, "trilinear"
+    raise ValueError(f"spatial_dims must be 2 or 3, got {spatial_dims}.")
+
+
+class ResidualBlock(nn.Module):
     """
-    Basic residual block for 2D images.
+    Basic residual block for spatial data.
 
     Inputs
     ------
@@ -20,19 +28,20 @@ class ResidualBlock2D(nn.Module):
     torch.Tensor:
         (B, out_ch, H, W)
     """
-    def __init__(self, in_ch: int, out_ch: int, leak: float = 0.2):
+    def __init__(self, in_ch: int, out_ch: int, leak: float = 0.2, *, spatial_dims: int):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_ch, out_ch, 3, 1, 1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_ch)
+        Conv, _, BatchNorm, _ = _spatial_layers(spatial_dims)
+        self.conv1 = Conv(in_ch, out_ch, 3, 1, 1, bias=False)
+        self.bn1 = BatchNorm(out_ch)
         self.act1 = nn.LeakyReLU(leak, inplace=True)
 
-        self.conv2 = nn.Conv2d(out_ch, out_ch, 3, 1, 1, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_ch)
+        self.conv2 = Conv(out_ch, out_ch, 3, 1, 1, bias=False)
+        self.bn2 = BatchNorm(out_ch)
         self.act2 = nn.LeakyReLU(leak, inplace=True)
 
         self.proj = None
         if in_ch != out_ch:
-            self.proj = nn.Conv2d(in_ch, out_ch, 1, 1, 0, bias=False)
+            self.proj = Conv(in_ch, out_ch, 1, 1, 0, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         identity = x if self.proj is None else self.proj(x)
@@ -41,9 +50,9 @@ class ResidualBlock2D(nn.Module):
         return identity + out
 
 
-class ResNetEncoder2D(nn.Module):
+class ResNetEncoder(nn.Module):
     """
-    ResNet-style 2D encoder with optional multi-resolution skip aggregation.
+    ResNet-style encoder with optional multi-resolution skip aggregation.
 
     Inputs
     ------
@@ -64,16 +73,20 @@ class ResNetEncoder2D(nn.Module):
         z_channels: int,
         use_multires_skips: bool = True,
         leak: float = 0.2,
+        *,
+        spatial_dims: int,
     ):
         super().__init__()
+        Conv, _, BatchNorm, _ = _spatial_layers(spatial_dims)
+        self.spatial_dims = spatial_dims
         self.n_levels = n_levels
         self.use_multires_skips = use_multires_skips
         self.max_filters = 2 ** (n_levels + 3)
 
         # Initial projection to 8 channels
         self.input_conv = nn.Sequential(
-            nn.Conv2d(in_channels, 8, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(8),
+            Conv(in_channels, 8, 3, 1, 1, bias=False),
+            BatchNorm(8),
             nn.LeakyReLU(leak, inplace=True),
         )
 
@@ -93,15 +106,15 @@ class ResNetEncoder2D(nn.Module):
             # Residual blocks at current resolution
             self.res_stages.append(
                 nn.Sequential(
-                    *[ResidualBlock2D(n_filters_1, n_filters_1, leak=leak) for _ in range(n_res_blocks)]
+                    *[ResidualBlock(n_filters_1, n_filters_1, leak=leak, spatial_dims=spatial_dims) for _ in range(n_res_blocks)]
                 )
             )
 
             # Downsample by factor 2 in each spatial axis
             self.down_stages.append(
                 nn.Sequential(
-                    nn.Conv2d(n_filters_1, n_filters_2, kernel_size=2, stride=2, padding=0, bias=False),
-                    nn.BatchNorm2d(n_filters_2),
+                    Conv(n_filters_1, n_filters_2, kernel_size=2, stride=2, padding=0, bias=False),
+                    BatchNorm(n_filters_2),
                     nn.LeakyReLU(leak, inplace=True),
                 )
             )
@@ -111,14 +124,14 @@ class ResNetEncoder2D(nn.Module):
                 ks = 2 ** (n_levels - i)
                 self.skip_stages.append(
                     nn.Sequential(
-                        nn.Conv2d(n_filters_1, self.max_filters, kernel_size=ks, stride=ks, padding=0, bias=False),
-                        nn.BatchNorm2d(self.max_filters),
+                        Conv(n_filters_1, self.max_filters, kernel_size=ks, stride=ks, padding=0, bias=False),
+                        BatchNorm(self.max_filters),
                         nn.LeakyReLU(leak, inplace=True),
                     )
                 )
 
         # Final projection into z_channels
-        self.output_conv = nn.Conv2d(2 ** (n_levels + 3), z_channels, 3, 1, 1, bias=True)
+        self.output_conv = Conv(2 ** (n_levels + 3), z_channels, 3, 1, 1, bias=True)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.input_conv(x)
@@ -139,9 +152,9 @@ class ResNetEncoder2D(nn.Module):
         return self.output_conv(x)
 
 
-class ResNetDecoder2D(nn.Module):
+class ResNetDecoder(nn.Module):
     """
-    ResNet-style 2D decoder with optional multi-resolution skip injections from the top latent.
+    ResNet-style decoder with optional multi-resolution skip injections from the top latent.
 
     Inputs
     ------
@@ -162,8 +175,12 @@ class ResNetDecoder2D(nn.Module):
         use_multires_skips: bool = True,
         leak: float = 0.2,
         use_transpose_conv: bool = True,
+        *,
+        spatial_dims: int,
     ):
         super().__init__()
+        Conv, ConvTranspose, BatchNorm, interpolation_mode = _spatial_layers(spatial_dims)
+        self.spatial_dims = spatial_dims
         self.n_levels = n_levels
         self.use_multires_skips = use_multires_skips
         self.max_filters = 2 ** (n_levels + 3)
@@ -171,8 +188,8 @@ class ResNetDecoder2D(nn.Module):
 
         # Project latent channels to max_filters
         self.input_conv = nn.Sequential(
-            nn.Conv2d(z_channels, self.max_filters, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(self.max_filters),
+            Conv(z_channels, self.max_filters, 3, 1, 1, bias=False),
+            BatchNorm(self.max_filters),
             nn.LeakyReLU(leak, inplace=True),
         )
 
@@ -183,14 +200,14 @@ class ResNetDecoder2D(nn.Module):
         def upsample_block(in_ch: int, out_ch: int, scale: int) -> nn.Sequential:
             if self.use_transpose_conv:
                 return nn.Sequential(
-                    nn.ConvTranspose2d(in_ch, out_ch, kernel_size=scale, stride=scale, padding=0, bias=False),
-                    nn.BatchNorm2d(out_ch),
+                    ConvTranspose(in_ch, out_ch, kernel_size=scale, stride=scale, padding=0, bias=False),
+                    BatchNorm(out_ch),
                     nn.LeakyReLU(leak, inplace=True),
                 )
             return nn.Sequential(
-                nn.Upsample(scale_factor=scale, mode="bilinear", align_corners=False),
-                nn.Conv2d(in_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=False),
-                nn.BatchNorm2d(out_ch),
+                nn.Upsample(scale_factor=scale, mode=interpolation_mode, align_corners=False),
+                Conv(in_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=False),
+                BatchNorm(out_ch),
                 nn.LeakyReLU(leak, inplace=True),
             )
 
@@ -209,7 +226,7 @@ class ResNetDecoder2D(nn.Module):
             # Residual refinement
             self.res_stages.append(
                 nn.Sequential(
-                    *[ResidualBlock2D(n_filters, n_filters, leak=leak) for _ in range(n_res_blocks)]
+                    *[ResidualBlock(n_filters, n_filters, leak=leak, spatial_dims=spatial_dims) for _ in range(n_res_blocks)]
                 )
             )
 
@@ -221,7 +238,7 @@ class ResNetDecoder2D(nn.Module):
                 )
 
         # Output reconstruction conv
-        self.output_conv = nn.Conv2d(prev_ch, out_channels, 3, 1, 1, bias=True)
+        self.output_conv = Conv(prev_ch, out_channels, 3, 1, 1, bias=True)
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         # Keep a copy of the top feature map for skip injections
