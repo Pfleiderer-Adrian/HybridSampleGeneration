@@ -251,6 +251,8 @@ def _validate_generated_variant(image, mask, expected_image):
             f"Generated image shape {image.shape} differs from expected "
             f"{expected_shape}."
         )
+    if mask.shape == expected_shape[1:]:
+        mask = mask[None, ...]
     if (
         mask.ndim != image.ndim
         or mask.shape[1:] != expected_shape[1:]

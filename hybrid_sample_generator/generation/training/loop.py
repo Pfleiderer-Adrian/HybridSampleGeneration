@@ -1,5 +1,7 @@
 """Batch and epoch loops for trainable generation models."""
 
+import math
+
 import torch
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm import tqdm
@@ -81,6 +83,11 @@ def run_epoch(
         with torch.set_grad_enabled(training):
             output = step_fn(batch, batch_idx, config)
             loss, metrics = extract_step_output(output)
+            if not torch.isfinite(loss).all():
+                raise ValueError("Model returned a non-finite loss.")
+            metrics = metrics_to_float(metrics)
+            if any(not math.isfinite(value) for value in metrics.values()):
+                raise ValueError("Model returned non-finite training metrics.")
             if training:
                 loss.backward()
                 if config.gradient_clip_norm is not None and config.gradient_clip_norm > 0:
@@ -88,7 +95,6 @@ def run_epoch(
                         model.parameters(), config.gradient_clip_norm
                     )
                 optimizer.step()
-        metrics = metrics_to_float(metrics)
         if "loss" not in metrics:
             metrics["loss"] = to_float(loss)
         metric_dicts.append(metrics)

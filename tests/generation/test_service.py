@@ -190,6 +190,16 @@ class GenerationServiceTests(unittest.TestCase):
                 image,
             )
 
+    def test_spatial_generated_masks_are_normalized_to_channel_first(self):
+        for spatial_shape in ((7, 9), (3, 5, 7)):
+            for channels in (1, 3):
+                with self.subTest(spatial_shape=spatial_shape, channels=channels):
+                    image = np.zeros((channels, *spatial_shape), dtype=np.float32)
+                    mask = np.ones(spatial_shape, dtype=np.uint8)
+                    _, validated = _validate_generated_variant(image, mask, image)
+                    self.assertEqual(validated.shape, (1, *spatial_shape))
+                    np.testing.assert_array_equal(validated[0], mask)
+
     def test_seeded_random_is_repeatable_and_restores_global_state(self):
         python_state = random.getstate()
         numpy_state = np.random.get_state()

@@ -186,6 +186,22 @@ class MatchingSelectionTests(unittest.TestCase):
         self.assertEqual(first, repeated)
         self.assertNotEqual(set(first), set(changed))
 
+    def test_changed_weights_and_algorithm_version_recompute_cached_pairs(self):
+        self._populate(rois=2)
+        self.config.routine = "global"
+        target = "hybrid_sample_generator.matching.pair_matcher.template_matching_prepared"
+        with patch(target, side_effect=self._match) as match:
+            self._plan()
+            self.assertEqual(match.call_count, 2)
+            self._plan()
+            self.assertEqual(match.call_count, 2)
+            self.config.intensity_weight = 3
+            self._plan()
+            self.assertEqual(match.call_count, 4)
+            with patch("hybrid_sample_generator.matching.pair_matcher.MATCHER_ALGORITHM_VERSION", 999):
+                self._plan()
+            self.assertEqual(match.call_count, 6)
+
     def test_batchwise_only_matches_configured_subset_and_ranks_it(self):
         self._populate()
         self.config.routine = "batchwise"
