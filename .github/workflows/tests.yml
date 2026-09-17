@@ -40,7 +40,7 @@ jobs:
       - name: Run project tests
         run: python -m xmlrunner discover -s tests -v -o test-results
       
-      - name: Publish individual test checks
+      - name: Publish test checks by area
         if: >-
           ${{
             !cancelled() &&
