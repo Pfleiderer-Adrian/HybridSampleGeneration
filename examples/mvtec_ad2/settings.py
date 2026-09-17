@@ -1,24 +1,13 @@
-"""Dataset paths, selected categories and split for new MVTec experiments."""
-
-from __future__ import annotations
-
+"""Local paths shared by the executable MVTec AD 2 examples."""
 import os
 from pathlib import Path
 
-from examples.mvtec_ad2.configuration import Experiment, SplitConfiguration
-from examples.mvtec_ad2.presets import MVTECAD2_CATEGORIES
+DATASET_ROOT = Path(os.environ.get("MVTECAD2_ROOT", "/mnt/results/mvtec2/mvtec_ad_2"))
+OUTPUT_ROOT = Path(os.environ.get("MVTECAD2_OUTPUT", "/mnt/results/mvtec2/experiments"))
+TEXTURE_ROOT = os.environ.get("MVTECAD2_TEXTURES")
 
+def category_root(category: str) -> Path:
+    return DATASET_ROOT / category
 
-MVTECAD2_ROOT = Path(
-    os.environ.get("MVTECAD2_ROOT", "/mnt/results/mvtec2/mvtec_ad_2")
-)
-MVTECAD2_SAVE = Path(
-    os.environ.get("MVTECAD2_SAVE", "/mnt/results/mvtec2/experiments/test_datarepo_v6")
-)
-
-EXPERIMENT = Experiment(
-    dataset_root=MVTECAD2_ROOT,
-    output_root=MVTECAD2_SAVE,
-    categories=MVTECAD2_CATEGORIES,
-    split=SplitConfiguration(test_enabled=True, test_fraction=0.2, validation_fraction=0.2),
-)
+def study_folder(category: str) -> Path:
+    return OUTPUT_ROOT / category / "hybrid_generation"

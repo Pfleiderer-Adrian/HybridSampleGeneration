@@ -5,10 +5,7 @@ import unittest
 import numpy as np
 import torch
 
-from hybrid_sample_generator.imaging.masks.encoding import (
-    to_one_hot_2D,
-    to_one_hot_3D,
-)
+from hybrid_sample_generator.imaging.masks.encoding import to_one_hot
 from hybrid_sample_generator.imaging.masks.interpolation import (
     interpolate_masked_regions,
 )
@@ -27,7 +24,7 @@ class MaskEncodingTests(unittest.TestCase):
     def test_2d_encoding_removes_background_channel(self):
         mask = torch.tensor([[0, 1], [2, 0]])
 
-        encoded = to_one_hot_2D(mask, num_anomaly_classes=2)
+        encoded = to_one_hot(mask, num_anomaly_classes=2, spatial_dims=2)
 
         self.assertEqual(tuple(encoded.shape), (1, 2, 2, 2))
         self.assertEqual(encoded[0, 0, 0, 1].item(), 1.0)
@@ -37,7 +34,7 @@ class MaskEncodingTests(unittest.TestCase):
     def test_3d_encoding_removes_background_channel(self):
         mask = torch.tensor([[[0, 1], [2, 0]], [[1, 0], [0, 2]]])
 
-        encoded = to_one_hot_3D(mask, num_anomaly_classes=2)
+        encoded = to_one_hot(mask, num_anomaly_classes=2, spatial_dims=3)
 
         self.assertEqual(tuple(encoded.shape), (1, 2, 2, 2, 2))
         self.assertEqual(encoded[0, 0, 0, 0, 1].item(), 1.0)

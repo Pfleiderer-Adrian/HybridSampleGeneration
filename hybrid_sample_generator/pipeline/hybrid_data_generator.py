@@ -111,6 +111,7 @@ class HybridDataGenerator:
             self.repository,
             self.artifact_store,
             self.config.matching,
+            seed=self.config.study.seed,
         )
         if not planned:
             raise ValueError("Matching produced no hybrid sample plans.")

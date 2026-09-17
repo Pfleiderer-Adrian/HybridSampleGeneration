@@ -27,7 +27,6 @@ class MatchingConfiguration:
     batch_size: int = 64
     intensity_weight: float = 1.0
     gradient_weight: float = 2.0
-    seed: int = 42
 
     def validate(self) -> None:
         if self.routine not in MATCHING_ROUTINES:

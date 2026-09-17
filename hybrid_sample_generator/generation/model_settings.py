@@ -1,231 +1,295 @@
-"""Typed settings and serialization for generator models."""
+"""Typed generator settings and explicit Optuna search distributions."""
 
-from collections.abc import Mapping
-from dataclasses import asdict, is_dataclass
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, fields, is_dataclass
+from numbers import Real
+from typing import Any, Iterator
 
 
-DEFAULT_INPUT_ARTEFACTS = ("img", "fname")
-IMMUTABLE_MODEL_PARAMS = {"in_channels"}
+@dataclass(frozen=True)
+class IntRange:
+    low: int
+    high: int
+    step: int = 1
+    log: bool = False
+
+    def __post_init__(self) -> None:
+        if any(isinstance(value, bool) or not isinstance(value, int)
+               for value in (self.low, self.high, self.step)):
+            raise TypeError("IntRange bounds and step must be integers.")
+        if not isinstance(self.log, bool):
+            raise TypeError("IntRange.log must be a boolean.")
+        if self.low > self.high:
+            raise ValueError("IntRange.low must not exceed high.")
+        if self.step <= 0:
+            raise ValueError("IntRange.step must be positive.")
+        if self.log and self.low <= 0:
+            raise ValueError("A logarithmic IntRange requires positive bounds.")
+        if self.log and self.step != 1:
+            raise ValueError("A logarithmic IntRange cannot define a step other than 1.")
+
+
+@dataclass(frozen=True)
+class FloatRange:
+    low: float
+    high: float
+    step: float | None = None
+    log: bool = False
+
+    def __post_init__(self) -> None:
+        if any(isinstance(value, bool) or not isinstance(value, Real)
+               for value in (self.low, self.high)):
+            raise TypeError("FloatRange bounds must be numeric.")
+        if self.step is not None and (
+            isinstance(self.step, bool) or not isinstance(self.step, Real)
+        ):
+            raise TypeError("FloatRange.step must be numeric or None.")
+        if not isinstance(self.log, bool):
+            raise TypeError("FloatRange.log must be a boolean.")
+        if self.low > self.high:
+            raise ValueError("FloatRange.low must not exceed high.")
+        if self.step is not None and self.step <= 0:
+            raise ValueError("FloatRange.step must be positive.")
+        if self.log and self.step is not None:
+            raise ValueError("A logarithmic FloatRange cannot define a step.")
+        if self.log and self.low <= 0:
+            raise ValueError("A logarithmic FloatRange requires positive bounds.")
+
+
+@dataclass(frozen=True)
+class Choice:
+    values: tuple[Any, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "values", tuple(self.values))
+        if not self.values:
+            raise ValueError("Choice requires at least one value.")
+
+
+SearchDistribution = IntRange | FloatRange | Choice
+
+
+class SearchSpace:
+    """Validated search distributions bound to one parameter dataclass."""
+
+    def __init__(self, parameters, **distributions: SearchDistribution) -> None:
+        if not is_dataclass(parameters) or isinstance(parameters, type):
+            raise TypeError("SearchSpace parameters must be a dataclass instance.")
+        object.__setattr__(self, "_parameters", parameters)
+        object.__setattr__(
+            self,
+            "_parameter_names",
+            {field.name for field in fields(parameters)},
+        )
+        object.__setattr__(self, "_distributions", {})
+        for name, distribution in distributions.items():
+            self._set_distribution(name, distribution)
+
+    def __getattr__(self, name: str) -> SearchDistribution:
+        try:
+            return self._distributions[name]
+        except KeyError as exc:
+            raise AttributeError(
+                f"Parameter {name!r} is not part of this search space."
+            ) from exc
+
+    def __setattr__(self, name: str, value: SearchDistribution) -> None:
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+            return
+        self._set_distribution(name, value)
+
+    def __delattr__(self, name: str) -> None:
+        if name.startswith("_"):
+            raise AttributeError(f"Cannot delete internal attribute {name!r}.")
+        try:
+            del self._distributions[name]
+        except KeyError as exc:
+            raise AttributeError(
+                f"Parameter {name!r} is not part of this search space."
+            ) from exc
+
+    def __contains__(self, name: object) -> bool:
+        return name in self._distributions
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._distributions)
+
+    def __len__(self) -> int:
+        return len(self._distributions)
+
+    def __eq__(self, other: object) -> bool:
+        return (
+            isinstance(other, SearchSpace)
+            and type(self._parameters) is type(other._parameters)
+            and self._distributions == other._distributions
+        )
+
+    def clear(self) -> None:
+        self._distributions.clear()
+
+    def items(self):
+        return self._distributions.items()
+
+    def names(self) -> tuple[str, ...]:
+        return tuple(self._distributions)
+
+    def validate(self) -> None:
+        for name, distribution in self._distributions.items():
+            self._validate_distribution(name, distribution)
+
+    def to_dict(self) -> dict[str, dict[str, Any]]:
+        self.validate()
+        return {
+            name: _distribution_to_dict(distribution)
+            for name, distribution in self._distributions.items()
+        }
+
+    @classmethod
+    def from_dict(cls, parameters, values: dict[str, Any]) -> "SearchSpace":
+        search = cls(parameters)
+        for name, distribution in values.items():
+            search._set_distribution(name, _distribution_from_dict(distribution))
+        return search
+
+    def _set_distribution(self, name: str, distribution: SearchDistribution) -> None:
+        self._validate_distribution(name, distribution)
+        self._distributions[name] = distribution
+
+    def _validate_distribution(
+        self,
+        name: str,
+        distribution: SearchDistribution,
+    ) -> None:
+        if name not in self._parameter_names:
+            raise AttributeError(f"Unknown model search parameter {name!r}.")
+        if not isinstance(distribution, (IntRange, FloatRange, Choice)):
+            raise TypeError(
+                f"Search parameter {name!r} must use IntRange, FloatRange, or Choice."
+            )
+        _validate_distribution_type(
+            name,
+            getattr(self._parameters, name),
+            distribution,
+        )
 
 
 class GeneratorModelSettings:
-    """Model selection with parameters initialized from the extraction settings.
+    """Selected model, concrete parameters, and optional search distributions."""
 
-    Selecting a model resets its search space. Changing anomaly channels only
-    updates the derived in_channels parameter and preserves other customizations.
-    """
-
-    def __init__(self, extraction):
-        self._extraction = extraction
-        self.set_model("cVAE_ConvNeXt_2D")
+    def __init__(self, name: str = "cVAE_ConvNeXt_2D") -> None:
+        self.set_model(name)
 
     @property
     def name(self) -> str:
         return self._name
 
-    @name.setter
-    def name(self, name: str) -> None:
-        self.set_model(name)
+    @property
+    def parameters(self):
+        return self._parameters
+
+    @property
+    def search(self) -> SearchSpace:
+        return self._search
 
     def set_model(self, name: str) -> None:
-        """Select a registered model and initialize a fresh parameter space."""
+        """Select a model and reset its concrete parameters and default search."""
         from hybrid_sample_generator.generation.registry import get_model_spec
 
         spec = get_model_spec(name)
-        self._extraction.validate()
-        channels = int(self._extraction.anomaly_size[0])
-        parameters = spec.build_configuration(channels)
+        parameters = spec.build_configuration()
+        search = spec.build_search_space(parameters)
         self._name = name
         self._parameters = parameters
-        self._input_channels = channels
+        self._search = search
 
-    @property
-    def parameters(self) -> "ModelHyperparameterSpace":
-        self._extraction.validate()
-        channels = int(self._extraction.anomaly_size[0])
-        if channels != self._input_channels:
-            self._parameters.min["in_channels"] = channels
-            self._parameters.max["in_channels"] = channels
-            self._input_channels = channels
-        return self._parameters
+    def validate(self) -> None:
+        from hybrid_sample_generator.generation.registry import get_model_spec
 
-    def to_dict(self):
+        spec = get_model_spec(self.name)
+        if not isinstance(self.parameters, spec.config_cls):
+            raise TypeError(
+                f"Parameters for {self.name!r} must be {spec.config_cls.__name__}."
+            )
+        self.search.validate()
+
+    def to_dict(self) -> dict[str, Any]:
+        self.validate()
         return {
             "name": self.name,
-            "parameters": self.parameters.to_dict(),
+            "parameters": asdict(self.parameters),
+            "search": self.search.to_dict(),
         }
 
     @classmethod
-    def from_dict(cls, values, *, extraction):
-        settings = cls(extraction)
-        settings.set_model(values["name"])
-        settings._parameters = ModelHyperparameterSpace.from_value(values["parameters"])
+    def from_dict(cls, values: dict[str, Any]) -> "GeneratorModelSettings":
+        from hybrid_sample_generator.generation.registry import get_model_spec
+
+        unknown = set(values) - {"name", "parameters", "search"}
+        if unknown:
+            raise TypeError(f"Unknown model setting(s): {sorted(unknown)}")
+        spec = get_model_spec(values["name"])
+        parameters = spec.config_cls(**values["parameters"])
+        search = SearchSpace.from_dict(parameters, values.get("search", {}))
+        settings = cls.__new__(cls)
+        settings._name = values["name"]
+        settings._parameters = parameters
+        settings._search = search
+        settings.validate()
         return settings
 
 
-class ModelHyperparameterSpace:
-    """
-    Model-specific hyperparameter search space.
+def _validate_distribution_type(name, default, distribution) -> None:
+    if isinstance(distribution, IntRange):
+        valid = isinstance(default, int) and not isinstance(default, bool)
+    elif isinstance(distribution, FloatRange):
+        valid = isinstance(default, Real) and not isinstance(default, bool)
+    else:
+        valid = all(_same_value_type(default, value) for value in distribution.values)
+    if not valid:
+        raise TypeError(
+            f"Search distribution for {name!r} is incompatible with "
+            f"parameter value {default!r}."
+        )
 
-    The min/max dictionaries define the Optuna search space. Equal min/max
-    values are treated as fixed parameters by the trainer.
-    """
 
-    def __init__(
-        self,
-        min_config,
-        max_config=None,
-        *,
-        input_artefacts=DEFAULT_INPUT_ARTEFACTS,
-        immutable_params=IMMUTABLE_MODEL_PARAMS,
-    ):
-        self.min = self.model_config_to_dict(min_config)
-        self.max = self.model_config_to_dict(max_config if max_config is not None else min_config)
-        self.input_artefacts = tuple(input_artefacts)
-        self.immutable_params = set(immutable_params)
+def _same_value_type(default, value) -> bool:
+    if default is None:
+        return True
+    if isinstance(default, bool):
+        return isinstance(value, bool)
+    if isinstance(default, float):
+        return isinstance(value, Real) and not isinstance(value, bool)
+    return isinstance(value, type(default))
 
-    @classmethod
-    def from_value(cls, value):
-        if isinstance(value, cls):
-            return value
-        if isinstance(value, Mapping):
-            try:
-                min_config = value["min"]
-                max_config = value["max"]
-            except KeyError as exc:
-                raise KeyError("Model hyperparameter-space mapping must contain 'min' and 'max'.") from exc
-            return cls(
-                min_config,
-                max_config,
-                input_artefacts=value.get(
-                    "input_artefacts",
-                    value.get("default_input_artefacts", DEFAULT_INPUT_ARTEFACTS),
-                ),
-                immutable_params=value.get("immutable_params", IMMUTABLE_MODEL_PARAMS),
-            )
-        raise TypeError("model_params must be a ModelHyperparameterSpace or mapping.")
 
-    def set_hyperparameter_space(self, min_config, max_config):
-        """
-        Override the hyperparameter search space used by Optuna.
+def _distribution_to_dict(distribution: SearchDistribution) -> dict[str, Any]:
+    values = asdict(distribution)
+    values["type"] = {
+        IntRange: "int",
+        FloatRange: "float",
+        Choice: "choice",
+    }[type(distribution)]
+    return values
 
-        Unspecified known model parameters keep their current fixed values so
-        use-case overrides can tune a subset without dropping required fields.
-        """
-        min_config = self.model_config_to_dict(min_config)
-        max_config = self.model_config_to_dict(max_config)
-        self.validate_model_param_names(set(min_config) | set(max_config))
 
-        self._preserve_immutable_params(min_config, max_config)
+def _distribution_from_dict(values: dict[str, Any]) -> SearchDistribution:
+    values = dict(values)
+    kind = values.pop("type")
+    if kind == "int":
+        return IntRange(**values)
+    if kind == "float":
+        return FloatRange(**values)
+    if kind == "choice":
+        return Choice(**values)
+    raise ValueError(f"Unknown search distribution type {kind!r}.")
 
-        for name in (set(self.min) | set(self.max)) - (set(min_config) | set(max_config)):
-            min_config[name] = self.min.get(name, self.max.get(name))
-            max_config[name] = self.max.get(name, self.min.get(name))
 
-        self.min = min_config
-        self.max = max_config
-
-    def set_model_param(self, name, value):
-        """
-        Fix one model parameter to a concrete value for every Optuna trial.
-        """
-        self.validate_model_param_name(name)
-        self.min[name] = value
-        self.max[name] = value
-
-    def set_model_params(self, params=None, **kwargs):
-        """
-        Fix multiple model parameters to concrete values.
-        """
-        params = {} if params is None else dict(params)
-        params.update(kwargs)
-        for name, value in params.items():
-            self.set_model_param(name, value)
-
-    def set_model_param_range(self, name, min_value, max_value):
-        """
-        Set one Optuna search range/categorical choice pair for a parameter.
-        """
-        self.validate_model_param_name(name)
-        self.min[name] = min_value
-        self.max[name] = max_value
-
-    def update_model_param_ranges(self, ranges=None, **kwargs):
-        """
-        Update multiple model parameter ranges.
-        """
-        ranges = {} if ranges is None else dict(ranges)
-        ranges.update(kwargs)
-        for name, value_range in ranges.items():
-            if not isinstance(value_range, (tuple, list)) or len(value_range) != 2:
-                raise ValueError(f"Range for {name!r} must be a (min_value, max_value) pair.")
-            self.set_model_param_range(name, value_range[0], value_range[1])
-
-    def validate_model_param_name(self, name):
-        valid_names = set(self.min) | set(self.max)
-        if name not in valid_names:
-            raise KeyError(f"Unknown model parameter {name!r}. Available parameters: {sorted(valid_names)}")
-        if name in self.immutable_params:
-            raise AttributeError(
-                f"Model parameter {name!r} is derived from anomaly_size and cannot be changed afterwards."
-            )
-
-    def validate_model_param_names(self, names):
-        valid_names = set(self.min) | set(self.max)
-        invalid_names = set(names) - valid_names
-        if invalid_names:
-            raise KeyError(
-                f"Unknown model parameter(s) {sorted(invalid_names)!r}. "
-                f"Available parameters: {sorted(valid_names)}"
-            )
-
-    def _preserve_immutable_params(self, min_config, max_config):
-        for name in self.immutable_params:
-            current_min = self.min.get(name, self.max.get(name))
-            current_max = self.max.get(name, self.min.get(name))
-            if current_min is None and current_max is None:
-                continue
-
-            if (
-                (name in min_config and min_config[name] != current_min)
-                or (name in max_config and max_config[name] != current_max)
-            ):
-                raise AttributeError(
-                    f"Model parameter {name!r} is derived from anomaly_size and cannot be changed afterwards."
-                )
-
-            min_config[name] = current_min
-            max_config[name] = current_max
-
-    def to_dict(self):
-        return {
-            "min": self.min.copy(),
-            "max": self.max.copy(),
-            "input_artefacts": tuple(self.input_artefacts),
-            "immutable_params": tuple(sorted(self.immutable_params)),
-        }
-
-    def __getitem__(self, key):
-        if key == "min":
-            return self.min
-        if key == "max":
-            return self.max
-        if key == "input_artefacts":
-            return self.input_artefacts
-        if key == "immutable_params":
-            return self.immutable_params
-        raise KeyError(key)
-
-    def get(self, key, default=None):
-        try:
-            return self[key]
-        except KeyError:
-            return default
-
-    @staticmethod
-    def model_config_to_dict(config):
-        if is_dataclass(config):
-            return asdict(config)
-        if isinstance(config, Mapping):
-            return dict(config)
-        raise TypeError("Model config must be a dataclass instance or mapping.")
+__all__ = [
+    "Choice",
+    "FloatRange",
+    "GeneratorModelSettings",
+    "IntRange",
+    "SearchSpace",
+]

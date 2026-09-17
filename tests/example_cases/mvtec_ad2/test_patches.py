@@ -6,18 +6,33 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
-from PIL import Image
 import torch
+from PIL import Image
 
-from examples.mvtec_ad2.downstream.configuration import DownstreamConfiguration, TrainingConfiguration
-from examples.mvtec_ad2.records import MVTecAD2Sample
-from examples.mvtec_ad2.downstream.datasets import RealImageDataset, HybridPairs, MixedTrainingDataset
+from examples.mvtec_ad2.dataset import MVTecAD2Sample
+from examples.mvtec_ad2.downstream.configuration import (
+    DownstreamConfiguration,
+    TrainingConfiguration,
+)
+from examples.mvtec_ad2.downstream.datasets import (
+    HybridPairs,
+    MixedTrainingDataset,
+    RealImageDataset,
+)
 from examples.mvtec_ad2.downstream.evaluation import evaluate, evaluation_loader
-from examples.mvtec_ad2.downstream.patches import crop_training_patch, tiled_logits, tile_starts
+from examples.mvtec_ad2.downstream.patches import (
+    crop_training_patch,
+    tile_starts,
+    tiled_logits,
+)
 from examples.mvtec_ad2.downstream.training import train
-from examples.mvtec_ad2.studies import prepare_studies
-from examples.mvtec_ad2.splits import manifest_samples
-from .test_downstream import create_images, seed_hybrid
+from examples.mvtec_ad2.splits import (
+    SplitConfiguration,
+    create_manifest,
+    manifest_samples,
+)
+
+from .test_downstream import create_images, generator_config, seed_hybrid
 
 
 class PixelModel(torch.nn.Module):
@@ -46,7 +61,7 @@ class PatchTests(unittest.TestCase):
         self.assertEqual(config.data.patch_size, (512, 512))
         restored = DownstreamConfiguration.from_dict(config.to_dict())
         self.assertEqual(restored.to_dict(), config.to_dict())
-        self.assertEqual(DownstreamConfiguration.from_dict({"data": {"image_size": [64, 64]}}).data.mode, "image")
+        self.assertEqual(DownstreamConfiguration.from_dict({"data": {"image_size": [64, 64]}}).data.mode, "patch")
         for name, value in (("mode", "unknown"), ("patch_size", (65, 64)),
                             ("patch_overlap", 1), ("patch_overlap", -0.1)):
             with self.subTest(name=name):
@@ -127,18 +142,19 @@ class PatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             create_images(root)
-            case = prepare_studies(root, "can", save_path=root/"studies")[0]
-            repo, store = seed_hybrid(case)
-            data = case.config.downstream.data
+            manifest = create_manifest(root / "can", SplitConfiguration())
+            config = generator_config(root / "study")
+            repo, store = seed_hybrid(config, manifest)
+            downstream = DownstreamConfiguration()
+            data = downstream.data
             data.patch_size = (64, 64)
             data.hybrid_fraction = 1
             data.samples_per_epoch = 4
-            hybrid = repo.list_hybrid_samples(status="generated")[0]
             tiny = np.zeros((1, 64, 64), dtype=np.float32)
             tiny[0, 1, 1] = 1
             store.save_entity_array("hybrid_samples", "hybrid", "segmentation", tiny)
-            pairs = HybridPairs(repo, store, case.split_manifest, data)
-            dataset = MixedTrainingDataset(manifest_samples(case.split_manifest, "train", True), pairs, case.config.downstream)
+            pairs = HybridPairs(repo, store, manifest, data)
+            dataset = MixedTrainingDataset(manifest_samples(manifest, "train", True), pairs, downstream)
             index = dataset.plan.index("hybrid")
             with patch("examples.mvtec_ad2.downstream.transforms.F.interpolate", side_effect=AssertionError("No resize")):
                 item = dataset[index]
@@ -146,7 +162,7 @@ class PatchTests(unittest.TestCase):
             self.assertTrue(torch.equal(item["image"], dataset[index]["image"]))
             store.save_entity_array("hybrid_samples", "hybrid", "segmentation", tiny*0)
             with self.assertRaisesRegex(ValueError, "empty stored"):
-                HybridPairs(repo, store, case.split_manifest, data)
+                HybridPairs(repo, store, manifest, data)
 
     def test_training_and_full_image_validation_with_larger_native_inputs(self):
         with tempfile.TemporaryDirectory() as temporary:

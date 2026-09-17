@@ -5,6 +5,9 @@ excluded from the stable `hybrid_sample_generator` package API and registries.
 
 The code may be incomplete, incompatible with some environments, or changed
 without notice. Do not rely on its configuration or checkpoint formats.
+Prototype configuration classes are local to `experiments/`; they do not use
+the stable model registry, its dimension-specific configuration factories, or
+the `config.model.parameters` and `config.model.search` contract.
 
 ## Latent Diffusion LoRA
 
@@ -26,7 +29,8 @@ Status:
 - prototype for learned 2D and 3D fusion;
 - isolated helper, checkpoint, training, and fusion tests are retained;
 - training quality and production stability are not yet validated;
-- not available through the stable fusion registry.
+- not available through `config.fusion.set_backend(...)` or the stable fusion
+  registry.
 
 ## Installation and tests
 

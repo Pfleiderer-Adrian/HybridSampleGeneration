@@ -4,36 +4,30 @@ import torch
 import torch.nn.functional as F
 
 
-def to_one_hot_3D(mask: torch.Tensor, num_anomaly_classes: int) -> torch.Tensor:
-    """Convert a 3D integer mask to ``(B, C, D, H, W)`` foreground channels."""
-    if mask.ndim == 5 and mask.shape[1] > 1:
+def to_one_hot(
+    mask: torch.Tensor,
+    num_anomaly_classes: int,
+    *,
+    spatial_dims: int,
+) -> torch.Tensor:
+    """Convert integer labels to channel-first foreground one-hot masks."""
+    if spatial_dims not in (2, 3):
+        raise ValueError(f"spatial_dims must be 2 or 3, got {spatial_dims}.")
+    channel_first_ndim = spatial_dims + 2
+    if mask.ndim == channel_first_ndim and mask.shape[1] == num_anomaly_classes:
         return mask.float()
-    if mask.ndim == 5 and mask.shape[1] == 1:
+    if mask.ndim == channel_first_ndim and mask.shape[1] == 1:
         mask = mask.squeeze(1)
-    if mask.ndim == 3:
+    if mask.ndim == spatial_dims:
         mask = mask.unsqueeze(0)
-    if mask.ndim != 4:
+    if mask.ndim != spatial_dims + 1:
         raise ValueError(
-            f"Expected mask shape (B, D, H, W) after cleanup, got: {mask.shape}."
+            f"Expected a batch plus {spatial_dims} spatial dimensions after cleanup, "
+            f"got: {mask.shape}."
         )
-    mask_oh = F.one_hot(mask.long(), num_classes=num_anomaly_classes + 1)
-    return mask_oh[..., 1:].permute(0, 4, 1, 2, 3).float()
+    channel_last = F.one_hot(mask.long(), num_classes=num_anomaly_classes + 1)[..., 1:]
+    order = (0, channel_last.ndim - 1, *range(1, channel_last.ndim - 1))
+    return channel_last.permute(order).float()
 
 
-def to_one_hot_2D(mask: torch.Tensor, num_anomaly_classes: int) -> torch.Tensor:
-    """Convert a 2D integer mask to ``(B, C, H, W)`` foreground channels."""
-    if mask.ndim == 4 and mask.shape[1] == num_anomaly_classes:
-        return mask.float()
-    if mask.ndim == 4 and mask.shape[1] == 1:
-        mask = mask.squeeze(1)
-    if mask.ndim == 2:
-        mask = mask.unsqueeze(0)
-    if mask.ndim != 3:
-        raise ValueError(
-            f"Expected mask shape (B, H, W) after cleanup, got: {mask.shape}."
-        )
-    mask_oh = F.one_hot(mask.long(), num_classes=num_anomaly_classes + 1)
-    return mask_oh[..., 1:].permute(0, 3, 1, 2).float()
-
-
-__all__ = ["to_one_hot_2D", "to_one_hot_3D"]
+__all__ = ["to_one_hot"]

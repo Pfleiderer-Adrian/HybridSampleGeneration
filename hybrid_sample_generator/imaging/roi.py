@@ -40,14 +40,20 @@ def dynamic_roi_size(
     ]
 
 
-def _crop_spatial_clip(
+def crop_spatial_clip(
     arr: np.ndarray,
     centroid,
     size,
     *,
-    spatial_dims: int,
-    centroid_is_normalized: bool | None,
+    centroid_is_normalized: bool | None = None,
 ) -> np.ndarray:
+    """Crop a channel-first 2D or 3D ROI and keep it inside array bounds."""
+    spatial_dims = arr.ndim - 1
+    if spatial_dims not in (2, 3):
+        raise ValueError(
+            "crop_spatial_clip expects shape (C,H,W) or (C,D,H,W). "
+            f"Got {arr.shape}"
+        )
     expected_ndim = spatial_dims + 1
     if arr.ndim != expected_ndim:
         raise ValueError(
@@ -86,29 +92,3 @@ def _crop_spatial_clip(
         slices.append(slice(max(start, 0), min(stop, available)))
 
     return arr[(slice(None), *slices)]
-
-
-def crop_square_clip(arr, centroid, size, centroid_is_normalized=None):
-    """Crop a channel-first 2D ROI and shift it inside the image bounds."""
-    if arr.ndim != 3:
-        raise ValueError(f"crop_square_clip expects 3D (C,H,W). Got {arr.shape}")
-    return _crop_spatial_clip(
-        arr,
-        centroid,
-        size,
-        spatial_dims=2,
-        centroid_is_normalized=centroid_is_normalized,
-    )
-
-
-def crop_cube_clip(arr, centroid, size, centroid_is_normalized=None):
-    """Crop a channel-first 3D ROI and shift it inside the volume bounds."""
-    if arr.ndim != 4:
-        raise ValueError(f"crop_cube_clip expects 4D (C,D,H,W). Got {arr.shape}")
-    return _crop_spatial_clip(
-        arr,
-        centroid,
-        size,
-        spatial_dims=3,
-        centroid_is_normalized=centroid_is_normalized,
-    )

@@ -53,78 +53,79 @@ def ingest_dataset(
         desc="Ingesting original samples",
         unit="sample",
     )
-    for source_index, sample in enumerate(samples):
-        image = np.asarray(sample.image)
-        segmentation = (
-            None if sample.segmentation is None else np.asarray(sample.segmentation)
-        )
-        _validate_sample(
-            image,
-            segmentation,
-            expected_spatial_dimensions=expected_spatial_dimensions,
-            expected_channels=expected_channels,
-        )
-
-        source_name = str(sample.source_name)
-        if source_name in seen_source_names:
-            raise ValueError(
-                f"Original source_name {source_name!r} occurs more than once."
+    with artifact_store.transaction():
+        for source_index, sample in enumerate(samples):
+            image = np.asarray(sample.image)
+            segmentation = (
+                None if sample.segmentation is None else np.asarray(sample.segmentation)
             )
-        seen_source_names.add(source_name)
-
-        source_identity = (
-            str(Path(sample.source_image_path).expanduser().resolve())
-            if sample.source_image_path
-            else source_name
-        )
-        record_id = stable_id("original", source_identity)
-        if record_id in seen_ids:
-            raise ValueError(
-                f"Original source identity {source_identity!r} occurs more than once."
-            )
-        seen_ids.add(record_id)
-
-        is_annotated = segmentation is not None
-        has_anomaly = bool(is_annotated and np.any(segmentation > 0))
-        annotated_samples += int(is_annotated)
-        anomalous_samples += int(has_anomaly)
-        image_shapes.add(tuple(int(value) for value in image.shape))
-
-        image_path = artifact_store.save_entity_array(
-            "original_samples", record_id, "image", image
-        )
-        segmentation_path = None
-        if segmentation is not None:
-            segmentation_path = artifact_store.save_entity_array(
-                "original_samples", record_id, "segmentation", segmentation
+            _validate_sample(
+                image,
+                segmentation,
+                expected_spatial_dimensions=expected_spatial_dimensions,
+                expected_channels=expected_channels,
             )
 
-        metadata = dict(sample.metadata)
-        if sample.source_image_path:
-            metadata["source_image_path"] = str(sample.source_image_path)
-        if sample.source_segmentation_path:
-            metadata["source_segmentation_path"] = str(
-                sample.source_segmentation_path
+            source_name = str(sample.source_name)
+            if source_name in seen_source_names:
+                raise ValueError(
+                    f"Original source_name {source_name!r} occurs more than once."
+                )
+            seen_source_names.add(source_name)
+
+            source_identity = (
+                str(Path(sample.source_image_path).expanduser().resolve())
+                if sample.source_image_path
+                else source_name
+            )
+            record_id = stable_id("original", source_identity)
+            if record_id in seen_ids:
+                raise ValueError(
+                    f"Original source identity {source_identity!r} occurs more than once."
+                )
+            seen_ids.add(record_id)
+
+            is_annotated = segmentation is not None
+            has_anomaly = bool(is_annotated and np.any(segmentation > 0))
+            annotated_samples += int(is_annotated)
+            anomalous_samples += int(has_anomaly)
+            image_shapes.add(tuple(int(value) for value in image.shape))
+
+            image_path = artifact_store.save_entity_array(
+                "original_samples", record_id, "image", image
+            )
+            segmentation_path = None
+            if segmentation is not None:
+                segmentation_path = artifact_store.save_entity_array(
+                    "original_samples", record_id, "segmentation", segmentation
+                )
+
+            metadata = dict(sample.metadata)
+            if sample.source_image_path:
+                metadata["source_image_path"] = str(sample.source_image_path)
+            if sample.source_segmentation_path:
+                metadata["source_segmentation_path"] = str(
+                    sample.source_segmentation_path
+                )
+
+            records.append(
+                OriginalSample(
+                    id=record_id,
+                    source_name=source_name,
+                    image_path=image_path,
+                    segmentation_path=segmentation_path,
+                    spatial_dimensions=image.ndim - 1,
+                    has_anomaly=has_anomaly,
+                    is_annotated=is_annotated,
+                    source_index=source_index,
+                    metadata=metadata,
+                )
             )
 
-        records.append(
-            OriginalSample(
-                id=record_id,
-                source_name=source_name,
-                image_path=image_path,
-                segmentation_path=segmentation_path,
-                spatial_dimensions=image.ndim - 1,
-                has_anomaly=has_anomaly,
-                is_annotated=is_annotated,
-                source_index=source_index,
-                metadata=metadata,
-            )
-        )
+        if not records:
+            raise ValueError("The supplied dataset contains no usable original samples.")
 
-    if not records:
-        raise ValueError("The supplied dataset contains no usable original samples.")
-
-    repository.replace_original_samples(records)
+        repository.replace_original_samples(records)
     total_samples = len(records)
     return DatasetSummary(
         total_samples=total_samples,

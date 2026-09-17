@@ -21,7 +21,14 @@ def spatial_target_size(target_size, spatial_dims: int) -> tuple[int, ...]:
     )
 
 
-def _resize_and_pad(arr, target_size, *, order: int, foreground_mask, spatial_dims: int):
+def resize_and_pad(arr, target_size, *, order: int = 1, foreground_mask=None):
+    """Downscale and center-pad a channel-first 2D image or 3D volume."""
+    spatial_dims = arr.ndim - 1
+    if spatial_dims not in (2, 3):
+        raise ValueError(
+            "resize_and_pad expects shape (C,H,W) or (C,D,H,W). "
+            f"Got {arr.shape}"
+        )
     expected_ndim = spatial_dims + 1
     if arr.ndim != expected_ndim:
         raise ValueError(f"Expected a {expected_ndim}D channel-first array. Got {arr.shape}")
@@ -64,29 +71,3 @@ def _resize_and_pad(arr, target_size, *, order: int, foreground_mask, spatial_di
     )
     crop = (slice(None), *(slice(0, target) for target in target_size))
     return padded[crop], scale_spatial
-
-
-def resize_and_pad_2d(arr, target_size, order=1, foreground_mask=None):
-    """Downscale and center-pad a ``(C, H, W)`` array."""
-    if arr.ndim != 3:
-        raise ValueError(f"resize_and_pad_2d expects 3D (C,h,w). Got {arr.shape}")
-    return _resize_and_pad(
-        arr,
-        target_size,
-        order=order,
-        foreground_mask=foreground_mask,
-        spatial_dims=2,
-    )
-
-
-def resize_and_pad_3d(arr, target_size, order=1, foreground_mask=None):
-    """Downscale and center-pad a ``(C, D, H, W)`` array."""
-    if arr.ndim != 4:
-        raise ValueError(f"resize_and_pad_3d expects 4D (C,d,h,w). Got {arr.shape}")
-    return _resize_and_pad(
-        arr,
-        target_size,
-        order=order,
-        foreground_mask=foreground_mask,
-        spatial_dims=3,
-    )

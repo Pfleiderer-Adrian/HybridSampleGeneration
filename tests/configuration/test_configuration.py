@@ -9,6 +9,12 @@ from hybrid_sample_generator.configuration.root import Configuration, load_confi
 from hybrid_sample_generator.configuration.augmentation import MaskTransformConfiguration
 from hybrid_sample_generator.configuration.matching import MatchingConfiguration
 from hybrid_sample_generator.imaging.masks.transform_generator import TransformGenerator
+from hybrid_sample_generator.generation.model_settings import (
+    Choice,
+    FloatRange,
+    IntRange,
+    SearchSpace,
+)
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -16,48 +22,107 @@ class ConfigurationTests(unittest.TestCase):
         config = Configuration("defaults")
         config.validate()
         self.assertEqual(config.model.name, "cVAE_ConvNeXt_2D")
-        self.assertEqual(config.extraction.anomaly_size, (3, 64, 64))
-        config.model.parameters.set_model_param("z_channels", 123)
+        config.model.parameters.z_channels = 123
         config.model.set_model("VAE_ResNet_3D")
         config.extraction.anomaly_size = (1, 16, 16, 16)
         config.validate()
-        self.assertEqual(config.model.parameters.min["in_channels"], 1)
-        self.assertNotEqual(config.model.parameters.min["z_channels"], 123)
+        self.assertNotEqual(config.model.parameters.z_channels, 123)
         before = config.model.to_dict()
         with self.assertRaises(ValueError):
             config.model.set_model("unknown-model")
         self.assertEqual(config.model.to_dict(), before)
 
-    def test_channel_changes_preserve_hyperparameters_and_survive_loading(self):
-        config = Configuration("channels")
-        config.model.parameters.set_model_param_range("z_channels", 16, 32)
+    def test_parameters_are_plain_state_without_extraction_side_effects(self):
+        config = Configuration("parameters")
+        parameters = config.model.parameters
         config.extraction.anomaly_size = (1, 32, 32)
-        self.assertEqual(config.model.parameters.min["in_channels"], 1)
-        self.assertEqual(config.model.parameters.max["in_channels"], 1)
-        self.assertEqual(config.model.parameters.min["z_channels"], 16)
-        self.assertEqual(config.model.parameters.max["z_channels"], 32)
-        loaded = Configuration.from_dict(config.to_dict())
-        loaded.extraction.anomaly_size = (2, 32, 32)
-        loaded.validate()
-        self.assertEqual(loaded.model.parameters.min["in_channels"], 2)
-        self.assertEqual(config.model.parameters.min["in_channels"], 1)
-        self.assertEqual(loaded.model.parameters.max["z_channels"], 32)
-        with self.assertRaises(AttributeError):
-            loaded.model.parameters.set_model_param("in_channels", 4)
+        self.assertIs(config.model.parameters, parameters)
+        self.assertFalse(hasattr(parameters, "in_channels"))
+        self.assertFalse(hasattr(parameters, "num_anomaly_classes"))
 
-    def test_invalid_saved_channels_are_rejected(self):
-        values = Configuration("invalid-channels").to_dict()
-        values["model"]["parameters"]["min"]["in_channels"] = 17
-        with self.assertRaisesRegex(ValueError, "in_channels"):
+    def test_fixed_parameters_and_search_space_round_trip(self):
+        config = Configuration("search")
+        config.model.parameters.recon_weight = 8.0
+        config.model.search.z_channels = Choice((16, 32, 64))
+        config.model.search.dropout = FloatRange(0.01, 0.2)
+        loaded = Configuration.from_dict(config.to_dict())
+        self.assertEqual(loaded.model.parameters.recon_weight, 8.0)
+        self.assertIsInstance(loaded.model.search, SearchSpace)
+        self.assertEqual(loaded.model.search, config.model.search)
+        self.assertEqual(loaded.model.search.dropout, FloatRange(0.01, 0.2))
+
+    def test_search_space_attribute_api_validates_and_removes_distributions(self):
+        config = Configuration("search-api")
+        search = config.model.search
+
+        search.dropout = FloatRange(0.0, 0.2)
+        self.assertEqual(search.dropout, FloatRange(0.0, 0.2))
+        self.assertIn("dropout", search)
+
+        del search.dropout
+        self.assertNotIn("dropout", search)
+        with self.assertRaises(AttributeError):
+            _ = search.dropout
+
+        with self.assertRaisesRegex(AttributeError, "Unknown"):
+            search.unknown = IntRange(1, 2)
+        with self.assertRaisesRegex(TypeError, "recon_loss"):
+            search.recon_loss = FloatRange(0.0, 1.0)
+        with self.assertRaises(AttributeError):
+            config.model.search = {}
+
+    def test_search_space_clear_makes_all_parameters_fixed(self):
+        config = Configuration("fixed")
+        config.model.set_model("VAE_ResNet_2D")
+        self.assertGreater(len(config.model.search), 0)
+        config.model.search.clear()
+        self.assertEqual(len(config.model.search), 0)
+        config.validate()
+
+    def test_runtime_parameters_are_rejected_in_serialized_model_config(self):
+        values = Configuration("invalid-runtime").to_dict()
+        values["model"]["parameters"]["in_channels"] = 17
+        with self.assertRaises(TypeError):
             Configuration.from_dict(values)
 
-    def test_name_assignment_initializes_model_parameters(self):
+    def test_set_model_initializes_parameters_and_search(self):
         from hybrid_sample_generator.generation.registry import get_model_spec
+
         config = Configuration("assignment")
-        config.extraction.anomaly_size = (1, 8, 8)
-        config.model.name = "VAE_ResNet_2D"
-        self.assertEqual(config.model.parameters.to_dict(),
-                         get_model_spec("VAE_ResNet_2D").build_configuration(1).to_dict())
+        config.model.set_model("VAE_ResNet_2D")
+        spec = get_model_spec("VAE_ResNet_2D")
+        self.assertEqual(config.model.parameters, spec.build_configuration())
+        self.assertEqual(
+            config.model.search,
+            spec.build_search_space(config.model.parameters),
+        )
+
+    def test_all_registered_models_build_dimension_specific_defaults(self):
+        from hybrid_sample_generator.generation.registry import MODEL_REGISTRY
+
+        for name, spec in MODEL_REGISTRY.items():
+            with self.subTest(model=name):
+                parameters = spec.build_configuration()
+                search = spec.build_search_space(parameters)
+                self.assertIsInstance(parameters, spec.config_cls)
+                self.assertIsInstance(search, SearchSpace)
+                search.validate()
+
+    def test_schema_eight_configuration_is_not_supported(self):
+        values = Configuration("old-schema").to_dict()
+        values["schema_version"] = 8
+        with self.assertRaisesRegex(ValueError, "schema"):
+            Configuration.from_dict(values)
+
+    def test_search_distribution_values_are_strictly_typed(self):
+        with self.assertRaises(TypeError):
+            IntRange(1.0, 2)
+        with self.assertRaises(TypeError):
+            IntRange(1, 2, step=True)
+        with self.assertRaises(ValueError):
+            IntRange(0, 2, log=True)
+        with self.assertRaises(TypeError):
+            FloatRange(False, 1.0)
 
     def test_facade_and_serialization_reject_incomplete_dimension_change(self):
         from hybrid_sample_generator.pipeline.hybrid_data_generator import HybridDataGenerator

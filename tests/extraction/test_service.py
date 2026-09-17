@@ -70,7 +70,7 @@ class ExtractionServiceTests(unittest.TestCase):
             }
         ]
 
-        with self.assertRaisesRegex(ValueError, "expected .*C,H,W"):
+        with self.assertRaisesRegex(ValueError, r"shape \(C,H,W\)"):
             self.service.extract()
 
     def test_extract_rejects_unaligned_results(self):
@@ -84,7 +84,7 @@ class ExtractionServiceTests(unittest.TestCase):
 
         with (
             patch(
-                "hybrid_sample_generator.extraction.service.crop_and_center_anomaly_2d",
+                "hybrid_sample_generator.extraction.service.crop_and_center_anomalies",
                 return_value=result,
             ),
             self.assertRaisesRegex(RuntimeError, "unaligned"),
@@ -96,7 +96,7 @@ class ExtractionServiceTests(unittest.TestCase):
 
         with (
             patch(
-                "hybrid_sample_generator.extraction.service.crop_and_center_anomaly_2d",
+                "hybrid_sample_generator.extraction.service.crop_and_center_anomalies",
                 return_value=(None, None, None, None),
             ),
             self.assertRaisesRegex(ValueError, "No real anomalies were extracted"),
@@ -105,7 +105,7 @@ class ExtractionServiceTests(unittest.TestCase):
 
         self.repository.upsert_real_anomaly.assert_not_called()
 
-    def test_extract_dispatches_2d_and_persists_record_and_artifacts(self):
+    def test_extract_persists_2d_record_and_artifacts(self):
         sample = self._sample(3)
         self.datasets.original_samples.return_value = [sample]
         anomaly = np.ones((1, 8, 8), dtype=np.float32)
@@ -115,23 +115,17 @@ class ExtractionServiceTests(unittest.TestCase):
         metadata = {"centroid_norm": (0.25, 0.75), "label": 2}
         result = ([(anomaly, metadata)], [roi], [mask], [roi_mask])
 
-        with (
-            patch(
-                "hybrid_sample_generator.extraction.service.crop_and_center_anomaly_2d",
-                return_value=result,
-            ) as extract_2d,
-            patch(
-                "hybrid_sample_generator.extraction.service.crop_and_center_anomaly_3d"
-            ) as extract_3d,
-        ):
+        with patch(
+            "hybrid_sample_generator.extraction.service.crop_and_center_anomalies",
+            return_value=result,
+        ) as extract:
             records = self.service.extract()
 
-        extract_2d.assert_called_once_with(
+        extract.assert_called_once_with(
             sample["img"],
             sample["ori_mask"],
             self.config,
         )
-        extract_3d.assert_not_called()
         self.repository.clear_real_anomalies_and_downstream.assert_called_once_with()
         self.assertEqual(len(records), 1)
         record = records[0]
@@ -155,7 +149,7 @@ class ExtractionServiceTests(unittest.TestCase):
         )
         self.repository.upsert_real_anomaly.assert_called_once_with(record)
 
-    def test_extract_dispatches_3d_and_maps_position_columns(self):
+    def test_extract_maps_3d_position_columns(self):
         sample = self._sample(4)
         self.datasets.original_samples.return_value = [sample]
         anomaly = np.ones((1, 4, 5, 6), dtype=np.float32)
@@ -169,19 +163,13 @@ class ExtractionServiceTests(unittest.TestCase):
             [roi_mask],
         )
 
-        with (
-            patch(
-                "hybrid_sample_generator.extraction.service.crop_and_center_anomaly_2d"
-            ) as extract_2d,
-            patch(
-                "hybrid_sample_generator.extraction.service.crop_and_center_anomaly_3d",
-                return_value=result,
-            ) as extract_3d,
-        ):
+        with patch(
+            "hybrid_sample_generator.extraction.service.crop_and_center_anomalies",
+            return_value=result,
+        ) as extract:
             record = self.service.extract()[0]
 
-        extract_2d.assert_not_called()
-        extract_3d.assert_called_once_with(
+        extract.assert_called_once_with(
             sample["img"],
             sample["ori_mask"],
             self.config,

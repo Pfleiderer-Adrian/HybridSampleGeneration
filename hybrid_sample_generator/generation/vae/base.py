@@ -120,15 +120,16 @@ class HybridVAEBase(nn.Module, ABC):
         beta_start = cfg.beta_kl_start
         beta_max = cfg.beta_kl_max
 
-        if warmup_start >= epoch:
-            cfg.beta_kl = 0.0
+        if epoch <= warmup_start:
+            self._beta_kl = float(beta_start)
             return
         if warmup_epochs <= 0:
-            cfg.beta_kl = beta_max
+            self._beta_kl = float(beta_max)
             return
 
-        t = min(1.0, max(0.0, epoch / warmup_epochs))
-        cfg.beta_kl = beta_start + t * (beta_max - beta_start)
+        progress = (epoch - warmup_start) / warmup_epochs
+        progress = min(1.0, max(0.0, progress))
+        self._beta_kl = float(beta_start + progress * (beta_max - beta_start))
 
     def configure_optimizers(self, config):
         """Return optimizer and optional scheduler for trainable model parameters."""
@@ -226,11 +227,13 @@ class HybridVAEBase(nn.Module, ABC):
             kl_used = kl_raw
 
         recon_weighted = self.cfg.recon_weight * recon_loss
-        kl_weighted = self.cfg.beta_kl * kl_used
+        beta_kl = getattr(self, "_beta_kl", float(self.cfg.beta_kl_start))
+        kl_weighted = beta_kl * kl_used
         total = recon_weighted + kl_weighted
 
         return {
             "total": total,
+            "selection": F.mse_loss(recon, x),
             "recon": recon_loss,
             "kl": kl_used,
             "kl_raw": kl_raw,

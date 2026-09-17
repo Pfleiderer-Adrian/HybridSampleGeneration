@@ -85,11 +85,11 @@ resolved consistently:
 ```bash
 python -m examples.image_2d.main
 python -m examples.nifti_3d.main
-python -m examples.mvtec_ad2.main
+python -m examples.mvtec_ad2.categories.can
 ```
 
-The [MVTec AD 2 guide](examples/mvtec_ad2/README.md) describes shared/category
-presets and commands for generation, continuation, review and downstream evaluation.
+The [MVTec AD 2 guide](examples/mvtec_ad2/README.md) describes the category recipes,
+persisted data splits, hybrid generation, and downstream DRAEM evaluation.
 
 ## Input data
 
@@ -180,9 +180,6 @@ study/
     hybrid_samples/<id>/{image,segmentation}.npy
     placements/<id>/{roi_image,roi_segmentation}.npy
   evaluation_results/
-  exports/
-    images/
-    segmentations/
 ```
 
 Files appear as their pipeline phases run. Unannotated originals have no
@@ -243,7 +240,7 @@ config.model        generator choice and model-specific parameters
 config.fusion       fusion backend and backend-specific parameters
 ```
 
-The current configuration schema is version 6 and the artifact database schema
+The current configuration schema is version 9 and the artifact database schema
 is version 2. Older study databases and filename/CSV layouts are intentionally
 unsupported; recreate the study and run `ingest_dataset()` again.
 
@@ -258,11 +255,13 @@ config.matching.seed = 123
 
 ### Supported generator models
 
-The stable registry contains 2D and 3D variants of `VAE_ResNet`,
-`VAE_ConvNeXt` and the mask-conditioned `cVAE_ConvNeXt`. Use their registered
-names, for example `VAE_ResNet_2D`, `VAE_ConvNeXt_3D` or
-`cVAE_ConvNeXt_2D`, with `config.model.set_model(name)`. Diffusion models
-are experimental and are not available through the stable registry.
+The stable registry contains 2D and 3D entries for `VAE_ResNet`,
+`VAE_ConvNeXt` and the mask-conditioned `cVAE_ConvNeXt`. The 2D and 3D entries
+share one dimension-independent model implementation per architecture while
+selecting dimension-specific defaults. Use registered names such as
+`VAE_ResNet_2D`, `VAE_ConvNeXt_3D` or `cVAE_ConvNeXt_2D` with
+`config.model.set_model(name)`. Diffusion models are experimental and are not
+available through the stable registry.
 
 `Configuration(study_name, save_path=None, *, study_folder=None)` only accepts
 study identity and storage location. New configurations default to
@@ -273,15 +272,25 @@ Set the anomaly size and select the model before customizing its parameter space
 config = Configuration("volume-study")
 config.extraction.anomaly_size = (1, 32, 64, 64)
 config.model.set_model("VAE_ConvNeXt_3D")
-config.model.parameters.set_model_param("z_channels", 32)
+config.model.parameters.z_channels = 32
+config.model.search.clear()
+config.model.search.n_res_blocks = IntRange(4, 6)
+config.model.search.dropout = FloatRange(0.0, 0.2)
+config.model.search.recon_loss = Choice(("mse", "smoothl1"))
 ```
 
-`set_model` initializes a fresh model-specific parameter space, replacing previous
-hyperparameter overrides. Assigning `config.model.name` has the same effect.
-Changes to the anomaly channel count update derived `in_channels` on parameter
-access, preserving all other hyperparameters. Model dimensionality and the full
-configuration are validated when constructing `HybridDataGenerator`, serializing,
-or explicitly calling `config.validate()`. Both 2D and 3D examples use this API.
+Import `IntRange`, `FloatRange`, and `Choice` from
+`hybrid_sample_generator.generation.model_settings`. Parameters absent from
+`config.model.search` remain fixed for every trial. Use `clear()` to make every
+parameter fixed and, for example, `del config.model.search.dropout` to remove
+one distribution. Each model module owns a concrete `Config` dataclass plus
+factories for its dimension-specific defaults and search space. `set_model`
+uses those factories to initialize fresh model parameters and a validated
+`SearchSpace` bound to them. Runtime values such as the input channel count and
+number of anomaly classes are derived from the extracted data and are not part
+of the saved model parameters. Model dimensionality and the full configuration
+are validated when constructing `HybridDataGenerator`, serializing, or
+explicitly calling `config.validate()`.
 
 ### Extraction
 
@@ -516,7 +525,7 @@ materialization, FK-based evaluation and cached full-image `local` matching.
 - `hybrid_sample_generator/persistence/` — repository, study paths and artifacts
 - `hybrid_sample_generator/pipeline/` — ingestion and the public orchestration facade
 - `hybrid_sample_generator/imaging/` — shared image, similarity and mask operations
-- `hybrid_sample_generator/extraction/` — extraction service and 2D/3D implementations
+- `hybrid_sample_generator/extraction/` — dimension-independent anomaly extraction
 - `hybrid_sample_generator/matching/` — hybrid planning and matching cache
 - `hybrid_sample_generator/generation/` — generation service, model registry,
   training and supported VAEs

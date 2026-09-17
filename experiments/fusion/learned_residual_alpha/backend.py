@@ -36,11 +36,7 @@ from experiments.fusion.learned_residual_alpha.preprocessing import (
     unpack_sample as _unpack_sample,
 )
 from experiments.fusion.learned_residual_alpha.training import train_backend
-from hybrid_sample_generator.imaging.roi import (
-    crop_cube_clip,
-    crop_square_clip,
-    dynamic_roi_size,
-)
+from hybrid_sample_generator.imaging.roi import crop_spatial_clip, dynamic_roi_size
 
 
 class LearnedResidualAlphaFusionBackend:
@@ -247,32 +243,26 @@ class LearnedResidualAlphaFusionBackend:
             for axis in range(spatial_dims)
         )
         roi_config = extraction_config.roi
-        if roi_config.fixed_size is None:
-            if spatial_dims == 2:
-                roi_size = dynamic_roi_size(
-                    crop_shape,
-                    roi_config.min_padding,
-                    roi_config.padding_ratio,
-                    roi_config.min_size,
-                )
-                crop_roi = crop_square_clip
-            else:
-                roi_size = dynamic_roi_size(
-                    crop_shape,
-                    roi_config.min_padding,
-                    roi_config.padding_ratio,
-                    roi_config.min_size,
-                )
-                crop_roi = crop_cube_clip
-        else:
-            roi_size = roi_config.fixed_size
-            crop_roi = crop_square_clip if spatial_dims == 2 else crop_cube_clip
+        roi_size = (
+            dynamic_roi_size(
+                crop_shape,
+                roi_config.min_padding,
+                roi_config.padding_ratio,
+                roi_config.min_size,
+            )
+            if roi_config.fixed_size is None
+            else roi_config.fixed_size
+        )
 
         return FusionOutput(
             image=fused_image,
             segmentation=segmentation,
-            roi=crop_roi(fused_image, centroid, roi_size, centroid_is_normalized=False),
-            roi_mask=crop_roi(segmentation, centroid, roi_size, centroid_is_normalized=False),
+            roi=crop_spatial_clip(
+                fused_image, centroid, roi_size, centroid_is_normalized=False
+            ),
+            roi_mask=crop_spatial_clip(
+                segmentation, centroid, roi_size, centroid_is_normalized=False
+            ),
             metrics={
                 "alpha_delta_abs_mean": float(torch.mean(torch.abs(alpha_delta)).detach().cpu().item()),
                 "residual_abs_mean": float(torch.mean(torch.abs(residual)).detach().cpu().item()),

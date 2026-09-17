@@ -1,1 +1,1 @@
-"""DRAEM architecture and texture synthesis; see downstream/README.md."""
+"""DRAEM architecture and texture synthesis for the category examples."""

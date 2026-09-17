@@ -18,8 +18,8 @@ class LatentDiffusionLoRAPrototypeTests(unittest.TestCase):
         settings = get_latent_diffusion_lora_2d_configuration(1)
 
         self.assertIsNone(model.pipeline)
-        self.assertEqual(settings.input_artefacts, DIFFUSION_INPUT_ARTEFACTS)
-        self.assertEqual(settings.min["in_channels"], 1)
+        self.assertEqual(DIFFUSION_INPUT_ARTEFACTS, ("img", "fname", "ori_mask"))
+        self.assertEqual(settings.in_channels, 1)
 
 
 if __name__ == "__main__":

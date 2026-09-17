@@ -1,6 +1,5 @@
-"""Conditional two- and three-dimensional ConvNeXt VAEs."""
+"""Dimension-independent conditional ConvNeXt VAE."""
 
-from .model_2d import ConvNeXtcVAE2D
-from .model_3d import ConvNeXtcVAE3D
+from .model import ConditionalConvNeXtVAE
 
-__all__ = ["ConvNeXtcVAE2D", "ConvNeXtcVAE3D"]
+__all__ = ["ConditionalConvNeXtVAE"]

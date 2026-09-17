@@ -1,127 +1,100 @@
 # MVTec AD 2 example
 
-Run from the repository root. Edit `settings.py` for dataset/output paths,
-categories and the experiment split. Edit `presets.py` for model settings:
+The MVTec AD 2 example builds a deterministic train/validation/test split,
+generates hybrid samples from the training partition, trains DRAEM with healthy
+and hybrid samples, and evaluates the selected checkpoint on the held-out
+partitions.
 
-1. A new `Configuration(study_name, save_path=...)` gets its anomaly size and
-   model selection from the category preset via `config.extraction.anomaly_size`
-   and `config.model.set_model(...)`.
-2. `apply_global_defaults(config)` sets shared generator, fusion and DRAEM settings.
-3. `configure_can(config)`, `configure_fabric(config)`, etc. override category differences.
-4. Local changes to a prepared/opened study take precedence for that execution.
+Set the dataset, study, and optional DTD texture locations in `settings.py` or
+through the `MVTECAD2_ROOT`, `MVTECAD2_OUTPUT`, and `MVTECAD2_TEXTURES`
+environment variables. The dataset root must contain one directory per MVTec
+AD 2 category.
 
-`CATEGORY_PRESETS` contains model, anomaly shape and the optional override function
-for every category. Categories without an override inherit all shared settings.
-`configuration.py` defines the study/experiment types; `downstream/configuration.py`
-defines DRAEM types and saved-run serialization.
+## Complete Python example for `can`
 
-## Run an experiment
-
-```bash
-python -m examples.mvtec_ad2.main
-```
-
-`main.py` runs `EXPERIMENT` from `settings.py` with `FULL_EXPERIMENT`. Select
-`GENERATE_HYBRIDS` or an explicit ordered step tuple to run only part of it.
-There is no `MODE` switch. The recipes are:
-
-| Recipe | Steps |
-| --- | --- |
-| `GENERATE_HYBRIDS` | ingest, extract, train_generator, generate_synthetic, plan, materialize |
-| `TRAIN_DOWNSTREAM` | train_downstream, evaluate_downstream |
-| `FULL_EXPERIMENT` | GENERATE_HYBRIDS, export, TRAIN_DOWNSTREAM |
+The following code is the complete workflow used by
+`categories/can.py`:
 
 ```python
-from pathlib import Path
-from examples.mvtec_ad2.configuration import Experiment, SplitConfiguration
-from examples.mvtec_ad2.pipeline import GENERATE_HYBRIDS, run_new_experiment
-
-experiment = Experiment(
-    dataset_root=Path('/data/mvtec_ad_2'),
-    output_root=Path('/results/my_experiment'),
-    categories=('can', 'fabric'),
-    split=SplitConfiguration(test_enabled=False, validation_fraction=0.2),
+from examples.mvtec_ad2.common import (
+    create_downstream_configuration,
+    create_generator_configuration,
 )
-results = run_new_experiment(experiment, steps=GENERATE_HYBRIDS)
+from examples.mvtec_ad2.dataset import MVTecAD2Dataloader
+from examples.mvtec_ad2.downstream.runner import (
+    evaluate_downstream,
+    train_downstream,
+)
+from examples.mvtec_ad2.settings import category_root, study_folder
+from examples.mvtec_ad2.splits import (
+    SplitConfiguration,
+    load_or_create_manifest,
+    manifest_samples,
+)
+from hybrid_sample_generator import HybridDataGenerator
+
+
+category = "can"
+config = create_generator_configuration(category, anomaly_size=(3, 64, 64))
+
+# Settings specific to the can category. Shared MVTec defaults, including the
+# cVAE_ConvNeXt_2D model and its search space, are applied by the factory above.
+config.generation.variation_strength = 1.5
+config.fusion.parameters.max_alpha = 0.9
+config.fusion.parameters.sobel_threshold = 0.05
+config.extraction.roi.min_size = (256, 256)
+
+manifest = load_or_create_manifest(
+    study_folder(category) / "split_manifest.json",
+    category_root(category),
+    SplitConfiguration(
+        test_fraction=0.2,
+        validation_fraction=0.2,
+        seed=42,
+    ),
+)
+
+training_samples = manifest_samples(manifest, "train")
+generator = HybridDataGenerator(config)
+generator.ingest_dataset(MVTecAD2Dataloader(training_samples))
+generator.extract_anomalies()
+generator.train_generator()
+generator.generate_synthetic_anomalies()
+generator.plan_hybrid_samples()
+generator.materialize_hybrid_samples()
+config.save_config_file()
+
+downstream_config = create_downstream_configuration()
+run_folder = train_downstream(config, manifest, downstream_config)
+metrics = evaluate_downstream(run_folder, manifest)
+print(metrics)
 ```
 
-A new experiment uses current presets and establishes a saved split before
-training. Existing study paths are rejected; use a fresh output root or continue
-an existing study. This is a custom anomaly-supervised protocol, not the official
-unsupervised MVTec benchmark. See [split and downstream details](downstream/README.md).
+`create_generator_configuration()` selects `cVAE_ConvNeXt_2D`, applies the
+shared MVTec model parameters and `SearchSpace`, and configures extraction,
+generation, matching, fusion, and training defaults. The concrete `can`
+settings above override only the values that differ for this category.
 
-## Continue or review a study
+The manifest is persisted beside the study and reused on later executions. Its
+dataset root and split settings must still match. Set `test_fraction=0` to keep
+only a validation holdout. Only the training partition is ingested into the
+hybrid-generation study; validation and test samples are reserved for the
+downstream evaluation.
 
-```python
-from examples.mvtec_ad2.pipeline import run_existing_studies
-from examples.mvtec_ad2.studies import find_studies
+The supporting modules have these responsibilities:
 
-folders = find_studies('/results/my_experiment', categories=('can',))
-results = run_existing_studies(folders, steps=('plan', 'materialize', 'export'))
+- `dataset.py` discovers MVTec files and adapts them to `InputSample` records.
+- `splits.py` creates, persists, and validates the reproducible split.
+- `common.py` contains defaults shared by all category examples.
+- `categories/` contains the small category-specific configurations.
+- `downstream/` contains DRAEM training, checkpoints, and evaluation.
+
+Each downstream run stores its configuration, split snapshot, checkpoint,
+predictions, and metrics below:
+
+```text
+<study>/downstream/draem/<timestamp>_<id>/
 ```
 
-Existing studies always load their saved configuration and split. Downstream
-training no longer replaces saved settings with current presets automatically.
-For an explicit replacement or local customization:
-
-```python
-from examples.mvtec_ad2.studies import open_study
-from examples.mvtec_ad2.presets import apply_downstream_preset
-from examples.mvtec_ad2.pipeline import TRAIN_DOWNSTREAM, run_study
-
-study = open_study('/path/to/study')
-apply_downstream_preset(study.config, study.category)
-study.config.downstream.training.epochs = 20
-result = run_study(study, steps=TRAIN_DOWNSTREAM)
-```
-
-Use `prepare_studies(root, categories, save_path=..., splits=...)` from `studies.py`
-when customizing each new study before calling `run_study`.
-
-Review is independent of processing and supports saved studies without a split:
-
-```python
-from examples.mvtec_ad2.review import review_studies
-
-review_studies(['/path/to/study'], actions=('evaluate_generator', 'visualize'))
-```
-
-Opening and reviewing do not rewrite the study configuration. A downstream run
-stores its own configuration and split snapshot; later evaluation uses that
-snapshot. `run_study` defaults to generation steps; both batch APIs accept explicit
-steps, with `run_new_experiment` defaulting to `FULL_EXPERIMENT`.
-
-## CLI
-
-```bash
-python -m examples.mvtec_ad2 generate --categories can fabric
-python -m examples.mvtec_ad2 generate --categories can --steps ingest extract
-python -m examples.mvtec_ad2 continue --study-folder /path/to/study --steps plan materialize export
-python -m examples.mvtec_ad2 continue --study-folder /path/to/study --steps train_downstream evaluate_downstream
-python -m examples.mvtec_ad2 review --study-folder /path/to/study
-python -m examples.mvtec_ad2 evaluate --study-folder /path/to/study --run-id RUN_ID
-```
-
-`generate` accepts `--dataset-root` and `--output-root`; defaults and split settings
-come from `EXPERIMENT`. `continue` requires explicit steps. `evaluate` requires one
-study and its concrete downstream run ID. Use `--help` on any command.
-
-The previous `runner.py` APIs and `downstream.main` entry point are replaced by
-`studies.py`, `pipeline.py`, `review.py` and the CLI above. Saved study/run JSON
-formats are unchanged.
-
-## Tests
-
-```bash
-python -m unittest discover -s tests/example_cases/mvtec_ad2 -t . -q
-```
-
-Step recipes are defined centrally in `steps.py` and also available from
-`pipeline.py`. Dataset discovery and study preparation take an explicit dataset
-root; only the entry points use `settings.EXPERIMENT` defaults. Category aliases
-are normalized before preparation. Empty, unknown or repeated category selections
-are rejected, and every category directory and target configuration is checked
-before writing the first split. This is not an atomic batch: later split-data or
-execution errors can still leave earlier prepared studies in place. Repeated
-study paths (including equivalent resolved paths) are rejected before continuing
-or reviewing a batch.
+This is a custom anomaly-supervised experiment protocol and not the official
+unsupervised MVTec benchmark.
