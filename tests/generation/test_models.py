@@ -163,7 +163,7 @@ class ModelCompatibilityTests(unittest.TestCase):
 
 
     def test_conditional_models_reuse_base_convnext_layers(self):
-        for name, params, _, conditional in MODEL_CASES:
+        for name, params, input_shape, conditional in MODEL_CASES:
             if not conditional:
                 continue
             with self.subTest(model=name):

@@ -104,6 +104,7 @@ def plan_hybrid_samples(
                 artifact_store,
                 config,
                 stats,
+                seed=seed,
             )
             if not candidates:
                 print(f"Warning: no matching real anomaly found for {original.source_name}.")
@@ -220,6 +221,8 @@ def _match_real_anomalies(
     artifact_store: ArtifactStore,
     config: MatchingConfiguration,
     stats: _MatchingStats,
+    *,
+    seed: int,
 ) -> list[_Candidate]:
     routine = config.routine
 

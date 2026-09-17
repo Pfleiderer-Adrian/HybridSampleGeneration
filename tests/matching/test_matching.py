@@ -59,9 +59,9 @@ class MatchingSelectionTests(unittest.TestCase):
         value = float(template.intensity[0, 0])
         return value / 10, (value * 8, value * 8)
 
-    def _plan(self):
+    def _plan(self, *, seed=42):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            return plan_hybrid_samples(self.repository, self.store, self.config)
+            return plan_hybrid_samples(self.repository, self.store, self.config, seed=seed)
 
     def _selected_reals(self, plans):
         return [
@@ -170,6 +170,21 @@ class MatchingSelectionTests(unittest.TestCase):
         self.assertEqual(plans, [])
         self.assertEqual(match.call_count, 5)
         self.assertEqual(self.repository.count_match_candidates(), 5)
+
+    def test_batchwise_selection_is_reproducible_and_uses_study_seed(self):
+        self._populate(rois=20)
+        self.config.routine = "batchwise"
+        self.config.batch_size = 5
+        self.config.anomalies_per_hybrid = 5
+
+        with patch("hybrid_sample_generator.matching.pair_matcher.template_matching_prepared", side_effect=self._match):
+            first = self._selected_reals(self._plan(seed=42))
+            repeated = self._selected_reals(self._plan(seed=42))
+            changed = self._selected_reals(self._plan(seed=123))
+
+        self.assertEqual(len(first), 5)
+        self.assertEqual(first, repeated)
+        self.assertNotEqual(set(first), set(changed))
 
     def test_batchwise_only_matches_configured_subset_and_ranks_it(self):
         self._populate()
