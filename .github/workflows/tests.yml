@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  checks: write
 
 jobs:
   tests:
@@ -34,6 +35,21 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e .
+          python -m pip install unittest-xml-reporting
 
       - name: Run project tests
-        run: python -m unittest discover -s tests -v
+        run: python -m xmlrunner discover -s tests -v -o test-results
+      
+      - name: Publish individual test checks
+        if: >-
+          ${{
+            !cancelled() &&
+            (
+              github.event_name != 'pull_request' ||
+              github.event.pull_request.head.repo.full_name == github.repository
+            )
+          }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TEST_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python .github/scripts/publish_test_checks.py
