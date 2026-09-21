@@ -19,7 +19,7 @@ from .textures import prepare_textures
 from .training import train
 
 
-def train_downstream(generator_config, manifest, config: DownstreamConfiguration):
+def train_downstream(generator_config, manifest, config: DownstreamConfiguration, *, output_folder=None, initial_checkpoint=None):
     """Train DRAEM using materialized hybrids and the persisted training split."""
     config = deepcopy(config)
     config.validate()
@@ -38,15 +38,18 @@ def train_downstream(generator_config, manifest, config: DownstreamConfiguration
     )
     validation = RealImageDataset(manifest_samples(manifest, "validation"), config.data)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid4().hex[:8]
-    output = study_folder / "downstream" / "draem" / run_id
-    output.mkdir(parents=True)
+    output = Path(output_folder) if output_folder is not None else study_folder / "downstream" / "draem" / run_id
+    output.mkdir(parents=True, exist_ok=False)
     config.save(output / "configuration.json")
     used_manifest = {
         **manifest,
         "hybrid_provenance": hybrids.provenance if hybrids is not None else [],
     }
     (output / "split_manifest.json").write_text(json.dumps(used_manifest, indent=2) + "\n")
-    train(dataset, validation, config, output)
+    if initial_checkpoint is None:
+        train(dataset, validation, config, output)
+    else:
+        train(dataset, validation, config, output, initial_checkpoint=initial_checkpoint)
     print(f"DRAEM run: {output}")
     return output
 

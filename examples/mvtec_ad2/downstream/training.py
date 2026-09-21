@@ -15,7 +15,7 @@ from .draem.losses import training_loss
 from .evaluation import evaluate, evaluation_loader
 
 
-def train(dataset, validation, config, output):
+def train(dataset, validation, config, output, *, initial_checkpoint=None):
     config.validate()
     random.seed(config.seed)
     np.random.seed(config.seed)
@@ -27,6 +27,8 @@ def train(dataset, validation, config, output):
     settings = config.training
     device = torch.device(("cuda" if torch.cuda.is_available() else "cpu") if settings.device == "auto" else settings.device)
     model = DRAEM(settings.reconstruction_width, settings.segmentation_width).to(device)
+    if initial_checkpoint is not None:
+        model.load_state_dict(torch.load(initial_checkpoint, map_location=device, weights_only=True))
     optimizer = torch.optim.Adam(model.parameters(), lr=settings.learning_rate)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=sorted(set([max(1, int(settings.epochs*.8)), max(1, int(settings.epochs*.9))])), gamma=.2)
     loader = DataLoader(dataset, batch_size=settings.batch_size, num_workers=settings.num_workers,

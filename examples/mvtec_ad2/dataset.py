@@ -113,3 +113,17 @@ def _sample_id(split: str, label: str, image_path: Path) -> str:
 def _safe(value: str) -> str:
     value = value.strip().lower().replace(" ", "_").replace("-", "_")
     return re.sub(r"_+", "_", re.sub(r"[^a-z0-9_]+", "_", value)).strip("_")
+
+
+def acquisition_group(sample: MVTecAD2Sample) -> str:
+    """Keep numbered exposure/position variants together within a source split.
+
+    MVTec AD 2 filenames encode a capture ID before the first underscore.
+    Split and label are separate namespaces: identical numbers alone do not
+    establish that images from different source directories show one object.
+    Unrecognized names require an explicit grouping decision before training.
+    """
+    match = re.fullmatch(r'(\d+)(?:_(regular|overexposed|underexposed|shift_\d+))?', sample.image_path.stem)
+    if match is None:
+        raise ValueError(f'Unknown acquisition naming convention: {sample.image_path}')
+    return f'{sample.split}/{sample.label}/{int(match.group(1))}'

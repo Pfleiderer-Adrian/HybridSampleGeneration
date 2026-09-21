@@ -98,3 +98,63 @@ predictions, and metrics below:
 
 This is a custom anomaly-supervised experiment protocol and not the official
 unsupervised MVTec benchmark.
+
+## Paired baseline/hybrid comparison across categories
+
+Validate all eight categories and persist the exact grouped splits first:
+
+```bash
+python -m examples.mvtec_ad2.run_comparison \
+  --categories all --seed 42 \
+  --output /mnt/results/mvtec2/experiments/comparison_v1 \
+  --dry-run
+```
+
+Start preparation, training and evaluation by running the same command without
+`--dry-run`. Missing hybrid data is prepared automatically, including generator
+training. The existing category generator settings apply; `--epochs` overrides
+DRAEM epochs only. DTD textures are prepared once for the whole experiment;
+`--texture-root /path/to/dtd/images` uses an existing texture collection instead.
+Use `--categories can vial` to run a subset.
+
+Each category has one shared train/validation/test manifest and one saved DRAEM
+initial state. Both variants use the same seed, initial weights, training settings,
+textures, validation set and test set. Baseline uses DRAEM synthesis only;
+the hybrid variant replaces 50% of anomalous training examples with hybrids.
+Both variants use 50% normal training examples. Real annotated anomalies are
+used to prepare hybrids and to evaluate the models; they are not direct baseline
+training examples. Only the training partition is available to hybrid preparation.
+
+The test allocation uses 20% of annotated public anomaly images, rounded to whole
+acquisition groups, and adds normal images to target 25% positives. It imposes no
+minimum of 30 positive images. On the current dataset, `can` yields 18 positive
+and 54 normal test images. Validation retains the 20% allocation per label;
+it is not forced to have 25% positives. Whole groups can cause deviations;
+`split_summary.csv` records the actual counts, group counts and pixel prevalence.
+`test_private` is excluded throughout.
+
+An acquisition group is inferred from the numeric filename prefix: `000_regular`,
+`000_overexposed`, `000_underexposed` and `000_shift_1` belong together within the
+same original source split and label. Numeric identifiers are scoped to those
+folders; they do not establish a physical identity across different source folders.
+Unknown naming patterns fail validation rather than silently becoming independent
+samples. No inferred group crosses train, validation and test.
+
+Outputs include:
+
+- `experiment.json` and `environment.json`: settings, software versions and texture hashes.
+- `<category>/split_manifest.json` and `status.json`: shared split and completed stages.
+- `<category>/hybrid_generation/`: automatically prepared generator study.
+- `<category>/draem_initial.pt`: shared initial model weights.
+- `<category>/baseline/` and `<category>/hybrid/`: checkpoints, history, predictions and metrics.
+- `comparison.csv` and `comparison.md`: paired validation/test metrics, hybrid minus baseline,
+  and equally weighted category means for completed pairs.
+
+Re-run the identical command to skip completed preparation stages and completed
+model runs. An interrupted model run restarts from the shared initial weights;
+its previous directory is preserved under `<category>/interrupted/`. Category
+failures are recorded and the remaining categories continue. Changes to experiment
+settings, saved initial weights, software versions or textures require a new output
+directory. This comparison is a custom supervised split, not the official MVTec
+AD 2 benchmark protocol. A single seed supplies a paired comparison, not uncertainty
+estimates across training seeds.

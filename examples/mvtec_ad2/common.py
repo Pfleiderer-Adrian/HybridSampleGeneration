@@ -113,7 +113,7 @@ def create_generator_configuration(category: str, anomaly_size: tuple[int, int, 
 def create_downstream_configuration() -> DownstreamConfiguration:
     config = DownstreamConfiguration()
     config.seed = 42
-    config.data.hybrid_fraction = 0.5
+    config.data.hybrid_fraction = 0.0
     config.data.normal_fraction = 0.5
     config.data.samples_per_epoch = 1000
     config.data.mode = "patch"

@@ -140,6 +140,29 @@ class DownstreamTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "modified"):
                 evaluate_downstream(output, bad)
 
+    def test_explicit_initial_checkpoint_is_loaded_by_real_training(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            create_images(root)
+            manifest = create_manifest(root / "can", SplitConfiguration())
+            config = generator_config(root / "study")
+            seed_hybrid(config, manifest)
+            initial = DRAEM(2, 2).state_dict()
+            checkpoint = root / "initial.pt"
+            torch.save(initial, checkpoint)
+            original_load = DRAEM.load_state_dict
+            with patch.object(DRAEM, "load_state_dict", autospec=True,
+                              side_effect=original_load) as load:
+                output = train_downstream(config, manifest, self.config(),
+                                          output_folder=root / "paired_run",
+                                          initial_checkpoint=checkpoint)
+            self.assertEqual(output, root / "paired_run")
+            self.assertEqual(load.call_count, 1)
+            supplied = load.call_args.args[1]
+            self.assertTrue(all(torch.equal(initial[key], supplied[key]) for key in initial))
+            self.assertTrue((output / "checkpoints/best.pt").is_file())
+
     def test_perlin_source_is_deterministic_and_has_anomaly(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
