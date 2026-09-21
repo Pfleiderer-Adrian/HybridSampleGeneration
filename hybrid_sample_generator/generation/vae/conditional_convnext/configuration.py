@@ -33,6 +33,8 @@ class Config:
     skip_dropout_p: float = 0.0
     skip_dropout_ps: Optional[List[float]] = None
     skip_alpha: float = 1.0
+    # Encoder order: highest resolution to deepest. Overrides skip_alpha.
+    skip_alphas: Optional[List[float]] = None
 
 
 def get_convnext_cvae_configuration(spatial_dims: int) -> Config:

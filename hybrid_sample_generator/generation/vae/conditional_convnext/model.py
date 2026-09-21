@@ -71,6 +71,7 @@ class ConditionalConvNeXtVAE(HybridVAEBase):
             skip_dropout_p=cfg.skip_dropout_p,
             skip_dropout_ps=cfg.skip_dropout_ps,
             skip_alpha=cfg.skip_alpha,
+            skip_alphas=cfg.skip_alphas,
             spatial_dims=spatial_dims,
         )
 
@@ -261,11 +262,10 @@ class ConditionalConvNeXtVAE(HybridVAEBase):
 
             h_dec = model.fc_decode(z).reshape(B * n, self.cfg.z_channels, *latent_shape)
 
-            alpha_skips = float(self.cfg.skip_alpha)
-            if alpha_skips <= 0:
+            if not any(self.decoder.skip_alphas):
                 model.decoder.set_skips(None)
             else:
-                # The decoder applies skip_alpha. Pass the raw encoder skips here
+                # The decoder applies the configured per-level scales. Pass raw skips
                 # so posterior generation uses the same scaling as training.
                 rep_skips = [sk.repeat_interleave(n, dim=0) for sk in skips]
                 model.decoder.set_skips(rep_skips)

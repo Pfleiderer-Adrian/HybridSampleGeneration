@@ -123,6 +123,7 @@ class ConvNeXtSPADEUNetDecoder(nn.Module):
         skip_dropout_p: float = 0.0,
         skip_dropout_ps: Optional[Iterable[float]] = None,
         skip_alpha: float = 1.0,
+        skip_alphas: Optional[Iterable[float]] = None,
         *,
         spatial_dims: int,
     ):
@@ -136,6 +137,7 @@ class ConvNeXtSPADEUNetDecoder(nn.Module):
         self.skip_dropout_p = float(skip_dropout_p)
         self.skip_dropout_ps = HybridVAEBase._normalize_skip_dropout_ps(skip_dropout_ps, n_levels, self.skip_dropout_p)
         self.skip_alpha = float(skip_alpha)
+        self.skip_alphas = HybridVAEBase._normalize_skip_alphas(skip_alphas, n_levels, self.skip_alpha)
 
         self.bottom_ch = 2 ** (n_levels + 3)
         self.from_z = nn.Sequential(
@@ -221,8 +223,9 @@ class ConvNeXtSPADEUNetDecoder(nn.Module):
                 skip = HybridVAEBase._crop_like(skip, target)
 
             # Apply skip scaling
-            if self.skip_alpha != 1.0:
-                skip = skip * self.skip_alpha
+            skip_alpha = self.skip_alphas[-1 - i]
+            if skip_alpha != 1.0:
+                skip = skip * skip_alpha
 
             # Skip-Dropout manually implemented
             p = self.skip_dropout_ps[-1 - i]
