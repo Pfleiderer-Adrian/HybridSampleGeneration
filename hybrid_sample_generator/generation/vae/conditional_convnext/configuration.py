@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional
 
-from hybrid_sample_generator.generation.model_settings import IntRange, SearchSpace
+from hybrid_sample_generator.generation.model_settings import Choice, IntRange, SearchSpace
 
 
 @dataclass
@@ -56,7 +56,7 @@ def get_convnext_cvae_configuration(spatial_dims: int) -> Config:
             beta_kl_start=0.0,
             beta_kl_max=0.08,
             beta_kl_warmup_start=0,
-            beta_kl_warmup_epochs=1000,
+            beta_kl_warmup_epochs=200,
             free_bits=0.001,
             fg_weight=1.0,
             fg_threshold=0.0,
@@ -70,7 +70,7 @@ def get_convnext_cvae_configuration(spatial_dims: int) -> Config:
             bottleneck_dim=256,
             recon_weight=1.0,
             beta_kl_start=0.0,
-            beta_kl_max=7.0,
+            beta_kl_max=0.01,
             beta_kl_warmup_start=0,
             beta_kl_warmup_epochs=100,
             fg_weight=1.0,
@@ -88,11 +88,13 @@ def get_convnext_cvae_search(
     parameters: Config,
     spatial_dims: int,
 ) -> SearchSpace:
-    search = SearchSpace(parameters)
+    search = SearchSpace(parameters, n_res_blocks=IntRange(4, 5))
     if spatial_dims == 2:
+        search.z_channels = Choice((32, 64))
+        search.bottleneck_dim = Choice((64, 128))
         return search
     if spatial_dims == 3:
-        search.n_res_blocks = IntRange(5, 6)
-        search.n_levels = IntRange(5, 6)
+        search.z_channels = Choice((64, 128))
+        search.bottleneck_dim = Choice((128, 256))
         return search
     raise ValueError(f"Unsupported spatial dimensions: {spatial_dims}.")

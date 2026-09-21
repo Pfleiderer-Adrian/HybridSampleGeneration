@@ -24,6 +24,7 @@ class PipelineRegressionTests(unittest.TestCase):
         self.config.extraction.min_coverage_ratio = 0
         self.config.extraction.normalization = None
         self.config.extraction.add_background_noise = False
+        self.config.generation.variants_per_real_anomaly = 1
         self.config.matching.routine = 'fixed_from_extraction_control_fusion'
         self.samples = [*_anomaly_samples(), *_control_samples()]
         self.pipeline = HybridDataGenerator(self.config, generator_model=_FakeGenerator())

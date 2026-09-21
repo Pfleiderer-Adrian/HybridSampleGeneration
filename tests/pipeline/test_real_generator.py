@@ -30,6 +30,8 @@ class RealGeneratorPipelineTests(unittest.TestCase):
                 config.extraction.normalization = None
                 config.extraction.add_background_noise = False
                 config.training.epochs = 1
+                config.training.num_trials = 1
+                config.generation.variants_per_real_anomaly = 1
                 config.training.batch_size = 2
                 config.training.validation_ratio = .25
                 config.augmentation.random_offset_enabled = False
