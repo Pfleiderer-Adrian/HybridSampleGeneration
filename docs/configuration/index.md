@@ -12,6 +12,34 @@ config.training.batch_size = 32
 config.validate()
 ```
 
+## Configuration structure
+
+`Configuration` contains requested behavior only. Generated entities, matching
+results and extraction metadata live in the study repository.
+
+```text
+config.study        identity, location, reproducibility seed
+config.extraction   cutout, normalization and ROI rules
+config.augmentation target-mask and training augmentation
+config.generation   model sampling, feedback and variant count
+config.matching     hybrid count, placement count and reuse policies
+config.training     optimizer and dataloader behavior
+config.evaluation   metric/outlier settings
+config.model        generator choice and model-specific parameters
+config.fusion       fusion backend and backend-specific parameters
+```
+
+The current configuration schema is version 9 and the artifact database schema
+is version 2. Older study databases and filename/CSV layouts are intentionally
+unsupported; recreate the study and run `ingest_dataset()` again.
+
+`config.study.seed` controls reproducibility for training, synthetic variant
+generation, and hybrid planning. Set it before running the pipeline:
+
+```python
+config.study.seed = 123
+```
+
 ## Sections
 
 - [Study](reference/study.md): name, storage location, and seed
