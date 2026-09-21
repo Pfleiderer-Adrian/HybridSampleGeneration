@@ -225,6 +225,10 @@ to replace its previous CSV results.
 
 ## Configuration
 
+The searchable [configuration reference](docs/configuration/index.md) lists
+all parameters, types, defaults, and model-specific settings. Its Markdown
+source lives in this repository and can be published through GitHub Pages.
+
 `Configuration` contains requested behavior only. Generated entities, matching
 results and extraction metadata live in the study repository.
 
@@ -244,13 +248,11 @@ The current configuration schema is version 9 and the artifact database schema
 is version 2. Older study databases and filename/CSV layouts are intentionally
 unsupported; recreate the study and run `ingest_dataset()` again.
 
-`config.matching.seed` initially copies `config.study.seed`, but the two fields
-are independent afterward. Set both explicitly when changing the study and
-matching seeds together:
+`config.study.seed` controls reproducibility for training, synthetic variant
+generation, and hybrid planning. Set it before running the pipeline:
 
 ```python
 config.study.seed = 123
-config.matching.seed = 123
 ```
 
 ### Supported generator models

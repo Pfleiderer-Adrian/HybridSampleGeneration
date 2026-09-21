@@ -37,6 +37,9 @@ jobs:
           python -m pip install -e .
           python -m pip install unittest-xml-reporting
 
+      - name: Check configuration reference
+        run: python scripts/generate_config_reference.py --check
+
       - name: Run project tests
         run: python -m xmlrunner discover -s tests -v -o test-results
       
