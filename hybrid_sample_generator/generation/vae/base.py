@@ -1,6 +1,7 @@
 """Shared base implementation for variational autoencoders."""
 
 from abc import ABC, abstractmethod
+import math
 from typing import Any, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
@@ -93,16 +94,41 @@ class HybridVAEBase(nn.Module, ABC):
         fallback: float,
     ) -> List[float]:
         """Return per-level skip-dropout probabilities in encoder order."""
+        fallback = float(fallback)
+        if not math.isfinite(fallback) or not 0.0 <= fallback <= 1.0:
+            raise ValueError(f"Skip dropout probability must be in [0, 1], got {fallback}")
         if skip_dropout_ps is None:
-            values = [float(fallback)] * n_levels
+            values = [fallback] * n_levels
         else:
             values = [float(p) for p in skip_dropout_ps]
             if len(values) != n_levels:
                 raise ValueError(f"Expected {n_levels} skip dropout values, got {len(values)}")
 
         for p in values:
-            if not 0.0 <= p <= 1.0:
+            if not math.isfinite(p) or not 0.0 <= p <= 1.0:
                 raise ValueError(f"Skip dropout values must be in [0, 1], got {p}")
+        return values
+
+    @staticmethod
+    def _normalize_skip_alphas(
+        skip_alphas: Optional[Iterable[float]],
+        n_levels: int,
+        fallback: float,
+    ) -> List[float]:
+        """Return per-level skip scales in encoder order."""
+        fallback = float(fallback)
+        if not math.isfinite(fallback) or not 0.0 <= fallback <= 1.0:
+            raise ValueError(f"Skip alpha must be in [0, 1], got {fallback}")
+        if skip_alphas is None:
+            values = [fallback] * n_levels
+        else:
+            values = [float(alpha) for alpha in skip_alphas]
+            if len(values) != n_levels:
+                raise ValueError(f"Expected {n_levels} skip alpha values, got {len(values)}")
+
+        for alpha in values:
+            if not math.isfinite(alpha) or not 0.0 <= alpha <= 1.0:
+                raise ValueError(f"Skip alpha values must be in [0, 1], got {alpha}")
         return values
 
     @staticmethod
