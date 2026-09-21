@@ -5,7 +5,7 @@ Select with `config.model.set_model('VAE_ResNet_3D')`. The table shows the actua
 | Parameter | Type | Default | Meaning / values | Default search |
 | --- | --- | --- | --- | --- |
 | `config.model.parameters.n_res_blocks` | `int` | `4` | Number of residual blocks per level. | `IntRange(low=4, high=5, step=1, log=False)` |
-| `config.model.parameters.n_levels` | `int` | `4` | Number of encoder and decoder levels. | `IntRange(low=4, high=5, step=1, log=False)` |
+| `config.model.parameters.n_levels` | `int` | `4` | Number of encoder and decoder levels. | — |
 | `config.model.parameters.z_channels` | `int` | `64` | Channel count in the spatial bottleneck. | `Choice(values=(64, 128))` |
 | `config.model.parameters.bottleneck_dim` | `int` | `128` | Dimension of the latent vector. | `Choice(values=(128, 256))` |
 | `config.model.parameters.use_multires_skips` | `bool` | `True` | Use encoder features from multiple resolutions as skip connections. | — |

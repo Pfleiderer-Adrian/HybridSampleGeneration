@@ -2,7 +2,7 @@
 
 | Parameter | Type | Default | Meaning / values |
 | --- | --- | --- | --- |
-| `config.training.num_trials` | `int` | `5` | Number of Optuna trials; positive. |
+| `config.training.num_trials` | `int` | `10` | Number of Optuna trials; positive. |
 | `config.training.trial_selection` | `TrialSelection` | `'best'` | Trial to use: 'best', 'last', or a non-negative trial ID. |
 | `config.training.validation_ratio` | `float` | `0.2` | Fraction of data reserved for validation; range [0, 1). |
 | `config.training.batch_size` | `int` | `64` | Training batch size; positive. |

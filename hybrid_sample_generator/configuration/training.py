@@ -15,7 +15,7 @@ TrialSelection = Literal["best", "last"] | int
 class TrainingConfiguration:
     """Model-independent optimization and stopping settings."""
 
-    num_trials: int = 5
+    num_trials: int = 10
     trial_selection: TrialSelection = "best"
     validation_ratio: float = 0.2
     batch_size: int = 64

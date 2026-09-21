@@ -4,11 +4,11 @@ Select with `config.model.set_model('cVAE_ConvNeXt_3D')`. The table shows the ac
 
 | Parameter | Type | Default | Meaning / values | Default search |
 | --- | --- | --- | --- | --- |
-| `config.model.parameters.n_res_blocks` | `int` | `5` | Number of residual blocks per level. | `IntRange(low=5, high=6, step=1, log=False)` |
+| `config.model.parameters.n_res_blocks` | `int` | `5` | Number of residual blocks per level. | `IntRange(low=4, high=5, step=1, log=False)` |
 | `config.model.parameters.n_spade_blocks` | `int` | `2` | Number of mask-conditioned SPADE blocks. | — |
-| `config.model.parameters.n_levels` | `int` | `5` | Number of encoder and decoder levels. | `IntRange(low=5, high=6, step=1, log=False)` |
-| `config.model.parameters.z_channels` | `int` | `128` | Channel count in the spatial bottleneck. | — |
-| `config.model.parameters.bottleneck_dim` | `int` | `256` | Dimension of the latent vector. | — |
+| `config.model.parameters.n_levels` | `int` | `5` | Number of encoder and decoder levels. | — |
+| `config.model.parameters.z_channels` | `int` | `128` | Channel count in the spatial bottleneck. | `Choice(values=(64, 128))` |
+| `config.model.parameters.bottleneck_dim` | `int` | `256` | Dimension of the latent vector. | `Choice(values=(128, 256))` |
 | `config.model.parameters.recon_weight` | `float` | `1.0` | Weight of the reconstruction loss. | — |
 | `config.model.parameters.beta_kl_start` | `float` | `0.0` | Initial weight of the KL loss. | — |
 | `config.model.parameters.beta_kl_max` | `float` | `0.01` | Maximum weight of the KL loss. | — |

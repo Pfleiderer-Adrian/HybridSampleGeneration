@@ -108,6 +108,26 @@ class ConfigurationTests(unittest.TestCase):
                 self.assertIsInstance(search, SearchSpace)
                 search.validate()
 
+    def test_default_model_searches_use_three_capacity_parameters(self):
+        from hybrid_sample_generator.generation.registry import MODEL_REGISTRY
+
+        self.assertEqual(Configuration("trials").training.num_trials, 10)
+        for name, spec in MODEL_REGISTRY.items():
+            with self.subTest(model=name):
+                parameters = spec.build_configuration()
+                search = spec.build_search_space(parameters)
+                self.assertEqual(
+                    set(search.names()),
+                    {"n_res_blocks", "z_channels", "bottleneck_dim"},
+                )
+                self.assertEqual(search.n_res_blocks, IntRange(4, 5))
+                if spec.spatial_dims == 2:
+                    self.assertEqual(search.z_channels, Choice((32, 64)))
+                    self.assertEqual(search.bottleneck_dim, Choice((64, 128)))
+                else:
+                    self.assertEqual(search.z_channels, Choice((64, 128)))
+                    self.assertEqual(search.bottleneck_dim, Choice((128, 256)))
+
     def test_schema_eight_configuration_is_not_supported(self):
         values = Configuration("old-schema").to_dict()
         values["schema_version"] = 8
