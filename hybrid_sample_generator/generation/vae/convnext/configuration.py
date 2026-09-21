@@ -22,6 +22,9 @@ class Config:
     beta_kl_warmup_start: int = 20
     beta_kl_warmup_epochs: int = 30
     free_bits: float = 0.0
+    latent_recon_weight: float = 0.0
+    latent_recon_noise_scale: float = 1.0
+    latent_recon_image_noise_std: float = 0.03
     recon_loss: str = "smoothl1"
     recon_smoothl1_beta: float = 1.0
     use_transpose_conv: bool = True
