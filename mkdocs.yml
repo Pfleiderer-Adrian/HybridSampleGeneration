@@ -1,0 +1,38 @@
+site_name: Hybrid Sample Generator
+site_url: https://pfleiderer-adrian.github.io/HybridSampleGeneration/
+repo_url: https://github.com/Pfleiderer-Adrian/HybridSampleGeneration
+repo_name: Pfleiderer-Adrian/HybridSampleGeneration
+docs_dir: docs
+site_dir: site
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.sections
+    - search.suggest
+    - search.highlight
+plugins:
+  - search:
+      lang: en
+nav:
+  - Home: index.md
+  - Configuration:
+      - Overview: configuration/index.md
+      - Study: configuration/reference/study.md
+      - Extraction: configuration/reference/extraction.md
+      - Augmentation: configuration/reference/augmentation.md
+      - Generation: configuration/reference/generation.md
+      - Matching: configuration/reference/matching.md
+      - Training: configuration/reference/training.md
+      - Evaluation: configuration/reference/evaluation.md
+      - Models:
+          - Overview: configuration/models.md
+          - VAE ResNet 2D: configuration/reference/model-VAE_ResNet_2D.md
+          - VAE ResNet 3D: configuration/reference/model-VAE_ResNet_3D.md
+          - VAE ConvNeXt 2D: configuration/reference/model-VAE_ConvNeXt_2D.md
+          - VAE ConvNeXt 3D: configuration/reference/model-VAE_ConvNeXt_3D.md
+          - cVAE ConvNeXt 2D: configuration/reference/model-cVAE_ConvNeXt_2D.md
+          - cVAE ConvNeXt 3D: configuration/reference/model-cVAE_ConvNeXt_3D.md
+      - Fusion:
+          - Overview: configuration/fusion.md
+          - Classical: configuration/reference/fusion-classical.md
