@@ -328,6 +328,19 @@ generated for every `RealAnomaly`. Each child has its own deterministic ID,
 variant index, seed, image and target mask. Feedback generation is bounded by
 `config.generation.feedback.max_attempts`.
 
+For a mask-conditioned ConvNeXt VAE in posterior mode,
+`config.generation.posterior_skip_source = "transformed"` uses skips from a
+second encoder pass over the image transformed together with the target mask.
+The latent vector still comes from the original image and mask. The default
+`"original"` keeps the current single-encoder behavior. Images use linear
+interpolation during spatial transforms; label masks use nearest-neighbor
+interpolation. The second encoder pass is skipped when all decoder skip scales
+are zero.
+In transformed mode the target mask is generated from the original mask; an
+explicit `tgt_mask` is rejected. Direct model calls require a
+`target_mask_generator` in this mode. The original mode still accepts an explicit
+`target_mask`.
+
 ### Hybrid planning
 
 - `hybrids_per_original`: requested number of hybrid variants per eligible
