@@ -31,3 +31,6 @@ test/
 build/
 dist/
 *.egg-info/
+
+# Generated documentation site
+site/
