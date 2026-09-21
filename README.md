@@ -91,6 +91,38 @@ python -m examples.mvtec_ad2.categories.can
 The [MVTec AD 2 guide](examples/mvtec_ad2/README.md) describes the category recipes,
 persisted data splits, hybrid generation, and downstream DRAEM evaluation.
 
+## Configuration
+
+The searchable [configuration reference](https://pfleiderer-adrian.github.io/HybridSampleGeneration/) lists
+all parameters, types, defaults, and model-specific settings. Its Markdown
+source lives in this repository and is published through GitHub Pages.
+
+`Configuration` contains requested behavior only. Generated entities, matching
+results and extraction metadata live in the study repository.
+
+```text
+config.study        identity, location, reproducibility seed
+config.extraction   cutout, normalization and ROI rules
+config.augmentation target-mask and training augmentation
+config.generation   model sampling, feedback and variant count
+config.matching     hybrid count, placement count and reuse policies
+config.training     optimizer and dataloader behavior
+config.evaluation   metric/outlier settings
+config.model        generator choice and model-specific parameters
+config.fusion       fusion backend and backend-specific parameters
+```
+
+The current configuration schema is version 9 and the artifact database schema
+is version 2. Older study databases and filename/CSV layouts are intentionally
+unsupported; recreate the study and run `ingest_dataset()` again.
+
+`config.study.seed` controls reproducibility for training, synthetic variant
+generation, and hybrid planning. Set it before running the pipeline:
+
+```python
+config.study.seed = 123
+```
+
 ## Input data
 
 The pipeline accepts channel-first arrays:
@@ -222,38 +254,6 @@ These resets remove database records; old array files can remain on disk without
 repository references. Repeating a phase is not an incremental append or an
 automatic skip of completed work. After changing generated data, rerun evaluation
 to replace its previous CSV results.
-
-## Configuration
-
-The searchable [configuration reference](docs/configuration/index.md) lists
-all parameters, types, defaults, and model-specific settings. Its Markdown
-source lives in this repository and can be published through GitHub Pages.
-
-`Configuration` contains requested behavior only. Generated entities, matching
-results and extraction metadata live in the study repository.
-
-```text
-config.study        identity, location, reproducibility seed
-config.extraction   cutout, normalization and ROI rules
-config.augmentation target-mask and training augmentation
-config.generation   model sampling, feedback and variant count
-config.matching     hybrid count, placement count and reuse policies
-config.training     optimizer and dataloader behavior
-config.evaluation   metric/outlier settings
-config.model        generator choice and model-specific parameters
-config.fusion       fusion backend and backend-specific parameters
-```
-
-The current configuration schema is version 9 and the artifact database schema
-is version 2. Older study databases and filename/CSV layouts are intentionally
-unsupported; recreate the study and run `ingest_dataset()` again.
-
-`config.study.seed` controls reproducibility for training, synthetic variant
-generation, and hybrid planning. Set it before running the pipeline:
-
-```python
-config.study.seed = 123
-```
 
 ### Supported generator models
 
