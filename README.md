@@ -1,4 +1,4 @@
-# Hybrid Sample Generation
+# [Hybrid Sample Generation](https://pfleiderer-adrian.github.io/HybridSampleGeneration/)
 ![Python](https://img.shields.io/badge/Python-14354C?style=flat&logo=python&logoColor=green) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![Tests](https://github.com/Pfleiderer-Adrian/HybridSampleGeneration/actions/workflows/tests.yml/badge.svg)](https://github.com/Pfleiderer-Adrian/HybridSampleGeneration/actions/workflows/tests.yml) [![DOI:AMLDS63918.2025.11159383](http://img.shields.io/badge/DOI-AMLDS63918.2025.11159383-B31B1B.svg)](https://doi.org/10.1109/AMLDS63918.2025.11159383)
 
 This project extracts real anomalies from labelled 2D images or 3D volumes,
@@ -8,11 +8,7 @@ into original control samples. It is based on the IEEE paper
 
 ![High-level overview of hybrid sample generation](high_level.png)
 
-[Browse the full documentation](https://pfleiderer-adrian.github.io/HybridSampleGeneration/).
-
-## Requirements and installation
-
-See the [Installation guide](https://pfleiderer-adrian.github.io/HybridSampleGeneration/getting-started/installation/) in the documentation.
+## [Requirements and installation](https://pfleiderer-adrian.github.io/HybridSampleGeneration/getting-started/installation/)
 
 The pipeline uses PyTorch, Optuna, NumPy, SciPy, pandas, scikit-image and
 Matplotlib. Additional model and file-format dependencies are listed in
@@ -28,9 +24,7 @@ python -m pip install -e .
 Exact PyTorch and CUDA versions depend on the target system. A GPU is useful for
 training but the orchestration and repository layers do not require one.
 
-## Quick start
-
-See the [Quick start](https://pfleiderer-adrian.github.io/HybridSampleGeneration/getting-started/quick-start/) in the documentation.
+## [Quick start](https://pfleiderer-adrian.github.io/HybridSampleGeneration/getting-started/quick-start/)
 
 ```python
 from hybrid_sample_generator.configuration.root import Configuration
@@ -97,9 +91,7 @@ python -m examples.mvtec_ad2.categories.can
 The [MVTec AD 2 guide](examples/mvtec_ad2/README.md) describes the category recipes,
 persisted data splits, hybrid generation, and downstream DRAEM evaluation.
 
-## Configuration
-
-See the [Configuration overview](https://pfleiderer-adrian.github.io/HybridSampleGeneration/configuration/) in the documentation.
+## [Configuration](https://pfleiderer-adrian.github.io/HybridSampleGeneration/configuration/)
 
 The searchable [configuration reference](https://pfleiderer-adrian.github.io/HybridSampleGeneration/) lists
 all parameters, types, defaults, and model-specific settings. Its Markdown
@@ -131,9 +123,7 @@ generation, and hybrid planning. Set it before running the pipeline:
 config.study.seed = 123
 ```
 
-## Input data
-
-See the [Input data guide](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/input-data/) in the documentation.
+## [Input data](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/input-data/)
 
 The pipeline accepts channel-first arrays:
 
@@ -175,9 +165,7 @@ dataset on each call, replacing the previous input catalog and derived records.
 All later phases select their inputs from the repository and never iterate the
 original dataloader again.
 
-## Data model and study storage
-
-See the [Data model and storage](https://pfleiderer-adrian.github.io/HybridSampleGeneration/concepts/study-storage/) in the documentation.
+## [Data model and study storage](https://pfleiderer-adrian.github.io/HybridSampleGeneration/concepts/study-storage/)
 
 Study metadata and relationships are stored in `artifacts.sqlite`. NumPy arrays
 remain normal files below `artifacts/`; the database stores paths relative to
@@ -231,9 +219,7 @@ segmentation artifact; hybrid images and masks are written during materializatio
 Placement ROI images and masks are optional backend outputs. Loading a trained
 generator requires its Optuna database and the referenced model checkpoint.
 
-## Continuing a study and repeating phases
-
-See the [Continuing a study](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/continuing-studies/) in the documentation.
+## [Continuing a study and repeating phases](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/continuing-studies/)
 
 For a study with synthetic variants and a saved hybrid plan, continue directly
 with materialization:
@@ -269,9 +255,7 @@ repository references. Repeating a phase is not an incremental append or an
 automatic skip of completed work. After changing generated data, rerun evaluation
 to replace its previous CSV results.
 
-### Supported generator models
-
-See the [Generator models](https://pfleiderer-adrian.github.io/HybridSampleGeneration/configuration/models/) in the documentation.
+### [Supported generator models](https://pfleiderer-adrian.github.io/HybridSampleGeneration/configuration/models/)
 
 The stable registry contains 2D and 3D entries for `VAE_ResNet`,
 `VAE_ConvNeXt` and the mask-conditioned `cVAE_ConvNeXt`. The 2D and 3D entries
@@ -310,9 +294,7 @@ of the saved model parameters. Model dimensionality and the full configuration
 are validated when constructing `HybridDataGenerator`, serializing, or
 explicitly calling `config.validate()`.
 
-### Extraction
-
-See the [Extraction guide](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/pipeline/#extraction) in the documentation.
+### [Extraction](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/pipeline/#extraction)
 
 Extraction finds connected components in the positive segmentation, crops each
 component, downscales it only when it exceeds the configured target size, and
@@ -341,18 +323,14 @@ The principal settings are:
 
 ROI tuples contain spatial axes only: `(H, W)` for 2D and `(D, H, W)` for 3D.
 
-### Synthetic variants
-
-See the [Synthetic variants guide](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/pipeline/#synthetic-variants) in the documentation.
+### [Synthetic variants](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/pipeline/#synthetic-variants)
 
 `config.generation.variants_per_real_anomaly` controls how many children are
 generated for every `RealAnomaly`. Each child has its own deterministic ID,
 variant index, seed, image and target mask. Feedback generation is bounded by
 `config.generation.feedback.max_attempts`.
 
-### Hybrid planning
-
-See the [Hybrid planning guide](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/pipeline/#hybrid-planning) in the documentation.
+### [Hybrid planning](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/pipeline/#hybrid-planning)
 
 - `hybrids_per_original`: requested number of hybrid variants per eligible
   target original.
@@ -392,9 +370,7 @@ arbitrary controls;
 `fixed_from_extraction_anomaly_fusion` joins originals and real anomalies by
 foreign key and places variants back at their extraction positions.
 
-### Classical fusion
-
-See the [Classical fusion guide](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/pipeline/#classical-fusion) in the documentation.
+### [Classical fusion](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/pipeline/#classical-fusion)
 
 `config.fusion.parameters` is the selected backend's parameter dataclass.
 Configure its fields directly; the former `set_fusion_params(...)` wrapper is
@@ -453,9 +429,7 @@ local or class-specific ring contains too few values, the backend falls back to
 available target-mask-outside context; if that is still insufficient, the scope
 is left unnormalized.
 
-## Repository-backed datasets
-
-See the [Repository datasets](https://pfleiderer-adrian.github.io/HybridSampleGeneration/concepts/datasets/) in the documentation.
+## [Repository-backed datasets](https://pfleiderer-adrian.github.io/HybridSampleGeneration/concepts/datasets/)
 
 `StudyDatasets` creates short-lived `OriginalSampleDataset`,
 `RealAnomalyDataset`, `SyntheticAnomalyDataset` and `HybridSampleDataset` views
@@ -464,9 +438,7 @@ over repository records. Original views can filter `has_anomaly` and
 objects are not persistent state of `HybridDataGenerator`; callers choose
 explicitly whether a view should load arrays into RAM.
 
-## Evaluation
-
-See the [Evaluation guide](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/evaluation/) in the documentation.
+## [Evaluation](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/evaluation/)
 
 Evaluation joins each synthetic anomaly to its real parent through
 `real_anomaly_id`. Placement ROI comparisons use the full
@@ -491,9 +463,7 @@ synthetic means, and summarizes outlier overlaps.
 Evaluation reads the normalized repository relations directly and does not
 construct a generation orchestrator.
 
-## Visualization
-
-See the [Visualization guide](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/visualization/) in the documentation.
+## [Visualization](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/visualization/)
 
 `run_hybrid_visualizer(config)` opens a repository-backed study browser with
 six views: study overview, datasource originals, real/synthetic anomaly variants,
@@ -522,9 +492,7 @@ The visualizer can also be started for an existing study folder:
 python -m hybrid_sample_generator.visualization /path/to/study --channel auto
 ```
 
-## Experimental prototypes
-
-See the [Experimental prototypes](https://pfleiderer-adrian.github.io/HybridSampleGeneration/development/experiments/) in the documentation.
+## [Experimental prototypes](https://pfleiderer-adrian.github.io/HybridSampleGeneration/development/experiments/)
 
 Unsupported diffusion and learned residual-alpha fusion prototypes are isolated
 under `experiments/`. They are excluded from the stable package API and
@@ -540,9 +508,7 @@ python -m pip install -e ".[experiments]"
 python -m unittest discover -s experiments/tests -v
 ```
 
-## Tests
-
-See the [Testing guide](https://pfleiderer-adrian.github.io/HybridSampleGeneration/development/testing/) in the documentation.
+## [Tests](https://pfleiderer-adrian.github.io/HybridSampleGeneration/development/testing/)
 
 ```bash
 python -m unittest discover -s tests -v
@@ -553,9 +519,7 @@ components, multiple synthetic and hybrid variants, normalized multi-placement
 records, unique artifacts, foreign-key traversal, 2D/3D coordinates,
 materialization, FK-based evaluation and cached full-image `local` matching.
 
-## Project structure
-
-See the [Project structure](https://pfleiderer-adrian.github.io/HybridSampleGeneration/development/project-structure/) in the documentation.
+## [Project structure](https://pfleiderer-adrian.github.io/HybridSampleGeneration/development/project-structure/)
 
 - `pyproject.toml` — package metadata, stable dependencies and experimental extras
 - `hybrid_sample_generator/configuration/` — validated, section-based configuration
@@ -576,9 +540,7 @@ See the [Project structure](https://pfleiderer-adrian.github.io/HybridSampleGene
 - `tests/` — tests grouped by the same feature boundaries
 - `experiments/` — unsupported prototypes, optional dependencies and isolated tests
 
-## Cite this work
-
-See the [Citation](https://pfleiderer-adrian.github.io/HybridSampleGeneration/about/#cite-this-work) in the documentation.
+## [Cite this work](https://pfleiderer-adrian.github.io/HybridSampleGeneration/about/#cite-this-work)
 
 ```bibtex
 @INPROCEEDINGS{11159383,
@@ -591,16 +553,12 @@ See the [Citation](https://pfleiderer-adrian.github.io/HybridSampleGeneration/ab
 }
 ```
 
-## License
-
-See the [License](https://pfleiderer-adrian.github.io/HybridSampleGeneration/about/#license) in the documentation.
+## [License](https://pfleiderer-adrian.github.io/HybridSampleGeneration/about/#license)
 
 This project is licensed under the GNU General Public License v3.0. See
 `LICENSE` for the complete terms.
 
-## Package versions and releases
-
-See the [Release guide](https://pfleiderer-adrian.github.io/HybridSampleGeneration/development/releases/) in the documentation.
+## [Package versions and releases](https://pfleiderer-adrian.github.io/HybridSampleGeneration/development/releases/)
 
 Package versions are derived from Git tags by `setuptools-scm`; there is no
 version field to update in `pyproject.toml`. Use PEP 440-compatible release tags
