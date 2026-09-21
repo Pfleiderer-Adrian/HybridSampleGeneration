@@ -54,5 +54,7 @@ class MVTecDatasetTests(unittest.TestCase):
                 second = recipe.create_configuration()
                 first.validate()
                 self.assertEqual(first.extraction.anomaly_size, (channels, 64, 64))
+                self.assertEqual(first.generation.feedback.max_attempts, 1000)
+                self.assertEqual(first.matching.batch_size, 64)
                 first.generation.variants_per_real_anomaly = 99
                 self.assertEqual(second.generation.variants_per_real_anomaly, 3)

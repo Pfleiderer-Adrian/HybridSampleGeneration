@@ -29,11 +29,13 @@ def apply_generator_defaults(config: Configuration) -> None:
     config.generation.feedback.enabled = False
     config.generation.feedback.similarity_threshold = 0.01
     config.generation.feedback.threshold_relaxation_factor = 0.9
+    config.generation.feedback.max_attempts = 1000
     config.generation.variation_strength = 1.25
     config.generation.variants_per_real_anomaly = 3
 
     # matching settings
     config.matching.routine = "global"
+    config.matching.batch_size = 64
     config.matching.hybrids_per_original = 3
     config.matching.reuse_synthetic_across_hybrids = True
     config.matching.allow_sibling_variants_in_same_hybrid = False
@@ -63,7 +65,6 @@ def apply_generator_defaults(config: Configuration) -> None:
     config.training.epochs = 1000
     config.training.learning_rate = 1e-4
     config.training.gradient_clip_norm = 1.0
-    config.training.log_every = None
     config.training.early_stopping_enabled = True
     config.training.early_stopping = {
         "patience": 400,

@@ -63,7 +63,6 @@ DESCRIPTIONS = {
     "training.batch_size": "Training batch size; positive.",
     "training.epochs": "Maximum number of training epochs; positive.",
     "training.learning_rate": "Initial learning rate; positive.",
-    "training.log_every": "Interval between training logs; None uses the default.",
     "training.dtype": "PyTorch dtype for training; None uses the model default.",
     "training.gradient_clip_norm": "Optional upper bound for the gradient norm.",
     "training.monitor_metric": "Metric used for model selection and early stopping.",

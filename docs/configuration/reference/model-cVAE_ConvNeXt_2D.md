@@ -13,7 +13,7 @@ Select with `config.model.set_model('cVAE_ConvNeXt_2D')`. The table shows the ac
 | `config.model.parameters.beta_kl_start` | `float` | `0.0` | Initial weight of the KL loss. | — |
 | `config.model.parameters.beta_kl_max` | `float` | `0.08` | Maximum weight of the KL loss. | — |
 | `config.model.parameters.beta_kl_warmup_start` | `int` | `0` | Epoch at which the KL weight begins to increase. | — |
-| `config.model.parameters.beta_kl_warmup_epochs` | `int` | `1000` | Number of epochs needed to reach beta_kl_max. | — |
+| `config.model.parameters.beta_kl_warmup_epochs` | `int` | `200` | Number of epochs needed to reach beta_kl_max. | — |
 | `config.model.parameters.free_bits` | `float` | `0.001` | KL free-bits allowance for latent dimensions. | — |
 | `config.model.parameters.recon_loss` | `str` | `'smoothl1'` | Reconstruction loss, such as 'mse' or 'smoothl1'. | — |
 | `config.model.parameters.recon_smoothl1_beta` | `float` | `1.0` | Transition point of the Smooth L1 loss. | — |

@@ -11,7 +11,7 @@ Select with `config.model.set_model('cVAE_ConvNeXt_3D')`. The table shows the ac
 | `config.model.parameters.bottleneck_dim` | `int` | `256` | Dimension of the latent vector. | — |
 | `config.model.parameters.recon_weight` | `float` | `1.0` | Weight of the reconstruction loss. | — |
 | `config.model.parameters.beta_kl_start` | `float` | `0.0` | Initial weight of the KL loss. | — |
-| `config.model.parameters.beta_kl_max` | `float` | `7.0` | Maximum weight of the KL loss. | — |
+| `config.model.parameters.beta_kl_max` | `float` | `0.01` | Maximum weight of the KL loss. | — |
 | `config.model.parameters.beta_kl_warmup_start` | `int` | `0` | Epoch at which the KL weight begins to increase. | — |
 | `config.model.parameters.beta_kl_warmup_epochs` | `int` | `100` | Number of epochs needed to reach beta_kl_max. | — |
 | `config.model.parameters.free_bits` | `float` | `0.0` | KL free-bits allowance for latent dimensions. | — |

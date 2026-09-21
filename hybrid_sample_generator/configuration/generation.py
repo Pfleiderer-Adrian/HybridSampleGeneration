@@ -11,7 +11,7 @@ class FeedbackConfiguration:
     enabled: bool = False
     similarity_threshold: float = 0.8
     threshold_relaxation_factor: float = 0.9
-    max_attempts: int = 1000
+    max_attempts: int = 100
 
     def validate(self) -> None:
         if not 0.0 <= float(self.similarity_threshold) <= 1.0:
@@ -27,10 +27,10 @@ class GenerationConfiguration:
     """Settings for producing synthetic anomaly variants."""
 
     sampling_mode: str = "posterior"
-    variation_strength: float = 1.0
+    variation_strength: float = 0.5
     clamp_output: bool = False
     background_threshold: float = 0.01
-    variants_per_real_anomaly: int = 1
+    variants_per_real_anomaly: int = 3
     feedback: FeedbackConfiguration = field(default_factory=FeedbackConfiguration)
 
     def validate(self) -> None:
