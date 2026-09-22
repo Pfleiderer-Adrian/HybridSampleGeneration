@@ -185,6 +185,12 @@ class GenerationService:
             "clamp_01": generation.clamp_output,
             "target_mask_generator": target_mask_generator,
         }
+        if generation.posterior_skip_source == "transformed":
+            if not get_model_spec(self.config.model.name).uses_masks:
+                raise ValueError(
+                    "Transformed posterior skips require a conditional ConvNeXt VAE."
+                )
+            kwargs["posterior_skip_source"] = "transformed"
 
         if not generation.feedback.enabled:
             image, mask = self._model.generate(sample, **kwargs)

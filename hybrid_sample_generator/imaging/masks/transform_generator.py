@@ -4,6 +4,8 @@ from copy import deepcopy
 from typing import Any, Dict
 
 import numpy as np
+import scipy.ndimage as ndi
+import torch
 
 from hybrid_sample_generator.configuration.augmentation import MaskTransformConfiguration
 from hybrid_sample_generator.imaging.masks.elastic import (
@@ -13,6 +15,7 @@ from hybrid_sample_generator.imaging.masks.elastic import (
 from hybrid_sample_generator.imaging.masks.geometry import (
     fit_mask_to_spatial_shape,
     pad_mask_for_transforms,
+    sample_uniform,
 )
 from hybrid_sample_generator.imaging.masks.global_transforms import (
     random_global_rotation_transform,
@@ -24,6 +27,13 @@ from hybrid_sample_generator.imaging.masks.local_transforms import (
     random_local_elastic_transform,
     random_local_rotation_transform,
     random_local_stretch_transform,
+)
+from hybrid_sample_generator.imaging.masks.paired_transforms import (
+    apply_warp_pair,
+    dilate_class_pair,
+    fit_pair,
+    pad_pair,
+    sample_warp,
 )
 from hybrid_sample_generator.imaging.masks.target_generation import (
     target_mask_from_original_mask,
@@ -149,6 +159,143 @@ class TransformGenerator:
 
     def create_target_mask_from_original_mask(self, original_mask):
         return target_mask_from_original_mask(original_mask, self.augment_mask)
+
+    def create_target_mask_and_transformed_image(self, original_mask, image):
+        """Draw each transform once and apply it to labels and image together."""
+        mask_is_tensor = torch.is_tensor(original_mask)
+        image_is_tensor = torch.is_tensor(image)
+        mask_np = (
+            original_mask.detach().cpu().numpy()
+            if mask_is_tensor else np.asarray(original_mask)
+        )
+        image_np = image.detach().cpu().numpy() if image_is_tensor else np.asarray(image)
+        original_shape = mask_np.shape[1:]
+        mask, transformed_image = pad_pair(
+            mask_np, image_np, self.padding_factor
+        )
+        for name in self.GLOBAL_TRANSFORMS:
+            probability = self.global_transform_probs.get(name)
+            if probability is not None and self._should_apply(probability):
+                mask, transformed_image = self._warp_pair(
+                    mask, transformed_image, name, self.transform_params[name]
+                )
+
+        class_order = self._local_class_order(mask)
+        if self.mask_transform_local_as_global:
+            for name in self.LOCAL_TRANSFORMS:
+                probability = self._merged_local_probability(name, class_order)
+                if probability is None or not self._should_apply(probability):
+                    continue
+                params = self._merged_local_params(name, class_order)
+                if name == "local_dilate":
+                    mask, transformed_image = self._dilate_pair(
+                        mask, transformed_image, class_order, params
+                    )
+                else:
+                    mask, transformed_image = self._warp_pair(
+                        mask, transformed_image,
+                        self.LOCAL_AS_GLOBAL_TRANSFORMS[name], params,
+                    )
+        elif class_order:
+            mask, transformed_image = self._apply_local_pair_transforms(
+                mask, transformed_image, class_order
+            )
+
+        mask, transformed_image = fit_pair(
+            mask, transformed_image, original_shape
+        )
+        if mask_is_tensor:
+            mask = torch.as_tensor(
+                mask, device=original_mask.device, dtype=original_mask.dtype
+            )
+        if image_is_tensor:
+            transformed_image = torch.as_tensor(
+                transformed_image, device=image.device, dtype=image.dtype
+            )
+        return mask, transformed_image
+
+    def _warp_pair(self, mask, image, name, params):
+        warp = sample_warp(name, mask[0], params, self.rng)
+        return apply_warp_pair(mask, image, warp)
+
+    def _dilate_pair(self, mask, image, class_order, params):
+        iterations = sample_uniform(
+            params.get("min_iterations", 0),
+            params.get("max_iterations", 2),
+            rng=self.rng, integer=True,
+        )
+        class_masks = {}
+        class_images = {}
+        for class_id in class_order:
+            source = mask[0] == class_id
+            class_masks[class_id], class_images[class_id] = dilate_class_pair(
+                source, image * source[None, ...], iterations
+            )
+        composed = self._compose_class_masks(class_masks, class_order, mask.dtype)
+        result = image.copy()
+        for class_id in reversed(class_order):
+            visible = composed[0] == class_id
+            result[:, visible] = class_images[class_id][:, visible]
+        return composed, result
+
+    def _apply_local_pair_transforms(self, mask, image, class_order):
+        original_background = mask[0] == 0
+        background_image = image.copy()
+        if np.any(original_background):
+            nearest = ndi.distance_transform_edt(
+                ~original_background, return_distances=False, return_indices=True
+            )
+            foreground = ~original_background
+            background_image[:, foreground] = image[
+                (slice(None), *(axis[foreground] for axis in nearest))
+            ]
+
+        class_masks = {class_id: mask[0] == class_id for class_id in class_order}
+        class_images = {
+            class_id: image * class_masks[class_id][None, ...]
+            for class_id in class_order
+        }
+        applied = False
+        for class_id in class_order:
+            probabilities = dict(self.local_transform_probs)
+            probabilities.update(self.class_transform_probs.get(class_id, {}))
+            for name in self.LOCAL_TRANSFORMS:
+                probability = probabilities.get(name)
+                if probability is None or not self._should_apply(probability):
+                    continue
+                params = dict(self.transform_params[name])
+                params.update(
+                    self.class_transform_params.get(class_id, {}).get(name, {})
+                )
+                if name == "local_dilate":
+                    iterations = sample_uniform(
+                        params.get("min_iterations", 0),
+                        params.get("max_iterations", 2),
+                        rng=self.rng, integer=True,
+                    )
+                    class_masks[class_id], class_images[class_id] = dilate_class_pair(
+                        class_masks[class_id], class_images[class_id], iterations
+                    )
+                else:
+                    class_mask = class_masks[class_id][None, ...].astype(mask.dtype)
+                    class_mask, class_image = self._warp_pair(
+                        class_mask, class_images[class_id],
+                        name.removeprefix("local_"), params,
+                    )
+                    class_masks[class_id] = class_mask[0] != 0
+                    class_images[class_id] = (
+                        class_image * class_masks[class_id][None, ...]
+                    )
+                applied = True
+
+        if not applied:
+            return mask, image
+        composed = self._compose_class_masks(class_masks, class_order, mask.dtype)
+        result = background_image.copy()
+        for class_id in reversed(class_order):
+            visible = composed[0] == class_id
+            result[:, visible] = class_images[class_id][:, visible]
+        return composed, result
 
     def create_target_mask_from_synth_anomaly(self, synth_anomaly_image):
         return target_mask_from_synthetic_anomaly(

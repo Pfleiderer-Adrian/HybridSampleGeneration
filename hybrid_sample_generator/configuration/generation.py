@@ -27,6 +27,7 @@ class GenerationConfiguration:
     """Settings for producing synthetic anomaly variants."""
 
     sampling_mode: str = "posterior"
+    posterior_skip_source: str = "original"
     variation_strength: float = 0.5
     clamp_output: bool = False
     background_threshold: float = 0.01
@@ -36,6 +37,12 @@ class GenerationConfiguration:
     def validate(self) -> None:
         if self.sampling_mode not in {"prior", "posterior"}:
             raise ValueError("generation.sampling_mode must be 'prior' or 'posterior'.")
+        if self.posterior_skip_source not in {"original", "transformed"}:
+            raise ValueError(
+                "generation.posterior_skip_source must be 'original' or 'transformed'."
+            )
+        if self.sampling_mode != "posterior" and self.posterior_skip_source == "transformed":
+            raise ValueError("Transformed posterior skips require posterior sampling.")
         if float(self.variation_strength) < 0:
             raise ValueError("generation.variation_strength must be non-negative.")
         if float(self.background_threshold) < 0:

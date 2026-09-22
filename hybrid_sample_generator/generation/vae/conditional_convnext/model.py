@@ -197,6 +197,7 @@ class ConditionalConvNeXtVAE(HybridVAEBase):
         original_mask: Optional[Union[np.ndarray, torch.Tensor]] = None,
         target_mask: Optional[Union[np.ndarray, torch.Tensor]] = None,
         *,
+        posterior_skip_source: str = "original",
         n: int = 1,
         variation_strength: float = 0.5,
         device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
@@ -208,6 +209,10 @@ class ConditionalConvNeXtVAE(HybridVAEBase):
             raise ValueError(f"n must be > 0, got {n}")
         if variation_strength < 0:
             raise ValueError(f"variation_strength must be >= 0, got {variation_strength}")
+        if posterior_skip_source not in {"original", "transformed"}:
+            raise ValueError(
+                "posterior_skip_source must be 'original' or 'transformed'."
+            )
 
         device = torch.device(device)
         model = self.to(device)
@@ -228,8 +233,35 @@ class ConditionalConvNeXtVAE(HybridVAEBase):
             raise ValueError("original_mask is required for conditional generation.")
         
         ori_mask = torch.as_tensor(original_mask)
-        if target_mask is None and target_mask_generator is not None:
-            target_mask = target_mask_generator.create_target_mask(original_mask=original_mask, conditional=True)
+        transformed_x = None
+        if posterior_skip_source == "transformed":
+            if target_mask is not None:
+                raise ValueError(
+                    "Explicit target_mask is not supported with transformed posterior skips."
+                )
+            if target_mask_generator is None:
+                raise ValueError(
+                    "Transformed posterior skips require a target_mask_generator."
+                )
+            if x.ndim != self.spatial_dims + 1:
+                raise ValueError(
+                    "Automatic paired transforms require one unbatched "
+                    "channel-first image and mask."
+                )
+            if any(self.decoder.skip_alphas):
+                target_mask, transformed_x = (
+                    target_mask_generator.create_target_mask_and_transformed_image(
+                        original_mask, x
+                    )
+                )
+            else:
+                target_mask = target_mask_generator.create_target_mask(
+                    original_mask=original_mask, conditional=True
+                )
+        elif target_mask is None and target_mask_generator is not None:
+            target_mask = target_mask_generator.create_target_mask(
+                original_mask=original_mask, conditional=True
+            )
 
         if target_mask is None:
             tgt_mask = ori_mask
@@ -244,10 +276,17 @@ class ConditionalConvNeXtVAE(HybridVAEBase):
         elif x.ndim != self.spatial_dims + 2:
             raise ValueError(f"Expected channel-first input with or without a batch, got {tuple(x.shape)}")
 
+        if transformed_x is not None:
+            transformed_x = torch.as_tensor(transformed_x).float().unsqueeze(0)
+
         if clamp_01:
             x = x.clamp(0.0, 1.0)
+            if transformed_x is not None:
+                transformed_x = transformed_x.clamp(0.0, 1.0)
 
         x = x.to(device)
+        if transformed_x is not None:
+            transformed_x = transformed_x.to(device)
         
         ori_mask = to_one_hot(ori_mask.to(device), self.num_anomaly_classes, spatial_dims=self.spatial_dims)
         tgt_mask = to_one_hot(tgt_mask.to(device), self.num_anomaly_classes, spatial_dims=self.spatial_dims)
@@ -265,6 +304,13 @@ class ConditionalConvNeXtVAE(HybridVAEBase):
 
             enc_in = torch.cat([x_pad, ori_mask_pad], dim=1)
             h, skips = model.encoder(enc_in)
+            if transformed_x is not None:
+                transformed_x_pad = (
+                    F.pad(transformed_x, pad, mode="constant", value=0.0)
+                    if sum(pad) else transformed_x
+                )
+                skip_in = torch.cat([transformed_x_pad, tgt_mask_pad], dim=1)
+                _, skips = model.encoder(skip_in)
             latent_shape = tuple(h.shape[-self.spatial_dims:])
             model._ensure_fcs(latent_shape, device)
 
