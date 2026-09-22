@@ -18,13 +18,13 @@ MATCHING_ROUTINES = {
 class MatchingConfiguration:
     """Candidate selection and placement settings for matching."""
 
-    routine: str = "fixed_from_extraction_anomaly_fusion"
+    routine: str = "batchwise"
     hybrids_per_original: int = 1
     anomalies_per_hybrid: int = 1
     max_anomalies_per_hybrid_deviation: int = 0
     reuse_synthetic_across_hybrids: bool = True
     allow_sibling_variants_in_same_hybrid: bool = False
-    batch_size: int = 64
+    batch_size: int = 32
     intensity_weight: float = 1.0
     gradient_weight: float = 2.0
 
