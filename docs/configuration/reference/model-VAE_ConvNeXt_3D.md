@@ -14,6 +14,9 @@ Select with `config.model.set_model('VAE_ConvNeXt_3D')`. The table shows the act
 | `config.model.parameters.beta_kl_warmup_start` | `int` | `0` | Epoch at which the KL weight begins to increase. | — |
 | `config.model.parameters.beta_kl_warmup_epochs` | `int` | `100` | Number of epochs needed to reach beta_kl_max. | — |
 | `config.model.parameters.free_bits` | `float` | `0.0` | KL free-bits allowance for latent dimensions. | — |
+| `config.model.parameters.latent_recon_weight` | `float` | `0.0` | Weight of the latent reconstruction Smooth L1 loss; 0 disables the loss. | — |
+| `config.model.parameters.latent_recon_noise_scale` | `float` | `1.0` | Scale of Gaussian noise added to the detached latent mean for the reconstruction cycle; positive. | — |
+| `config.model.parameters.latent_recon_image_noise_std` | `float` | `0.03` | Standard deviation of Gaussian noise added to the cycle image before re-encoding during training; non-negative. | — |
 | `config.model.parameters.recon_loss` | `str` | `'mse'` | Reconstruction loss, such as 'mse' or 'smoothl1'. | — |
 | `config.model.parameters.recon_smoothl1_beta` | `float` | `1.0` | Transition point of the Smooth L1 loss. | — |
 | `config.model.parameters.use_transpose_conv` | `bool` | `False` | Use transposed convolutions for upsampling. | — |
