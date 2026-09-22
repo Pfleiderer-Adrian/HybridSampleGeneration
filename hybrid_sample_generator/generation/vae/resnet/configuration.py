@@ -66,7 +66,6 @@ def get_resnet_vae_search(parameters: Config, spatial_dims: int) -> SearchSpace:
     search = SearchSpace(
         parameters,
         n_res_blocks=IntRange(4, 5),
-        n_levels=IntRange(4, 5),
     )
     if spatial_dims == 2:
         search.z_channels = Choice((32, 64))

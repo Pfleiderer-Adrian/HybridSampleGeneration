@@ -12,7 +12,7 @@ class RoiConfiguration:
 
     fixed_size: tuple[int, ...] | None = None
     min_size: tuple[int, ...] | int = 0
-    min_padding: tuple[int, ...] = (20, 20, 20)
+    min_padding: tuple[int, ...] = (10, 10, 10)
     padding_ratio: tuple[float, ...] = (0.5, 0.5, 0.5)
 
     def validate(self) -> None:
@@ -40,7 +40,7 @@ class ExtractionConfiguration:
 
     anomaly_size: tuple[int, ...] = (3, 64, 64)
     separate_components: bool = True
-    min_coverage_ratio: float = 0.05
+    min_coverage_ratio: float = 0.01
     add_background_noise: bool = True
     normalization: str = "z-score"
     normalization_eps: float = 1e-6

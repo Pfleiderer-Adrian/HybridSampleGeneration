@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 import math
+from numbers import Real
 from typing import Any, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
@@ -132,6 +133,29 @@ class HybridVAEBase(nn.Module, ABC):
         return values
 
     @staticmethod
+    def _validate_latent_recon_config(cfg) -> None:
+        names = (
+            "latent_recon_weight",
+            "latent_recon_noise_scale",
+            "latent_recon_image_noise_std",
+        )
+        for name in names:
+            value = getattr(cfg, name)
+            if isinstance(value, bool) or not isinstance(value, Real):
+                raise TypeError(f"{name} must be a real number, got {value!r}")
+        weight = float(cfg.latent_recon_weight)
+        noise_scale = float(cfg.latent_recon_noise_scale)
+        image_noise_std = float(cfg.latent_recon_image_noise_std)
+        if not math.isfinite(weight) or weight < 0.0:
+            raise ValueError(f"latent_recon_weight must be finite and >= 0, got {weight}")
+        if not math.isfinite(noise_scale) or noise_scale <= 0.0:
+            raise ValueError(f"latent_recon_noise_scale must be finite and > 0, got {noise_scale}")
+        if not math.isfinite(image_noise_std) or image_noise_std < 0.0:
+            raise ValueError(
+                f"latent_recon_image_noise_std must be finite and >= 0, got {image_noise_std}"
+            )
+
+    @staticmethod
     def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
         """Sample z ~ N(mu, sigma^2) using the reparameterization trick."""
         std = torch.exp(0.5 * logvar)
@@ -256,6 +280,23 @@ class HybridVAEBase(nn.Module, ABC):
         beta_kl = getattr(self, "_beta_kl", float(self.cfg.beta_kl_start))
         kl_weighted = beta_kl * kl_used
         total = recon_weighted + kl_weighted
+        latent_metrics = {}
+        if hasattr(self.cfg, "latent_recon_weight"):
+            latent_recon_weight = float(self.cfg.latent_recon_weight)
+            if latent_recon_weight > 0.0:
+                if "latent_recon" not in out or "latent_target" not in out:
+                    raise KeyError("latent_recon_weight > 0 requires latent cycle outputs")
+                latent_recon_loss = F.smooth_l1_loss(
+                    out["latent_recon"], out["latent_target"], reduction="mean", beta=1.0
+                )
+            else:
+                latent_recon_loss = recon_loss.new_zeros(())
+            latent_recon_weighted = latent_recon_weight * latent_recon_loss
+            total = total + latent_recon_weighted
+            latent_metrics = {
+                "latent_recon": latent_recon_loss,
+                "latent_recon_weighted": latent_recon_weighted,
+            }
 
         return {
             "total": total,
@@ -265,6 +306,7 @@ class HybridVAEBase(nn.Module, ABC):
             "kl_raw": kl_raw,
             "recon_weighted": recon_weighted,
             "kl_weighted": kl_weighted,
+            **latent_metrics,
         }
 
     @abstractmethod

@@ -40,6 +40,7 @@ class ConditionalConvNeXtVAE(HybridVAEBase):
             raise ValueError(f"spatial_dims must be 2 or 3, got {spatial_dims}.")
         self.spatial_dims = spatial_dims
         self.cfg = cfg
+        self._validate_latent_recon_config(cfg)
         self.in_channels = int(in_channels)
         self.num_anomaly_classes = int(num_anomaly_classes)
 
@@ -136,10 +137,29 @@ class ConditionalConvNeXtVAE(HybridVAEBase):
         
         recon = self.decoder(h_dec, tgt_mask_pad)
 
+        result = {"mu": mu, "logvar": logvar}
+        if self.cfg.latent_recon_weight > 0.0:
+            latent_target = (
+                mu.detach() + self.cfg.latent_recon_noise_scale * torch.randn_like(mu)
+            )
+            cycle_h_dec = self.fc_decode(latent_target).reshape(
+                B, self.cfg.z_channels, *latent_shape
+            )
+            cycle_recon = self.decoder(cycle_h_dec, tgt_mask_pad)
+            if self.training and self.cfg.latent_recon_image_noise_std > 0.0:
+                cycle_recon = cycle_recon + (
+                    self.cfg.latent_recon_image_noise_std * torch.randn_like(cycle_recon)
+                )
+            cycle_input = torch.cat([cycle_recon, tgt_mask_pad], dim=1)
+            cycle_h, _ = self.encoder(cycle_input)
+            cycle_mu = self.fc_mu(cycle_h.reshape(B, -1))
+            result.update({"latent_recon": cycle_mu, "latent_target": latent_target})
+
         recon = self._crop_like(recon, spatial_shape)
         x_ref = self._crop_like(x_pad, spatial_shape) if sum(pad) else x
 
-        return {"recon": recon, "mu": mu, "logvar": logvar, "x_ref": x_ref}
+        result.update({"recon": recon, "x_ref": x_ref})
+        return result
 
     def _extract_inputs(self, batch) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """Extract x and ori_mask from batch; tgt_mask is optional for generation-only use."""

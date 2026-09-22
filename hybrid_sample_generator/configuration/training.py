@@ -15,23 +15,22 @@ TrialSelection = Literal["best", "last"] | int
 class TrainingConfiguration:
     """Model-independent optimization and stopping settings."""
 
-    num_trials: int = 1
+    num_trials: int = 10
     trial_selection: TrialSelection = "best"
     validation_ratio: float = 0.2
     batch_size: int = 64
-    epochs: int = 3000
+    epochs: int = 1000
     learning_rate: float = 1e-3
-    log_every: int | None = None
     dtype: torch.dtype | None = None
     gradient_clip_norm: float | None = None
     monitor_metric: str | None = "selection"
     early_stopping_enabled: bool = True
     early_stopping: dict[str, Any] = field(
-        default_factory=lambda: {"patience": 2000, "delta": 0.0001}
+        default_factory=lambda: {"patience": 100, "delta": 0.0001}
     )
     lr_scheduler_enabled: bool = True
     lr_scheduler: dict[str, Any] = field(
-        default_factory=lambda: {"patience": 1000, "factor": 0.1, "threshold": 1e-5}
+        default_factory=lambda: {"patience": 30, "factor": 0.1, "threshold": 1e-5}
     )
 
     def validate(self) -> None:

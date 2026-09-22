@@ -294,6 +294,24 @@ of the saved model parameters. Model dimensionality and the full configuration
 are validated when constructing `HybridDataGenerator`, serializing, or
 explicitly calling `config.validate()`.
 
+Both ConvNeXt VAEs support an optional latent reconstruction loss. It decodes a
+perturbed latent vector, re-encodes the resulting image, and compares the
+recovered vector with the perturbation target. The conditional model uses the
+target mask for both passes. The default weight of 0 disables the extra
+encoder and decoder passes:
+
+```python
+config.model.parameters.latent_recon_weight = 0.1
+config.model.parameters.latent_recon_noise_scale = 1.0
+config.model.parameters.latent_recon_image_noise_std = 0.03
+```
+
+`latent_recon_weight` must be non-negative; `latent_recon_noise_scale` must be
+positive. `latent_recon_image_noise_std` is non-negative and adds Gaussian
+noise in normalized image units during training only. The cycle loss and its
+weighted contribution are reported separately. The default model-selection
+metric remains image reconstruction MSE (`selection`).
+
 ### [Extraction](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/pipeline/#extraction)
 
 Extraction finds connected components in the positive segmentation, crops each
