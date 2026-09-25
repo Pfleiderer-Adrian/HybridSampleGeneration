@@ -154,7 +154,6 @@ class TransformedSkipTests(unittest.TestCase):
     def test_service_passes_strategy_only_to_conditional_model(self):
         config = Configuration("skip-service", study_folder="/tmp/skip-service")
         config.model.set_model("cVAE_ConvNeXt_2D")
-        config.generation.posterior_skip_source = "transformed"
         service = GenerationService(config, None, None, None)
         model = Mock()
         model.generate.return_value = (
@@ -169,18 +168,26 @@ class TransformedSkipTests(unittest.TestCase):
         )
 
         config.model.set_model("VAE_ConvNeXt_2D")
-        with self.assertRaisesRegex(ValueError, "conditional ConvNeXt"):
-            service._generate_variant({}, np.zeros((1, 8, 8)), TransformGenerator())
+        service._generate_variant({}, np.zeros((1, 8, 8)), TransformGenerator())
+        self.assertNotIn(
+            "posterior_skip_source",
+            model.generate.call_args.kwargs,
+        )
 
-    def test_configuration_round_trip_and_model_restriction(self):
+        config.model.set_model("cVAE_ConvNeXt_2D")
+        config.generation.sampling_mode = "prior"
+        service._generate_variant({}, np.zeros((1, 8, 8)), TransformGenerator())
+        self.assertNotIn(
+            "posterior_skip_source",
+            model.generate.call_args.kwargs,
+        )
+
+    def test_configuration_round_trip_and_irrelevant_models(self):
         config = Configuration("transformed-config")
-        config.generation.posterior_skip_source = "transformed"
+        self.assertEqual(config.generation.posterior_skip_source, "transformed")
         restored = Configuration.from_dict(config.to_dict())
         self.assertEqual(restored.generation.posterior_skip_source, "transformed")
         config.model.set_model("VAE_ConvNeXt_2D")
-        with self.assertRaisesRegex(ValueError, "conditional ConvNeXt"):
-            config.validate()
-        config.model.set_model("cVAE_ConvNeXt_2D")
         config.validate()
 
     def test_generation_configuration_validates_skip_source(self):
@@ -190,8 +197,7 @@ class TransformedSkipTests(unittest.TestCase):
         config = GenerationConfiguration(
             sampling_mode="prior", posterior_skip_source="transformed"
         )
-        with self.assertRaisesRegex(ValueError, "posterior sampling"):
-            config.validate()
+        config.validate()
 
 
 if __name__ == "__main__":

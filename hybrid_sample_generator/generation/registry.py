@@ -40,6 +40,7 @@ class ModelSpec:
     spatial_dims: int
     input_artefacts: tuple[str, ...]
     uses_masks: bool = False
+    supports_transformed_posterior_skips: bool = False
 
     def build(
         self,
@@ -97,12 +98,16 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
     "cVAE_ConvNeXt_3D": ModelSpec(
         "cVAE_ConvNeXt_3D", ConditionalConvNeXtVAE, ConditionalConvNeXtConfig,
         get_convnext_cvae_configuration, get_convnext_cvae_search,
-        3, CONDITIONAL_VAE_ARTEFACTS, True,
+        3, CONDITIONAL_VAE_ARTEFACTS,
+        uses_masks=True,
+        supports_transformed_posterior_skips=True,
     ),
     "cVAE_ConvNeXt_2D": ModelSpec(
         "cVAE_ConvNeXt_2D", ConditionalConvNeXtVAE, ConditionalConvNeXtConfig,
         get_convnext_cvae_configuration, get_convnext_cvae_search,
-        2, CONDITIONAL_VAE_ARTEFACTS, True,
+        2, CONDITIONAL_VAE_ARTEFACTS,
+        uses_masks=True,
+        supports_transformed_posterior_skips=True,
     ),
 }
 

@@ -28,6 +28,7 @@ def create_configuration():
     # training settings
     config.model.parameters.beta_kl_warmup_epochs = 200
     config.model.search.n_levels = IntRange(4, 5)
+    config.generation.posterior_skip_source = "transformed"
 
     # Fusion settings
     config.fusion.set_backend("classical")

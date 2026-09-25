@@ -41,7 +41,7 @@ DESCRIPTIONS = {
     "augmentation.random_offset_max_fraction": "Maximum offset as a fraction of available space; range [0, 1].",
     "augmentation.random_offset_foreground_threshold": "Foreground threshold used for training offsets.",
     "generation.sampling_mode": "Latent sampling source: 'posterior' or 'prior'.",
-    "generation.posterior_skip_source": "Encoder skip source in posterior mode: 'original' uses the input image; 'transformed' uses an image paired with the generated target mask (conditional ConvNeXt only).",
+    "generation.posterior_skip_source": "Encoder skip source for models supporting transformed posterior skips: 'original' uses the input image; 'transformed' uses an image paired with the generated target mask. Ignored by other models and in prior mode.",
     "generation.variation_strength": "Strength of random variation during generation; non-negative.",
     "generation.clamp_output": "Clamp generated image values to [0, 1].",
     "generation.background_threshold": "Relative threshold for deriving a mask from generated images.",
