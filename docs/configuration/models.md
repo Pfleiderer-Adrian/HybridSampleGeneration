@@ -48,6 +48,15 @@ of the saved model parameters. Model dimensionality and the full configuration
 are validated when constructing `HybridDataGenerator`, serializing, or
 explicitly calling `config.validate()`.
 
+## Mask-balanced reconstruction
+
+All VAE variants receive the extracted `ori_mask` during training. Foreground
+and background reconstruction errors are averaged separately per sample and
+combined with `foreground_weight` and `background_weight`. The weights are
+relative and must be non-negative; at least one must be positive. ResNet and
+regular ConvNeXt use the mask only for the loss and remain unconditioned. The
+`selection` metric uses this same balanced loss.
+
 ## Fixed values and Optuna search
 
 `config.model.parameters.<name>` sets a concrete value. You can assign an Optuna distribution to `config.model.search.<name>`. Without a search distribution, the concrete value stays fixed across trials. The "Default search" column shows which parameters already have a distribution for the selected model.

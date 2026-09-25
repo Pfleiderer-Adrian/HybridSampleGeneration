@@ -156,6 +156,22 @@ class HybridVAEBase(nn.Module, ABC):
             )
 
     @staticmethod
+    def _validate_reconstruction_weights(cfg) -> None:
+        values = {
+            "foreground_weight": getattr(cfg, "foreground_weight"),
+            "background_weight": getattr(cfg, "background_weight"),
+        }
+        for name, value in values.items():
+            if isinstance(value, bool) or not isinstance(value, Real):
+                raise TypeError(f"{name} must be a real number, got {value!r}")
+            if not math.isfinite(float(value)) or float(value) < 0.0:
+                raise ValueError(f"{name} must be finite and >= 0, got {value}")
+        if not any(float(value) > 0.0 for value in values.values()):
+            raise ValueError(
+                "foreground_weight and background_weight cannot both be zero."
+            )
+
+    @staticmethod
     def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
         """Sample z ~ N(mu, sigma^2) using the reparameterization trick."""
         std = torch.exp(0.5 * logvar)
@@ -198,8 +214,21 @@ class HybridVAEBase(nn.Module, ABC):
 
     def _shared_step(self, batch) -> StepOutput:
         out = self._forward_from_batch(batch)
+        out["reconstruction_mask"] = self._reconstruction_mask_from_batch(batch)
         losses = self.loss(out)
         return StepOutput(loss=losses["total"], metrics=losses)
+
+    @staticmethod
+    def _reconstruction_mask_from_batch(batch) -> torch.Tensor:
+        if isinstance(batch, dict):
+            for key in ("ori_mask", "mask"):
+                if key in batch:
+                    value = batch[key]
+                    return value if isinstance(value, torch.Tensor) else torch.as_tensor(value)
+        raise ValueError(
+            "VAE training requires an 'ori_mask' in every batch for the "
+            "mask-balanced reconstruction loss."
+        )
 
     def _forward_from_batch(self, batch):
         return self(*self._forward_args_from_batch(batch))
@@ -258,14 +287,69 @@ class HybridVAEBase(nn.Module, ABC):
                 "Supported: 'smoothl1' | 'mse'"
             )
 
-        fg_weight = float(self.cfg.fg_weight)
-        fg_threshold = float(self.cfg.fg_threshold)
-        if fg_weight != 1.0:
-            fg_mask = (x > fg_threshold).float()
-            weights = torch.where(fg_mask > 0, fg_weight, 1.0)
-            recon_loss = (recon_per_element * weights).mean()
+        if "reconstruction_mask" not in out:
+            raise KeyError(
+                "VAE loss requires 'reconstruction_mask' from the training batch."
+            )
+        mask = torch.as_tensor(
+            out["reconstruction_mask"], device=recon.device
+        )
+        if mask.ndim == recon.ndim - 1:
+            mask = mask.unsqueeze(1)
+        if mask.ndim != recon.ndim:
+            raise ValueError(
+                "reconstruction_mask must have a batch axis and the same spatial "
+                f"dimensions as the reconstruction. Got {tuple(mask.shape)} for "
+                f"reconstruction {tuple(recon.shape)}."
+            )
+        if mask.shape[0] != recon.shape[0] or mask.shape[2:] != recon.shape[2:]:
+            raise ValueError(
+                f"reconstruction_mask shape {tuple(mask.shape)} does not match "
+                f"reconstruction shape {tuple(recon.shape)}."
+            )
+
+        foreground = torch.any(mask > 0, dim=1, keepdim=True)
+        foreground = foreground.expand_as(recon_per_element)
+        background = ~foreground
+        reduce_dims = tuple(range(1, recon_per_element.ndim))
+        foreground_count = foreground.sum(dim=reduce_dims)
+        background_count = background.sum(dim=reduce_dims)
+        foreground_recon_per_sample = (
+            (recon_per_element * foreground).sum(dim=reduce_dims)
+            / foreground_count.clamp_min(1)
+        )
+        background_recon_per_sample = (
+            (recon_per_element * background).sum(dim=reduce_dims)
+            / background_count.clamp_min(1)
+        )
+
+        foreground_weight = float(self.cfg.foreground_weight)
+        background_weight = float(self.cfg.background_weight)
+        active_weight = (
+            foreground_weight * (foreground_count > 0).to(recon.dtype)
+            + background_weight * (background_count > 0).to(recon.dtype)
+        )
+        if torch.any(active_weight <= 0):
+            raise ValueError(
+                "Each sample needs pixels in a reconstruction region with positive weight."
+            )
+        recon_per_sample = (
+            foreground_weight * foreground_recon_per_sample
+            + background_weight * background_recon_per_sample
+        ) / active_weight
+        recon_loss = recon_per_sample.mean()
+        if torch.any(foreground_count > 0):
+            foreground_recon = foreground_recon_per_sample[
+                foreground_count > 0
+            ].mean()
         else:
-            recon_loss = recon_per_element.mean()
+            foreground_recon = recon_loss.new_zeros(())
+        if torch.any(background_count > 0):
+            background_recon = background_recon_per_sample[
+                background_count > 0
+            ].mean()
+        else:
+            background_recon = recon_loss.new_zeros(())
 
         kl_per_dim = 0.5 * (mu.pow(2) + logvar.exp() - 1.0 - logvar)
         kl_raw = kl_per_dim.sum(dim=1).mean()
@@ -300,8 +384,10 @@ class HybridVAEBase(nn.Module, ABC):
 
         return {
             "total": total,
-            "selection": F.mse_loss(recon, x),
+            "selection": recon_loss,
             "recon": recon_loss,
+            "foreground_recon": foreground_recon,
+            "background_recon": background_recon,
             "kl": kl_used,
             "kl_raw": kl_raw,
             "recon_weighted": recon_weighted,

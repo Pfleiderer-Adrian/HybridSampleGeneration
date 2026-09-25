@@ -34,7 +34,7 @@ class Configuration:
     model parameters. Full validation happens at serialization or facade creation.
     """
 
-    SCHEMA_VERSION = 9
+    SCHEMA_VERSION = 10
 
     def __init__(
         self,

@@ -54,6 +54,7 @@ class ResNetVAE(HybridVAEBase):
             raise ValueError(f"spatial_dims must be 2 or 3, got {spatial_dims}.")
         self.spatial_dims = spatial_dims
         self.cfg = cfg
+        self._validate_reconstruction_weights(cfg)
         self.in_channels = int(in_channels)
 
         # encoder outputs a latent feature map h

@@ -294,6 +294,13 @@ of the saved model parameters. Model dimensionality and the full configuration
 are validated when constructing `HybridDataGenerator`, serializing, or
 explicitly calling `config.validate()`.
 
+All VAE variants use the extracted `ori_mask` for a mask-balanced
+reconstruction loss. Foreground and background errors are averaged separately
+per sample and combined using `foreground_weight` and `background_weight`.
+ResNet and regular ConvNeXt use the mask only for this loss; their encoder and
+decoder remain unconditioned. The `selection` metric uses the same balanced
+reconstruction loss for checkpoints, early stopping, and Optuna.
+
 Both ConvNeXt VAEs support an optional latent reconstruction loss. It decodes a
 perturbed latent vector, re-encodes the resulting image, and compares the
 recovered vector with the perturbation target. The conditional model uses the
@@ -308,9 +315,7 @@ config.model.parameters.latent_recon_image_noise_std = 0.03
 
 `latent_recon_weight` must be non-negative; `latent_recon_noise_scale` must be
 positive. `latent_recon_image_noise_std` is non-negative and adds Gaussian
-noise in normalized image units during training only. The cycle loss and its
-weighted contribution are reported separately. The default model-selection
-metric remains image reconstruction MSE (`selection`).
+noise in normalized image units during training only. The cycle loss and its weighted contribution are reported separately.
 
 ### [Extraction](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/pipeline/#extraction)
 

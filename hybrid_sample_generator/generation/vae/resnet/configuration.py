@@ -29,8 +29,8 @@ class Config:
     recon_loss: str = "smoothl1"
     recon_smoothl1_beta: float = 1.0
     use_transpose_conv: bool = True
-    fg_weight: float = 1.0
-    fg_threshold: float = 0.0
+    foreground_weight: float = 0.8
+    background_weight: float = 0.2
 
 
 def get_resnet_vae_configuration(spatial_dims: int) -> Config:
@@ -54,8 +54,8 @@ def get_resnet_vae_configuration(spatial_dims: int) -> Config:
             use_multires_skips=True,
             recon_weight=100.0,
             beta_kl_max=0.05,
-            fg_weight=1.0,
-            fg_threshold=0.0,
+            foreground_weight=0.8,
+            background_weight=0.2,
             recon_loss="mse",
             use_transpose_conv=False,
         )

@@ -42,6 +42,7 @@ class ConvNeXtVAE(HybridVAEBase):
         self.spatial_dims = spatial_dims
         self.cfg = cfg
         self._validate_latent_recon_config(cfg)
+        self._validate_reconstruction_weights(cfg)
         self.in_channels = int(in_channels)
 
         self.encoder = ConvNeXtUNetEncoder(
