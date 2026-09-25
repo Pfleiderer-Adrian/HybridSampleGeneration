@@ -51,9 +51,45 @@ class ResamplingTests(unittest.TestCase):
         resized_3d, scale_3d = resize_and_pad(volume, (3, 6, 4))
 
         self.assertEqual(resized_2d.shape, (2, 4, 6))
-        self.assertEqual(scale_2d, (0.5, 1.0))
+        self.assertEqual(scale_2d, (0.5, 0.5))
         self.assertEqual(resized_3d.shape, (2, 3, 6, 4))
-        self.assertEqual(scale_3d, (0.5, 1.0, 1.0))
+        self.assertEqual(scale_3d, (0.5, 0.5, 0.5))
+
+    def test_aspect_preserving_padding_stays_outside_the_mask(self):
+        mask = np.ones((1, 8, 4), dtype=np.uint8)
+
+        resized, scale = resize_and_pad(
+            mask,
+            (4, 6),
+            order=0,
+            padding_value=0,
+        )
+
+        self.assertEqual(scale, (0.5, 0.5))
+        self.assertTrue(np.all(resized[:, :, :2] == 0))
+        self.assertTrue(np.all(resized[:, :, 2:4] == 1))
+        self.assertTrue(np.all(resized[:, :, 4:] == 0))
+        foreground = np.any(resized > 0, axis=0)
+        coordinates = np.where(foreground)
+        cropped_shape = tuple(
+            int(axis.max() - axis.min() + 1) for axis in coordinates
+        )
+        restored_shape = tuple(
+            round(size / factor) for size, factor in zip(cropped_shape, scale)
+        )
+        self.assertEqual(restored_shape, mask.shape[1:])
+
+    def test_resize_and_pad_can_stretch_axes_independently(self):
+        image = np.arange(2 * 8 * 4, dtype=np.float32).reshape(2, 8, 4)
+
+        resized, scale = resize_and_pad(
+            image,
+            (4, 6),
+            preserve_aspect_ratio=False,
+        )
+
+        self.assertEqual(resized.shape, (2, 4, 6))
+        self.assertEqual(scale, (0.5, 1.0))
 
     def test_foreground_mask_must_match_spatial_shape(self):
         with self.assertRaisesRegex(ValueError, "foreground_mask shape"):

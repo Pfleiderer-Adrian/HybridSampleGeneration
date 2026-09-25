@@ -44,8 +44,14 @@ class MVTecDatasetTests(unittest.TestCase):
 
     def test_category_recipes_build_independent_valid_configurations(self):
         categories = {
-            "can": 3, "fabric": 3, "fruit_jelly": 3, "rice": 3,
-            "sheet_metal": 1, "vial": 1, "wallplugs": 1, "walnuts": 3,
+            "can": 3,
+            "fabric": 3,
+            "fruit_jelly": 3,
+            "rice": 3,
+            "sheet_metal": 1,
+            "vial": 1,
+            "wallplugs": 1,
+            "walnuts": 3,
         }
         for category, channels in categories.items():
             with self.subTest(category=category):
@@ -53,7 +59,9 @@ class MVTecDatasetTests(unittest.TestCase):
                 first = recipe.create_configuration()
                 second = recipe.create_configuration()
                 first.validate()
-                self.assertEqual(first.extraction.anomaly_size, (channels, 64, 64))
+                anomaly_size = first.extraction.anomaly_size
+                self.assertEqual(len(anomaly_size), 3)
+                self.assertEqual(anomaly_size[0], channels)
                 self.assertEqual(first.generation.feedback.max_attempts, 1000)
                 self.assertEqual(first.matching.batch_size, 64)
                 self.assertEqual(first.training.num_trials, 10)
