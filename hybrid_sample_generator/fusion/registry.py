@@ -8,6 +8,8 @@ from typing import Type
 from hybrid_sample_generator.fusion.classical import ClassicalFusionBackend
 from hybrid_sample_generator.fusion.interfaces import FusionBackend
 from hybrid_sample_generator.fusion.classical import Config as ClassicalFusionConfig
+from hybrid_sample_generator.fusion.poisson import PoissonFusionBackend
+from hybrid_sample_generator.fusion.poisson import Config as PoissonFusionConfig
 from hybrid_sample_generator.fusion.settings import FusionParameters
 
 
@@ -38,6 +40,11 @@ FUSION_BACKEND_REGISTRY: dict[str, FusionBackendSpec] = {
         name="classical",
         backend_cls=ClassicalFusionBackend,
         config_cls=ClassicalFusionConfig,
+    ),
+    "poisson": FusionBackendSpec(
+        name="poisson",
+        backend_cls=PoissonFusionBackend,
+        config_cls=PoissonFusionConfig,
     ),
 }
 

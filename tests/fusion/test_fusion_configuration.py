@@ -6,6 +6,7 @@ from dataclasses import asdict
 from unittest.mock import Mock
 
 from hybrid_sample_generator.fusion.classical import ClassicalFusionBackend, Config as ClassicalConfig
+from hybrid_sample_generator.fusion.poisson import PoissonFusionBackend, Config as PoissonConfig
 from hybrid_sample_generator.fusion.settings import FusionSettings
 from hybrid_sample_generator.fusion.registry import get_fusion_backend_spec
 from hybrid_sample_generator.fusion.service import FusionService
@@ -15,6 +16,7 @@ class FusionConfigurationTests(unittest.TestCase):
     def test_fusion_configuration_round_trip_preserves_backend_dataclass(self):
         for backend, config_cls, field, value in (
             ('classical', ClassicalConfig, 'max_alpha', 0.7),
+            ('poisson', PoissonConfig, 'guidance_mode', 'mixed'),
         ):
             with self.subTest(backend=backend), tempfile.TemporaryDirectory() as root:
                 config = Configuration('fusion-test', save_path=root)
@@ -46,11 +48,18 @@ class FusionConfigurationTests(unittest.TestCase):
             ClassicalConfig(max_alpha=1.1), ClassicalConfig(max_alpha='0.5'),
             ClassicalConfig(upsampling_factor=True), ClassicalConfig(sq=float('nan')),
             ClassicalConfig(selected_confidence='invalid'), ClassicalConfig(fusion_relation_mode='invalid'),
+            PoissonConfig(guidance_mode='invalid'), PoissonConfig(solver_rtol=-1.0),
+            PoissonConfig(solver_rtol=0.0, solver_atol=0.0),
+            PoissonConfig(solver_max_iterations=0),
         ):
             with self.subTest(parameters=parameters), self.assertRaises(ValueError):
                 parameters.validate()
         with self.assertRaises(TypeError):
             ClassicalFusionBackend(fusion_params={'max_alpha': 0.8})
+        with self.assertRaises(TypeError):
+            PoissonFusionBackend(fusion_params=ClassicalConfig())
+        with self.assertRaises(TypeError):
+            get_fusion_backend_spec('poisson').build(ClassicalConfig())
 
     def test_experimental_backend_is_not_registered(self):
         with self.assertRaises(ValueError):

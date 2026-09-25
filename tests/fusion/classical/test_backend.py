@@ -55,7 +55,9 @@ class ClassicalFusionBackendTests(unittest.TestCase):
         )
 
         np.testing.assert_array_equal(output.image, control)
-        self.assertEqual(int(output.segmentation.sum()), 0)
+        np.testing.assert_array_equal(
+            output.segmentation, np.zeros_like(control, dtype=np.uint8)
+        )
         self.assertIsNone(output.roi)
         self.assertIsNone(output.roi_mask)
 

@@ -127,6 +127,11 @@ FUSION_DESCRIPTIONS = {
     "fusion_bg_value": "Explicit background value; None uses automatic detection.",
     "fusion_relative_bg_threshold": "Relative threshold for detecting background pixels.",
     "fusion_bg_exterior_only": "Consider only background pixels connected to the exterior.",
+    "guidance_mode": "Gradient guidance: 'source' preserves anomaly gradients; 'mixed' selects the stronger source or target gradient.",
+    "solver_rtol": "Relative convergence tolerance for the conjugate-gradient solver.",
+    "solver_atol": "Absolute convergence tolerance for the conjugate-gradient solver.",
+    "solver_max_iterations": "Maximum conjugate-gradient iterations per image channel.",
+    "clip_output": "Clip results to recognized control-image ranges such as [0, 1] or [0, 255].",
 }
 
 
