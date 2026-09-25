@@ -48,7 +48,7 @@ class MVTecDatasetTests(unittest.TestCase):
             "fabric": (3, 64, 64),
             "fruit_jelly": (3, 64, 64),
             "rice": (3, 128, 128),
-            "sheet_metal": (1, 64, 64),
+            "sheet_metal": (1, 128, 128),
             "vial": (1, 64, 64),
             "wallplugs": (1, 64, 64),
             "walnuts": (3, 64, 64),

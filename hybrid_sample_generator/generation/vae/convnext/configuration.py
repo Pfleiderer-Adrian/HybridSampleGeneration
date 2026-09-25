@@ -28,8 +28,8 @@ class Config:
     recon_loss: str = "smoothl1"
     recon_smoothl1_beta: float = 1.0
     use_transpose_conv: bool = True
-    fg_weight: float = 1.0
-    fg_threshold: float = 0.0
+    foreground_weight: float = 0.8
+    background_weight: float = 0.2
     drop_path_rate: float = 0.1
     dropout: float = 0.05
     skip_dropout_p: float = 0.0
@@ -59,8 +59,8 @@ def get_convnext_vae_configuration(spatial_dims: int) -> Config:
             beta_kl_warmup_start=0,
             beta_kl_warmup_epochs=200,
             free_bits=0.001,
-            fg_weight=1.0,
-            fg_threshold=0.0,
+            foreground_weight=0.8,
+            background_weight=0.2,
         )
     if spatial_dims == 3:
         return Config(
@@ -73,8 +73,8 @@ def get_convnext_vae_configuration(spatial_dims: int) -> Config:
             beta_kl_max=0.01,
             beta_kl_warmup_start=0,
             beta_kl_warmup_epochs=100,
-            fg_weight=1.0,
-            fg_threshold=0.0,
+            foreground_weight=0.8,
+            background_weight=0.2,
             recon_loss="mse",
             skip_dropout_p=0.6,
             skip_dropout_ps=None,

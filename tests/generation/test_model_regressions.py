@@ -55,8 +55,7 @@ class ModelRegressionTests(unittest.TestCase):
                 model.warmup(shape[1:])
                 optimizer, _ = model.configure_optimizers(config)
                 batch = {"img": torch.rand((2, *shape[1:]))}
-                if conditional:
-                    batch["ori_mask"] = torch.ones_like(batch["img"], dtype=torch.long)
+                batch["ori_mask"] = torch.ones_like(batch["img"], dtype=torch.long)
                 before = [parameter.detach().clone() for parameter in model.parameters()]
                 training = run_epoch(model, [batch], optimizer, config, "cpu", training=True)
                 self.assertTrue(np.isfinite(training["total"]))

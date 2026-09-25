@@ -88,8 +88,8 @@ def apply_generator_defaults(config: Configuration) -> None:
     parameters.recon_loss = "smoothl1"
     parameters.recon_smoothl1_beta = 0.75
     parameters.use_transpose_conv = False
-    parameters.fg_weight = 1.0
-    parameters.fg_threshold = 0.0
+    parameters.foreground_weight = 0.8
+    parameters.background_weight = 0.2
     parameters.drop_path_rate = 0.04
     parameters.dropout = 0.05
     parameters.skip_dropout_p = 0.85

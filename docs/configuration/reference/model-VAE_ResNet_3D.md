@@ -18,5 +18,5 @@ Select with `config.model.set_model('VAE_ResNet_3D')`. The table shows the actua
 | `config.model.parameters.recon_loss` | `str` | `'mse'` | Reconstruction loss, such as 'mse' or 'smoothl1'. | — |
 | `config.model.parameters.recon_smoothl1_beta` | `float` | `1.0` | Transition point of the Smooth L1 loss. | — |
 | `config.model.parameters.use_transpose_conv` | `bool` | `False` | Use transposed convolutions for upsampling. | — |
-| `config.model.parameters.fg_weight` | `float` | `1.0` | Additional weight for foreground pixels in the reconstruction loss. | — |
-| `config.model.parameters.fg_threshold` | `float` | `0.0` | Threshold for selecting foreground pixels. | — |
+| `config.model.parameters.foreground_weight` | `float` | `0.8` | Relative weight of the mask foreground mean in the reconstruction loss; non-negative. | — |
+| `config.model.parameters.background_weight` | `float` | `0.2` | Relative weight of the mask background mean in the reconstruction loss; non-negative. | — |

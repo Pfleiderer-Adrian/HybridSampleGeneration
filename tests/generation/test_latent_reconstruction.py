@@ -95,6 +95,7 @@ class LatentReconstructionTests(unittest.TestCase):
                         hook.remove()
                 self.assertEqual(calls, {"encoder": 1, "decoder": 1})
                 self.assertNotIn("latent_recon", output)
+                output["reconstruction_mask"] = torch.ones_like(image)
                 losses = model.loss(output)
                 self.assertEqual(losses["latent_recon"].item(), 0.0)
                 self.assertEqual(losses["latent_recon_weighted"].item(), 0.0)
@@ -127,6 +128,7 @@ class LatentReconstructionTests(unittest.TestCase):
                 self.assertEqual(calls, {"encoder": 2, "decoder": 2})
                 self.assertFalse(output["latent_target"].requires_grad)
                 self.assertEqual(output["latent_recon"].shape, output["mu"].shape)
+                output["reconstruction_mask"] = torch.ones_like(image)
                 losses = model.loss(output)
                 torch.testing.assert_close(
                     losses["latent_recon"],

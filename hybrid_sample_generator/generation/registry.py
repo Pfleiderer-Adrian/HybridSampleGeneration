@@ -70,8 +70,8 @@ class ModelSpec:
         return self.search_factory(parameters, self.spatial_dims)
 
 
-VAE_ARTEFACTS = ("img", "fname")
-CONDITIONAL_VAE_ARTEFACTS = ("img", "fname", "ori_mask")
+VAE_ARTEFACTS = ("img", "fname", "ori_mask")
+CONDITIONAL_VAE_ARTEFACTS = VAE_ARTEFACTS
 
 MODEL_REGISTRY: dict[str, ModelSpec] = {
     "VAE_ResNet_3D": ModelSpec(
