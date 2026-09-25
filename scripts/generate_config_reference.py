@@ -24,6 +24,7 @@ DESCRIPTIONS = {
     "extraction.separate_components": "Extract each connected anomaly component separately.",
     "extraction.min_coverage_ratio": "Minimum mask coverage within a crop; range [0, 1].",
     "extraction.add_background_noise": "Add a small amount of noise to otherwise constant backgrounds.",
+    "extraction.preserve_aspect_ratio": "Use one spatial scale for every axis and center-pad the remaining area; False stretches axes independently.",
     "extraction.normalization": "Intensity normalization method; defaults to z-score.",
     "extraction.normalization_eps": "Positive lower bound for numerically stable normalization.",
     "extraction.roi.fixed_size": "Fixed spatial ROI size; None selects dynamic sizing.",

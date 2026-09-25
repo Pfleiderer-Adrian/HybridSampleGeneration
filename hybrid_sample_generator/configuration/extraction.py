@@ -42,6 +42,7 @@ class ExtractionConfiguration:
     separate_components: bool = True
     min_coverage_ratio: float = 0.01
     add_background_noise: bool = True
+    preserve_aspect_ratio: bool = True
     normalization: str = "z-score"
     normalization_eps: float = 1e-6
     roi: RoiConfiguration = field(default_factory=RoiConfiguration)
@@ -56,6 +57,8 @@ class ExtractionConfiguration:
             )
         if not 0.0 <= float(self.min_coverage_ratio) <= 1.0:
             raise ValueError("extraction.min_coverage_ratio must be in [0, 1].")
+        if not isinstance(self.preserve_aspect_ratio, bool):
+            raise TypeError("extraction.preserve_aspect_ratio must be a boolean.")
         if float(self.normalization_eps) <= 0:
             raise ValueError("extraction.normalization_eps must be positive.")
         self.roi.validate()

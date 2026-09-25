@@ -21,7 +21,15 @@ def spatial_target_size(target_size, spatial_dims: int) -> tuple[int, ...]:
     )
 
 
-def resize_and_pad(arr, target_size, *, order: int = 1, foreground_mask=None):
+def resize_and_pad(
+    arr,
+    target_size,
+    *,
+    order: int = 1,
+    foreground_mask=None,
+    preserve_aspect_ratio: bool = True,
+    padding_value: float | None = None,
+):
     """Downscale and center-pad a channel-first 2D image or 3D volume."""
     spatial_dims = arr.ndim - 1
     if spatial_dims not in (2, 3):
@@ -42,10 +50,15 @@ def resize_and_pad(arr, target_size, *, order: int = 1, foreground_mask=None):
                 f"array spatial shape {arr.shape[1:]}."
             )
 
-    scale_spatial = tuple(
+    axis_scales = tuple(
         min(target / source, 1.0)
         for source, target in zip(arr.shape[1:], target_size)
     )
+    if preserve_aspect_ratio:
+        uniform_scale = min(axis_scales)
+        scale_spatial = (uniform_scale,) * spatial_dims
+    else:
+        scale_spatial = axis_scales
     if any(scale < 1.0 for scale in scale_spatial):
         if order == 0 or foreground_mask is None:
             arr = zoom(arr, (1.0, *scale_spatial), order=order)
@@ -67,7 +80,7 @@ def resize_and_pad(arr, target_size, *, order: int = 1, foreground_mask=None):
         arr,
         ((0, 0), *padding),
         mode="constant",
-        constant_values=float(np.min(arr)),
+        constant_values=float(np.min(arr) if padding_value is None else padding_value),
     )
     crop = (slice(None), *(slice(0, target) for target in target_size))
     return padded[crop], scale_spatial

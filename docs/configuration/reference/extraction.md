@@ -6,6 +6,7 @@
 | `config.extraction.separate_components` | `bool` | `True` | Extract each connected anomaly component separately. |
 | `config.extraction.min_coverage_ratio` | `float` | `0.01` | Minimum mask coverage within a crop; range [0, 1]. |
 | `config.extraction.add_background_noise` | `bool` | `True` | Add a small amount of noise to otherwise constant backgrounds. |
+| `config.extraction.preserve_aspect_ratio` | `bool` | `True` | Use one spatial scale for every axis and center-pad the remaining area; False stretches axes independently. |
 | `config.extraction.normalization` | `str` | `'z-score'` | Intensity normalization method; defaults to z-score. |
 | `config.extraction.normalization_eps` | `float` | `1e-06` | Positive lower bound for numerically stable normalization. |
 | `config.extraction.roi.fixed_size` | `tuple[int, ...] \| None` | `None` | Fixed spatial ROI size; None selects dynamic sizing. |

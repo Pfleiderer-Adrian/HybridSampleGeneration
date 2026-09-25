@@ -90,6 +90,7 @@ def crop_and_center_anomalies(
             target_size,
             order=1,
             foreground_mask=region_mask,
+            preserve_aspect_ratio=config.preserve_aspect_ratio,
         )
         normalized, normalization_metadata = normalize_anomaly(
             normalized,
@@ -133,6 +134,8 @@ def crop_and_center_anomalies(
             cropped_mask,
             target_size,
             order=0,
+            preserve_aspect_ratio=config.preserve_aspect_ratio,
+            padding_value=0,
         )
         masks.append(normalized_mask)
 

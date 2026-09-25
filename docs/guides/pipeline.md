@@ -6,7 +6,8 @@ After [ingesting input data](input-data.md), the pipeline extracts real anomalie
 
 Extraction finds connected components in the positive segmentation, crops each
 component, downscales it only when it exceeds the configured target size, and
-center-pads it to `config.extraction.anomaly_size`. The original ROI, mask,
+center-pads it to `config.extraction.anomaly_size`. By default, one scale is
+used for every spatial axis so the aspect ratio is preserved. The original ROI, mask,
 normalized source center, scale factors and normalization metadata are retained
 with the resulting `RealAnomaly` record.
 
@@ -19,6 +20,8 @@ The principal settings are:
   fraction of the target spatial cutout area/volume. The default is `0.05`.
 - `config.extraction.add_background_noise`: add a small noise floor to otherwise
   constant cutout background.
+- `config.extraction.preserve_aspect_ratio`: use one scale for every spatial
+  axis before padding. Set it to `False` to stretch axes independently.
 - `config.extraction.normalization`: `"z-score"` (mean/std),
   `"zscore_median"` (median/MAD), or `None`.
 - `config.extraction.roi.fixed_size`: fixed spatial ROI size, or `None` for a
