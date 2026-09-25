@@ -72,13 +72,6 @@ class Configuration:
                 f"Model {self.model.name!r} expects {model_spec.spatial_dims} spatial "
                 f"dimensions, but extraction.anomaly_size describes {spatial_dimensions}."
             )
-        if (
-            self.generation.posterior_skip_source == "transformed"
-            and not model_spec.uses_masks
-        ):
-            raise ValueError(
-                "Transformed posterior skips require a conditional ConvNeXt VAE."
-            )
         self.model.validate()
         self.augmentation.validate()
         self.generation.validate()

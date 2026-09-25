@@ -360,7 +360,9 @@ For a mask-conditioned ConvNeXt VAE in posterior mode,
 `config.generation.posterior_skip_source = "transformed"` uses skips from a
 second encoder pass over the image transformed together with the target mask.
 The latent vector still comes from the original image and mask. The default
-`"original"` keeps the current single-encoder behavior. Images use linear
+`"transformed"` enables this behavior for supporting models in posterior mode;
+the setting is ignored by other models and in prior mode. Set it to `"original"`
+to keep the single-encoder behavior. Images use linear
 interpolation during spatial transforms; label masks use nearest-neighbor
 interpolation. The second encoder pass is skipped when all decoder skip scales
 are zero.
