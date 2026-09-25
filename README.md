@@ -460,6 +460,30 @@ local or class-specific ring contains too few values, the backend falls back to
 available target-mask-outside context; if that is still insufficient, the scope
 is left unnormalized.
 
+### [Poisson fusion](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/pipeline/#poisson-fusion)
+
+Poisson fusion is available as a separate gradient-domain backend:
+
+```python
+config.fusion.set_backend("poisson")
+config.fusion.parameters.guidance_mode = "source"  # or "mixed"
+config.fusion.parameters.solver_rtol = 1e-5
+config.fusion.parameters.solver_max_iterations = 2000
+config.validate()
+```
+
+It supports channel-first 2D `(C,H,W)` and true volumetric 3D `(C,D,H,W)`
+images. Source guidance preserves anomaly gradients, while mixed guidance
+selects the stronger anomaly or control gradient for every channel and edge.
+The exterior source baseline comes from the control image, so removed generator
+artifacts outside the target mask do not introduce artificial boundary
+gradients.
+
+> **3D performance:** 3D Poisson blending constructs a sparse system over the
+> target-mask voxels and solves it once per channel. It can require substantially
+> more computation time and memory than classical alpha blending. The first 3D
+> fusion call per backend instance emits a `RuntimeWarning` with the problem size.
+
 ## [Repository-backed datasets](https://pfleiderer-adrian.github.io/HybridSampleGeneration/concepts/datasets/)
 
 `StudyDatasets` creates short-lived `OriginalSampleDataset`,

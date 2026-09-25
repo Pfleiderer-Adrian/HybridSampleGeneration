@@ -11,7 +11,7 @@
 - `hybrid_sample_generator/generation/` — generation service, model registry,
   training and supported VAEs
 - `hybrid_sample_generator/fusion/` — fusion service, shared preprocessing and
-  the classical backend
+  the classical alpha-blending and Poisson backends
 - `hybrid_sample_generator/evaluation/` — pairwise metrics, outliers and reports
 - `hybrid_sample_generator/datasets/` — repository-backed training datasets
 - `hybrid_sample_generator/visualization/` — study browser and maintenance UI

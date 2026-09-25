@@ -136,3 +136,36 @@ ratio and is intended for strictly positive intensities away from zero. If a
 local or class-specific ring contains too few values, the backend falls back to
 available target-mask-outside context; if that is still insufficient, the scope
 is left unnormalized.
+
+## Poisson fusion
+
+Select gradient-domain blending as a separate backend:
+
+```python
+config.fusion.set_backend("poisson")
+config.fusion.parameters.guidance_mode = "source"  # or "mixed"
+config.fusion.parameters.solver_rtol = 1e-5
+config.fusion.parameters.solver_max_iterations = 2000
+config.validate()
+```
+
+Poisson fusion supports channel-first 2D `(C,H,W)` and true volumetric 3D
+`(C,D,H,W)` data. It solves over a 4-neighbor grid in 2D and a 6-neighbor grid
+in 3D. `source` guidance preserves anomaly gradients. `mixed` guidance selects
+the stronger source or control gradient independently for each channel and
+edge, which can retain important control-image boundaries.
+
+Generated pixels outside the target mask are removed before placement but are
+not used as Poisson boundary guidance. The corresponding control-image values
+provide the exterior source baseline, preventing artificial gradients from the
+cleaned anomaly background. A one-pixel or one-voxel control halo supplies
+Dirichlet boundary values around the placed mask.
+
+!!! warning "3D runtime and memory"
+    True 3D Poisson blending constructs a sparse system over all target-mask
+    voxels and solves it once per image channel. It can require substantially
+    more computation time and memory than classical alpha blending. The first
+    3D fusion call on each backend instance emits a `RuntimeWarning` containing
+    the mask voxel and channel counts.
+
+The complete parameter list is available in the

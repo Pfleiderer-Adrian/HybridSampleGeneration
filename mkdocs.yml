@@ -48,6 +48,7 @@ nav:
       - Fusion:
           - Overview: configuration/fusion.md
           - Classical: configuration/reference/fusion-classical.md
+          - Poisson: configuration/reference/fusion-poisson.md
   - Development:
       - Tests: development/testing.md
       - Project structure: development/project-structure.md
