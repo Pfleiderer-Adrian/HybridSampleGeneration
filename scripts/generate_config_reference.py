@@ -103,6 +103,10 @@ MODEL_DESCRIPTIONS = {
     "skip_dropout_ps": "Dropout per skip level; overrides skip_dropout_p and requires n_levels values.",
     "skip_alpha": "Shared skip connection scale; range [0, 1].",
     "skip_alphas": "Scale per skip level; overrides skip_alpha and requires n_levels values.",
+    "identity_pair_probability": (
+        "Probability of using an unchanged source/target pair during paired "
+        "source-to-target training; range [0, 1]."
+    ),
 }
 
 FUSION_DESCRIPTIONS = {

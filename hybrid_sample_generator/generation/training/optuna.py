@@ -19,6 +19,9 @@ from hybrid_sample_generator.generation.registry import get_model_spec
 from hybrid_sample_generator.generation.training.augmentation import (
     apply_training_offset_augmentation,
 )
+from hybrid_sample_generator.generation.training.paired_targets import (
+    apply_paired_target_training,
+)
 from hybrid_sample_generator.generation.training.loop import train
 
 
@@ -65,7 +68,8 @@ def objective(
     parameters = sample_model_params(
         trial, config.model.parameters, config.model.search
     )
-    model = get_model_spec(config.model.name).build(
+    model_spec = get_model_spec(config.model.name)
+    model = model_spec.build(
         parameters,
         in_channels=config.extraction.anomaly_size[0],
         num_anomaly_classes=num_anomaly_classes,
@@ -80,6 +84,13 @@ def objective(
     train_dataset = apply_training_offset_augmentation(
         train_dataset, config.augmentation
     )
+    if getattr(model_spec, "training_target_mode", "identity") == "paired":
+        train_dataset, validation_dataset = apply_paired_target_training(
+            train_dataset,
+            validation_dataset,
+            config=config,
+            identity_probability=parameters.identity_pair_probability,
+        )
     train_loader = DataLoader(
         train_dataset,
         batch_size=training.batch_size,

@@ -45,6 +45,8 @@ nav:
           - VAE ConvNeXt 3D: configuration/reference/model-VAE_ConvNeXt_3D.md
           - cVAE ConvNeXt 2D: configuration/reference/model-cVAE_ConvNeXt_2D.md
           - cVAE ConvNeXt 3D: configuration/reference/model-cVAE_ConvNeXt_3D.md
+          - Paired cVAE ConvNeXt 2D: configuration/reference/model-paired_cVAE_ConvNeXt_2D.md
+          - Paired cVAE ConvNeXt 3D: configuration/reference/model-paired_cVAE_ConvNeXt_3D.md
       - Fusion:
           - Overview: configuration/fusion.md
           - Classical: configuration/reference/fusion-classical.md
