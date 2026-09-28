@@ -139,7 +139,14 @@ class HybridDataGeneratorVisualizer:
         elif index == 2:
             page = AnomaliesTab(holder, self.model, self.cache, self.selection)
         elif index == 3:
-            page = HybridsTab(holder, self.model, self.cache, self.selection)
+            page = HybridsTab(
+                holder,
+                self.model,
+                self.cache,
+                self.selection,
+                self.maintenance,
+                on_data_changed=self.refresh_all,
+            )
         elif index == 4:
             page = EvaluationTab(holder, self.model, self.cache, self.selection)
         else:
