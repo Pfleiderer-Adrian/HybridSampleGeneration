@@ -30,6 +30,7 @@ class PairedTransformTests(unittest.TestCase):
             with self.subTest(dims=dims):
                 mask, image = self._sample(dims)
                 result_mask, result_image = TransformGenerator(
+                    use_mask_transform=False,
                     padding_factor=2,
                     rng=np.random.default_rng(1),
                 ).create_target_mask_and_transformed_image(mask, image)
@@ -49,6 +50,7 @@ class PairedTransformTests(unittest.TestCase):
                     def run():
                         return TransformGenerator(
                             {name: 1.0},
+                            use_mask_transform=True,
                             transform_params={name: params},
                             rng=np.random.default_rng(13),
                         ).create_target_mask_and_transformed_image(mask, image)
@@ -72,6 +74,7 @@ class PairedTransformTests(unittest.TestCase):
                 mask, image = self._sample(dims)
                 result_mask, result_image = TransformGenerator(
                     {"local_dilate": 1.0},
+                    use_mask_transform=True,
                     transform_params={
                         "local_dilate": {
                             "min_iterations": 1,
@@ -103,6 +106,7 @@ class PairedTransformTests(unittest.TestCase):
                 image[(0, *second)] = 0.8
                 result_mask, result_image = TransformGenerator(
                     {"local_dilate": 1.0},
+                    use_mask_transform=True,
                     transform_params={
                         "local_dilate": {
                             "min_iterations": 1,
@@ -135,6 +139,7 @@ class PairedTransformTests(unittest.TestCase):
                 def run(local_as_global):
                     return TransformGenerator(
                         settings,
+                        use_mask_transform=True,
                         transform_params=parameters,
                         mask_transform_local_as_global=local_as_global,
                         rng=np.random.default_rng(12),
@@ -154,6 +159,7 @@ class PairedTransformTests(unittest.TestCase):
         mask, image = self._sample(2)
         transformed_mask, transformed_image = TransformGenerator(
             {"stretch": 1.0},
+            use_mask_transform=True,
             transform_params={
                 "stretch": {"min_stretch": 2.0, "max_stretch": 2.0}
             },
@@ -170,6 +176,7 @@ class PairedTransformTests(unittest.TestCase):
         mask_tensor = torch.as_tensor(mask)
         image_tensor = torch.as_tensor(image)
         result_mask, result_image = TransformGenerator(
+            use_mask_transform=False,
             rng=np.random.default_rng(2)
         ).create_target_mask_and_transformed_image(mask_tensor, image_tensor)
         self.assertEqual(result_mask.dtype, mask_tensor.dtype)
