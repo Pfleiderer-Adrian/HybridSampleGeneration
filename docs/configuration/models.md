@@ -7,6 +7,7 @@
 | ResNet VAE | [VAE_ResNet_2D](reference/model-VAE_ResNet_2D.md) | [VAE_ResNet_3D](reference/model-VAE_ResNet_3D.md) |
 | ConvNeXt VAE | [VAE_ConvNeXt_2D](reference/model-VAE_ConvNeXt_2D.md) | [VAE_ConvNeXt_3D](reference/model-VAE_ConvNeXt_3D.md) |
 | Mask-conditioned ConvNeXt VAE | [cVAE_ConvNeXt_2D](reference/model-cVAE_ConvNeXt_2D.md) | [cVAE_ConvNeXt_3D](reference/model-cVAE_ConvNeXt_3D.md) |
+| Paired source-to-target ConvNeXt VAE | [paired_cVAE_ConvNeXt_2D](reference/model-paired_cVAE_ConvNeXt_2D.md) | [paired_cVAE_ConvNeXt_3D](reference/model-paired_cVAE_ConvNeXt_3D.md) |
 
 ## Model setup
 

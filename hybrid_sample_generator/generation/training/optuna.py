@@ -19,6 +19,9 @@ from hybrid_sample_generator.generation.registry import get_model_spec
 from hybrid_sample_generator.generation.training.augmentation import (
     apply_training_offset_augmentation,
 )
+from hybrid_sample_generator.generation.training.paired_targets import (
+    apply_paired_target_training,
+)
 from hybrid_sample_generator.generation.training.loop import train
 
 
@@ -65,7 +68,8 @@ def objective(
     parameters = sample_model_params(
         trial, config.model.parameters, config.model.search
     )
-    model = get_model_spec(config.model.name).build(
+    model_spec = get_model_spec(config.model.name)
+    model = model_spec.build(
         parameters,
         in_channels=config.extraction.anomaly_size[0],
         num_anomaly_classes=num_anomaly_classes,
@@ -80,6 +84,13 @@ def objective(
     train_dataset = apply_training_offset_augmentation(
         train_dataset, config.augmentation
     )
+    if getattr(model_spec, "training_target_mode", "identity") == "paired":
+        train_dataset, validation_dataset = apply_paired_target_training(
+            train_dataset,
+            validation_dataset,
+            config=config,
+            identity_probability=parameters.identity_pair_probability,
+        )
     train_loader = DataLoader(
         train_dataset,
         batch_size=training.batch_size,
@@ -100,6 +111,10 @@ def objective(
     model_path = os.path.join(
         config.study.paths.trained_models, f"model_trial_{trial.number}_best.pth"
     )
+    history_path = os.path.join(
+        config.study.paths.trained_models,
+        f"model_trial_{trial.number}_history.csv",
+    )
     _, validation_losses, best_epoch, best_validation = train(
         model=model,
         train_loader=train_loader,
@@ -107,11 +122,13 @@ def objective(
         config=training,
         anomaly_size=config.extraction.anomaly_size,
         best_model_path=model_path,
+        history_path=history_path,
     )
     params = asdict(parameters)
     for key, value in params.items():
         trial.set_user_attr(key, value)
     trial.set_user_attr("model_path", model_path)
+    trial.set_user_attr("history_path", history_path)
     trial.set_user_attr("best_epoch", best_epoch)
     trial.set_user_attr("best_val_loss", float(best_validation))
     trial.set_user_attr("params", params)

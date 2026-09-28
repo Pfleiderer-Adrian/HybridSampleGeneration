@@ -371,6 +371,14 @@ explicit `tgt_mask` is rejected. Direct model calls require a
 `target_mask_generator` in this mode. The original mode still accepts an explicit
 `target_mask`.
 
+The `paired_cVAE_ConvNeXt_2D` and `paired_cVAE_ConvNeXt_3D` models instead
+train on jointly transformed source/target image-mask pairs. Their encoder sees
+only the source image concatenated with its mask, while the skip-free SPADE
+decoder receives the target mask. Posterior generation therefore uses one
+encoder pass and never receives a transformed target image. Set
+`config.model.parameters.identity_pair_probability` to control the fraction of
+unchanged training pairs. The KL loss and its configured warmup remain active.
+
 ### [Hybrid planning](https://pfleiderer-adrian.github.io/HybridSampleGeneration/guides/pipeline/#hybrid-planning)
 
 - `hybrids_per_original`: requested number of hybrid variants per eligible

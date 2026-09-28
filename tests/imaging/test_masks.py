@@ -70,6 +70,27 @@ class TargetMaskTests(unittest.TestCase):
 
 
 class MaskTransformTests(unittest.TestCase):
+    def test_generator_enables_default_transforms_by_default(self):
+        generator = TransformGenerator()
+
+        self.assertEqual(generator.global_transform_probs["zoom"], 1.0)
+        self.assertEqual(generator.global_transform_probs["stretch"], 1.0)
+        self.assertEqual(generator.global_transform_probs["elastic"], 1.0)
+
+    def test_disabled_generator_ignores_explicit_transform_probabilities(self):
+        mask = np.zeros((1, 12, 12), dtype=np.uint8)
+        mask[0, 4:8, 4:8] = 1
+        generator = TransformGenerator(
+            {"stretch": 1.0},
+            use_mask_transform=False,
+            transform_params={
+                "stretch": {"min_stretch": 2.0, "max_stretch": 2.0}
+            },
+            rng=np.random.default_rng(7),
+        )
+
+        np.testing.assert_array_equal(generator.augment_mask(mask), mask)
+
     def test_local_transform_preserves_shape_and_dtype(self):
         mask = np.zeros((1, 8, 8), dtype=np.uint8)
         mask[0, 3:5, 3:5] = 1
@@ -90,10 +111,10 @@ class MaskTransformTests(unittest.TestCase):
         settings = {"stretch": 1.0, "local_dilate": 1.0}
 
         first = TransformGenerator(
-            settings, rng=np.random.default_rng(23)
+            settings, use_mask_transform=True, rng=np.random.default_rng(23)
         ).augment_mask(mask)
         second = TransformGenerator(
-            settings, rng=np.random.default_rng(23)
+            settings, use_mask_transform=True, rng=np.random.default_rng(23)
         ).augment_mask(mask)
 
         np.testing.assert_array_equal(first, second)

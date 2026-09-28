@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
+from typing import Literal
 
 from torch import nn
 
@@ -22,6 +23,14 @@ from hybrid_sample_generator.generation.vae.convnext.configuration import (
     get_convnext_vae_search,
 )
 from hybrid_sample_generator.generation.vae.convnext.model import ConvNeXtVAE
+from hybrid_sample_generator.generation.vae.paired_conditional_convnext.configuration import (
+    Config as PairedConditionalConvNeXtConfig,
+    get_paired_convnext_cvae_configuration,
+    get_paired_convnext_cvae_search,
+)
+from hybrid_sample_generator.generation.vae.paired_conditional_convnext.model import (
+    PairedConditionalConvNeXtVAE,
+)
 from hybrid_sample_generator.generation.vae.resnet.configuration import (
     Config as ResNetConfig,
     get_resnet_vae_configuration,
@@ -41,6 +50,7 @@ class ModelSpec:
     input_artefacts: tuple[str, ...]
     uses_masks: bool = False
     supports_transformed_posterior_skips: bool = False
+    training_target_mode: Literal["identity", "paired"] = "identity"
 
     def build(
         self,
@@ -108,6 +118,28 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         2, CONDITIONAL_VAE_ARTEFACTS,
         uses_masks=True,
         supports_transformed_posterior_skips=True,
+    ),
+    "paired_cVAE_ConvNeXt_3D": ModelSpec(
+        "paired_cVAE_ConvNeXt_3D",
+        PairedConditionalConvNeXtVAE,
+        PairedConditionalConvNeXtConfig,
+        get_paired_convnext_cvae_configuration,
+        get_paired_convnext_cvae_search,
+        3,
+        CONDITIONAL_VAE_ARTEFACTS,
+        uses_masks=True,
+        training_target_mode="paired",
+    ),
+    "paired_cVAE_ConvNeXt_2D": ModelSpec(
+        "paired_cVAE_ConvNeXt_2D",
+        PairedConditionalConvNeXtVAE,
+        PairedConditionalConvNeXtConfig,
+        get_paired_convnext_cvae_configuration,
+        get_paired_convnext_cvae_search,
+        2,
+        CONDITIONAL_VAE_ARTEFACTS,
+        uses_masks=True,
+        training_target_mode="paired",
     ),
 }
 
