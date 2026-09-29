@@ -29,6 +29,24 @@ class RoiTests(unittest.TestCase):
             [12, 24, 40],
         )
 
+    def test_dynamic_roi_uses_trailing_spatial_settings(self):
+        self.assertEqual(
+            dynamic_roi_size((10, 20), (0, 0, 0), (0, 0, 0), (1, 256, 320)),
+            [256, 320],
+        )
+
+    def test_dynamic_roi_can_follow_full_sample_aspect_ratio(self):
+        self.assertEqual(
+            dynamic_roi_size(
+                (40, 80),
+                0,
+                0,
+                (1, 256, 256),
+                aspect_ratio_shape=(600, 800),
+            ),
+            [256, 342],
+        )
+
     def test_roi_crops_shift_inside_2d_and_3d_bounds(self):
         image = np.arange(1 * 6 * 8).reshape(1, 6, 8)
         volume = np.arange(1 * 5 * 6 * 7).reshape(1, 5, 6, 7)
@@ -131,6 +149,26 @@ class ExtractionTests(unittest.TestCase):
                     anomalies[0][1]["centroid_norm"],
                     tuple(2 / size for size in spatial_shape),
                 )
+
+    def test_extraction_dynamic_roi_follows_source_sample_aspect_ratio(self):
+        image = np.zeros((1, 12, 18), dtype=np.float32)
+        segmentation = np.zeros_like(image, dtype=np.uint8)
+        segmentation[:, 5:7, 8:10] = 1
+        config = ExtractionConfiguration((1, 8, 8))
+        config.min_coverage_ratio = 0.0
+        config.add_background_noise = False
+        config.roi.fixed_size = None
+        config.roi.min_size = (1, 4, 4)
+        config.roi.min_padding = (0, 0, 0)
+        config.roi.padding_ratio = (0.0, 0.0, 0.0)
+        config.roi.preserve_aspect_ratio = True
+
+        _, rois, _, roi_masks = crop_and_center_anomalies(
+            image, segmentation, config
+        )
+
+        self.assertEqual(rois[0].shape, (1, 4, 6))
+        self.assertEqual(roi_masks[0].shape, rois[0].shape)
 
 
 class NormalizationTests(unittest.TestCase):

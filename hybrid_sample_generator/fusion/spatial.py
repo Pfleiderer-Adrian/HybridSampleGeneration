@@ -236,6 +236,9 @@ def finalize_spatial_fusion(
             roi_config.min_padding,
             roi_config.padding_ratio,
             roi_config.min_size,
+            aspect_ratio_shape=(
+                fused_image.shape[1:] if roi_config.preserve_aspect_ratio else None
+            ),
         )
     else:
         roi_size = roi_config.fixed_size

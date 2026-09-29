@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from math import ceil
 
 import numpy as np
 
@@ -14,7 +15,9 @@ def _as_axis_tuple(value, ndim: int, name: str) -> tuple:
     values = tuple(value)
     if len(values) < ndim:
         raise ValueError(f"{name} must have at least len {ndim}. Got {value!r}")
-    return values[:ndim]
+    # ROI settings may include a leading channel dimension, for example
+    # (1, H, W). Only the trailing spatial dimensions participate in sizing.
+    return values[-ndim:]
 
 
 def dynamic_roi_size(
@@ -22,14 +25,21 @@ def dynamic_roi_size(
     min_roi_padding,
     roi_padding_ratio,
     min_roi_size,
+    *,
+    aspect_ratio_shape: Sequence[int] | None = None,
 ) -> list[int]:
-    """Return a per-axis ROI size derived from an anomaly's spatial shape."""
+    """Return a per-axis ROI size derived from an anomaly's spatial shape.
+
+    When ``aspect_ratio_shape`` is provided, the result is expanded so its
+    spatial proportions follow that reference shape. No calculated axis is
+    ever made smaller.
+    """
     spatial_shape = tuple(int(size) for size in spatial_shape)
     min_roi_padding = _as_axis_tuple(min_roi_padding, len(spatial_shape), "min_roi_padding")
     roi_padding_ratio = _as_axis_tuple(roi_padding_ratio, len(spatial_shape), "roi_padding_ratio")
     min_roi_size = _as_axis_tuple(min_roi_size, len(spatial_shape), "min_roi_size")
 
-    return [
+    roi_size = [
         max(int(size + max(axis_padding, size * axis_ratio)), int(axis_minimum))
         for size, axis_padding, axis_ratio, axis_minimum in zip(
             spatial_shape,
@@ -38,6 +48,18 @@ def dynamic_roi_size(
             min_roi_size,
         )
     ]
+
+    if aspect_ratio_shape is None:
+        return roi_size
+
+    reference = tuple(int(size) for size in aspect_ratio_shape)
+    if len(reference) != len(spatial_shape) or any(size <= 0 for size in reference):
+        raise ValueError(
+            "aspect_ratio_shape must contain one positive value per spatial axis. "
+            f"Got {aspect_ratio_shape!r} for {len(spatial_shape)} dimensions."
+        )
+    scale = max(size / reference_size for size, reference_size in zip(roi_size, reference))
+    return [ceil(reference_size * scale) for reference_size in reference]
 
 
 def crop_spatial_clip(

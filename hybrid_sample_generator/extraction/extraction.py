@@ -112,6 +112,9 @@ def crop_and_center_anomalies(
                 config.roi.min_padding,
                 config.roi.padding_ratio,
                 config.roi.min_size,
+                aspect_ratio_shape=(
+                    image.shape[1:] if config.roi.preserve_aspect_ratio else None
+                ),
             )
             if config.roi.fixed_size is None
             else config.roi.fixed_size

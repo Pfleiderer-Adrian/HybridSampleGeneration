@@ -14,6 +14,7 @@ class RoiConfiguration:
     min_size: tuple[int, ...] | int = 0
     min_padding: tuple[int, ...] = (10, 10, 10)
     padding_ratio: tuple[float, ...] = (0.5, 0.5, 0.5)
+    preserve_aspect_ratio: bool = False
 
     def validate(self) -> None:
         if self.fixed_size is not None and any(int(value) <= 0 for value in self.fixed_size):
@@ -22,6 +23,8 @@ class RoiConfiguration:
             raise ValueError("extraction.roi.min_padding values must be non-negative.")
         if any(float(value) < 0 for value in self.padding_ratio):
             raise ValueError("extraction.roi.padding_ratio values must be non-negative.")
+        if not isinstance(self.preserve_aspect_ratio, bool):
+            raise TypeError("extraction.roi.preserve_aspect_ratio must be a boolean.")
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> "RoiConfiguration":
@@ -69,4 +72,3 @@ class ExtractionConfiguration:
         values["anomaly_size"] = tuple(values["anomaly_size"])
         values["roi"] = RoiConfiguration.from_dict(values.get("roi", {}))
         return cls(**values)
-

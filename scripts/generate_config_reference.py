@@ -31,7 +31,8 @@ DESCRIPTIONS = {
     "extraction.roi.min_size": "Minimum dynamic ROI size, either scalar or per axis.",
     "extraction.roi.min_padding": "Minimum ROI padding around the anomaly on each axis.",
     "extraction.roi.padding_ratio": "Additional ROI padding relative to anomaly size on each axis.",
-    "augmentation.mask_transforms.use_mask_transform": "Enable the default mask transform probabilities.",
+    "extraction.roi.preserve_aspect_ratio": "Expand dynamic ROIs to match the spatial aspect ratio of the full image sample.",
+    "augmentation.mask_transforms.use_mask_transform": "Master switch for all mask transformations. When disabled, configured probabilities and parameters are retained but no mask transformation is applied.",
     "augmentation.mask_transforms.mask_transform_probs": "Probabilities for global, local, and class-specific transforms.",
     "augmentation.mask_transforms.mask_transform_params": "Parameter ranges for individual transforms.",
     "augmentation.mask_transforms.priorities": "Class priority when transformed masks overlap.",
@@ -240,12 +241,13 @@ def _render() -> dict[Path, str]:
             extra = (
                 "\nMasks use nearest-neighbor interpolation; jointly transformed images use "
                 "linear interpolation. `mask_transform_probs` and `mask_transform_params` "
-                "accept global or local transform names and class IDs. With "
-                "`use_mask_transform=True`, the default anomaly size "
+                "accept global or local transform names and class IDs, and are applied only "
+                "when `use_mask_transform=True`. With mask transformations enabled, the "
+                "default anomaly size "
                 f"`{config.extraction.anomaly_size}` gives these effective values; "
                 "global elastic parameters change with `anomaly_size`.\n\n"
                 "## Transform defaults\n\n"
-                + "\n".join(transform_lines) + "\n"
+                + "\n".join(transform_lines)
             )
         if slug == "training":
             extra = (

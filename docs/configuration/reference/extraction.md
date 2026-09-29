@@ -13,4 +13,5 @@
 | `config.extraction.roi.min_size` | `tuple[int, ...] \| int` | `0` | Minimum dynamic ROI size, either scalar or per axis. |
 | `config.extraction.roi.min_padding` | `tuple[int, ...]` | `(10, 10, 10)` | Minimum ROI padding around the anomaly on each axis. |
 | `config.extraction.roi.padding_ratio` | `tuple[float, ...]` | `(0.5, 0.5, 0.5)` | Additional ROI padding relative to anomaly size on each axis. |
+| `config.extraction.roi.preserve_aspect_ratio` | `bool` | `False` | Expand dynamic ROIs to match the spatial aspect ratio of the full image sample. |
 
