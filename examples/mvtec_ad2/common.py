@@ -34,8 +34,8 @@ def apply_generator_defaults(config: Configuration) -> None:
     config.generation.variants_per_real_anomaly = 3
 
     # matching settings
-    config.matching.routine = "global"
-    config.matching.batch_size = 64
+    config.matching.routine = "batchwise"
+    config.matching.batch_size = 8
     config.matching.hybrids_per_original = 3
     config.matching.reuse_synthetic_across_hybrids = True
     config.matching.allow_sibling_variants_in_same_hybrid = False
@@ -76,7 +76,7 @@ def apply_generator_defaults(config: Configuration) -> None:
         "factor": 0.1,
         "threshold": 1e-5,
     }
-
+    """
     # Fixed model parameters. Only entries in model.search vary between trials.
     parameters = config.model.parameters
     parameters.recon_weight = 10.0
@@ -94,7 +94,7 @@ def apply_generator_defaults(config: Configuration) -> None:
     parameters.dropout = 0.05
     parameters.skip_dropout_p = 0.85
     parameters.skip_alpha = 0.1
-
+    """
     search = config.model.search
     search.clear()
     search.n_res_blocks = IntRange(2, 4)
@@ -114,8 +114,8 @@ def create_generator_configuration(category: str, anomaly_size: tuple[int, int, 
 def create_downstream_configuration() -> DownstreamConfiguration:
     config = DownstreamConfiguration()
     config.seed = 42
-    config.data.hybrid_fraction = 0.5
-    config.data.normal_fraction = 0.5
+    config.data.hybrid_fraction = 0.25
+    config.data.normal_fraction = 0.75
     config.data.samples_per_epoch = 1000
     config.data.mode = "patch"
     config.data.patch_size = (512, 512)

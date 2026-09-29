@@ -14,12 +14,16 @@ from examples.mvtec_ad2.splits import (
 from hybrid_sample_generator import HybridDataGenerator
 
 CATEGORY = "fabric"
-ANOMALY_SIZE = (3, 64, 64)
+ANOMALY_SIZE = (3, 128, 128)
 
 
 def create_configuration():
     config = create_generator_configuration(CATEGORY, ANOMALY_SIZE)
     config.extraction.roi.min_size = (128, 128)
+
+    config.matching.anomalies_per_hybrid = 1
+    config.matching.max_anomalies_per_hybrid_deviation = 0
+
     return config
 
 
