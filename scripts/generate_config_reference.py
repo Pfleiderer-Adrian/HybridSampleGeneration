@@ -112,6 +112,7 @@ MODEL_DESCRIPTIONS = {
 
 FUSION_DESCRIPTIONS = {
     "max_alpha": "Maximum anomaly mixing weight; range [0, 1].",
+    "segmentation_min_alpha": "Minimum anomaly mixing weight required for a pixel to remain in the output segmentation mask; range [0, max_alpha].",
     "sq": "Shape parameter for the spatial alpha mask.",
     "steepness_factor": "Steepness of the transition at the anomaly boundary.",
     "upsampling_factor": "Factor for finer alpha mask computation.",

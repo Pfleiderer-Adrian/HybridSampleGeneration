@@ -192,6 +192,7 @@ def finalize_spatial_fusion(
     *,
     crop_roi,
     dynamic_roi_size,
+    segmentation_mask: np.ndarray | None = None,
     metrics: dict[str, Any] | None = None,
 ) -> FusionOutput:
     """Write a fused region and construct segmentation and ROI outputs."""
@@ -201,10 +202,20 @@ def finalize_spatial_fusion(
             f"{prepared.background_slice.shape}."
         )
 
+    if segmentation_mask is None:
+        segmentation_mask = prepared.target_mask
+    else:
+        segmentation_mask = np.asarray(segmentation_mask)
+        if segmentation_mask.shape != prepared.target_mask.shape:
+            raise ValueError(
+                f"segmentation mask shape {segmentation_mask.shape} does not match "
+                f"target mask {prepared.target_mask.shape}."
+            )
+
     fused_image = prepared.control.copy()
     fused_image[(slice(None), *prepared.output_slices)] = fused_region
     segmentation = np.zeros(prepared.control_spatial_shape, dtype=np.uint8)
-    segmentation[prepared.output_slices] = prepared.target_mask[
+    segmentation[prepared.output_slices] = segmentation_mask[
         prepared.crop_to_background
     ].astype(np.uint8, copy=False)
     segmentation = segmentation[None, ...]
