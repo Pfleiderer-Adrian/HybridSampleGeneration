@@ -43,6 +43,9 @@ experiments = [
   "safetensors>=0.4.5",
   "transformers>=4.46.0",
 ]
+harmonization = [
+  "libcom @ git+https://github.com/bcmi/libcom.git@7a9a73ab7be2ebe4fdd92718aa778cba7bfcd92c",
+]
 
 [tool.setuptools.dynamic]
 dependencies = { file = ["requirements.txt"] }

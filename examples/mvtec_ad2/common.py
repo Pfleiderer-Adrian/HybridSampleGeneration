@@ -35,7 +35,7 @@ def apply_generator_defaults(config: Configuration) -> None:
 
     # matching settings
     config.matching.routine = "batchwise"
-    config.matching.batch_size = 8
+    config.matching.batch_size = 64
     config.matching.hybrids_per_original = 3
     config.matching.reuse_synthetic_across_hybrids = True
     config.matching.allow_sibling_variants_in_same_hybrid = False
@@ -118,7 +118,7 @@ def create_downstream_configuration() -> DownstreamConfiguration:
     config.data.normal_fraction = 0.75
     config.data.samples_per_epoch = 1000
     config.data.mode = "patch"
-    config.data.patch_size = (512, 512)
+    config.data.patch_size = (256, 256)
     config.data.patch_overlap = 0.5
     config.data.texture_root = TEXTURE_ROOT
     config.data.image_scale = 255.0

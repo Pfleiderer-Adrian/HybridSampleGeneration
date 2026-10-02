@@ -1,6 +1,7 @@
 """Characterization tests for the stable classical fusion backend."""
 
 import unittest
+from unittest.mock import Mock, patch
 
 import numpy as np
 
@@ -154,6 +155,48 @@ class ClassicalFusionBackendTests(unittest.TestCase):
                 (0.5, 0.5),
                 extraction_config=extraction,
             )
+
+    def test_optional_harmonization_runs_after_classical_fusion(self):
+        harmonizer = Mock(
+            side_effect=lambda image, _mask: np.full_like(image, 0.25)
+        )
+        with patch(
+            "hybrid_sample_generator.fusion.classical.backend.ImageHarmonizer",
+            return_value=harmonizer,
+        ) as factory:
+            backend = ClassicalFusionBackend(
+                Config(
+                    image_harmonization="PCTNet",
+                    fusion_variation=False,
+                    fusion_normalization_border_width=None,
+                    upsampling_factor=1,
+                )
+            )
+            output = backend.fuse(
+                self._sample(2),
+                np.zeros((1, 8, 8), dtype=np.float32),
+                (0.5, 0.5),
+                extraction_config=self._extraction_config(2),
+            )
+
+        factory.assert_called_once_with("PCTNet", device=None)
+        harmonizer.assert_called_once()
+        np.testing.assert_array_equal(
+            output.image,
+            np.full((1, 8, 8), 0.25, dtype=np.float32),
+        )
+        np.testing.assert_array_equal(
+            output.roi,
+            np.full((1, 4, 4), 0.25, dtype=np.float32),
+        )
+
+    def test_harmonization_rejects_3d_samples_before_loading_model(self):
+        backend = ClassicalFusionBackend(Config(image_harmonization="LBM"))
+        with patch(
+            "hybrid_sample_generator.fusion.classical.backend.ImageHarmonizer"
+        ) as factory, self.assertRaisesRegex(ValueError, "only 2D"):
+            backend.warmup((1, 4, 4, 4))
+        factory.assert_not_called()
 
     @staticmethod
     def _sample(spatial_ndim):
