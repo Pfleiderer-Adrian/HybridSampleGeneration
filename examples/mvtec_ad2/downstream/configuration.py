@@ -25,7 +25,7 @@ class TrainingConfiguration:
     epochs: int = 100
     batch_size: int = 2
     learning_rate: float = 1e-4
-    num_workers: int = 0
+    num_workers: int = 4
     device: str = "auto"
     reconstruction_width: int = 128
     segmentation_width: int = 64
@@ -89,4 +89,3 @@ class DownstreamConfiguration:
 
     def save(self, path):
         Path(path).write_text(json.dumps(self.to_dict(), indent=2) + "\n")
-
