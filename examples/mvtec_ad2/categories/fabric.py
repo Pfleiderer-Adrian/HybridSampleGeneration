@@ -20,6 +20,7 @@ ANOMALY_SIZE = (3, 128, 128)
 def create_configuration():
     config = create_generator_configuration(CATEGORY, ANOMALY_SIZE)
     config.extraction.roi.min_size = (128, 128)
+    config.fusion.parameters.segmentation_min_alpha = 0.2
 
     config.matching.anomalies_per_hybrid = 1
     config.matching.max_anomalies_per_hybrid_deviation = 0
