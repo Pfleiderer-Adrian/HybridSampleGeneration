@@ -135,7 +135,7 @@ Important classical parameters include:
   target mask.
 - `image_harmonization`, which optionally runs pretrained PCTNet or LBM after
   classical blending. It supports 2D samples with one or three channels and
-  requires the `harmonization` dependency extra and a CUDA GPU. One-channel
+  requires the separately installed `libcom` dependency and a CUDA GPU. One-channel
   samples are converted through RGB and restored to grayscale. Output outside
   the current placement mask is discarded, preserving the control image and
   previously fused anomalies. `None` keeps harmonization disabled.

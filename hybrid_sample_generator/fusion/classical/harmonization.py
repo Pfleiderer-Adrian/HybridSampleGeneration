@@ -21,13 +21,13 @@ class ImageHarmonizer:
         except (ImportError, ModuleNotFoundError) as exc:
             raise ImportError(
                 "Image harmonization requires the optional libcom dependency. "
-                "Install it with `python -m pip install -e \".[harmonization]\"`."
+                "Install it with `python -m pip install -r requirements-harmonization.txt`."
             ) from exc
 
         if not hasattr(libcom, "ImageHarmonizationModel"):
             raise ImportError(
                 "The installed libcom version does not provide "
-                "ImageHarmonizationModel. Install the project's harmonization extra."
+                "ImageHarmonizationModel. Install the pinned dependency from requirements-harmonization.txt."
             )
         if device is None:
             torch = import_module("torch")
@@ -49,7 +49,7 @@ class ImageHarmonizer:
             if model_name == "LBM":
                 raise RuntimeError(
                     "The installed libcom build does not support the LBM harmonizer. "
-                    "Install the project's harmonization extra, which pins a build "
+                    "Install requirements-harmonization.txt, which pins a build "
                     "containing both PCTNet and LBM."
                 ) from exc
             raise
