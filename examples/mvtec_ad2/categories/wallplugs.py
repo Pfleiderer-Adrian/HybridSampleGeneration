@@ -14,11 +14,38 @@ from examples.mvtec_ad2.splits import (
 from hybrid_sample_generator import HybridDataGenerator
 
 CATEGORY = "wallplugs"
-ANOMALY_SIZE = (1, 64, 64)
+ANOMALY_SIZE = (1, 128, 128)
 
 
 def create_configuration():
     config = create_generator_configuration(CATEGORY, ANOMALY_SIZE)
+    config.augmentation.mask_transforms.use_mask_transform = False
+    config.augmentation.mask_transforms.mask_transform_probs = {
+        "zoom": 0.5,
+        "stretch": 0.5,
+        "rotate": 0.8,
+        "elastic": 0.5,
+        "local_dilate": 0,
+        "local_stretch": 0,
+        "local_rotate": 0,
+        "local_elastic": 0,
+    }
+    config.augmentation.mask_transforms.mask_transform_params = {
+        "zoom": {"min_zoom": 0.97, "max_zoom": 1.0},
+        "stretch": {"min_stretch": 0.98, "max_stretch": 1.05},
+        "rotate": {"max_rotation": 2.0},
+        "elastic": {"sigma": 30, "magnitude": 5},
+    }
+
+    config.extraction.roi.fixed_size = None
+    config.extraction.roi.min_size = (1, 256, 256)
+    config.matching.intensity_weight = 0.3
+    config.matching.gradient_weight = 0.7
+    config.extraction.roi.preserve_aspect_ratio = True
+    config.extraction.preserve_aspect_ratio = True
+
+    config.matching.batch_size = 64
+
     return config
 
 

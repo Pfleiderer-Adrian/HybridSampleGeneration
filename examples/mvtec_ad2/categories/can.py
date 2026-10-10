@@ -14,15 +14,38 @@ from examples.mvtec_ad2.splits import (
 from hybrid_sample_generator import HybridDataGenerator
 
 CATEGORY = "can"
-ANOMALY_SIZE = (3, 64, 64)
+ANOMALY_SIZE = (3, 128, 128)
 
 
 def create_configuration():
     config = create_generator_configuration(CATEGORY, ANOMALY_SIZE)
     config.generation.variation_strength = 1.5
-    config.fusion.parameters.max_alpha = 0.9
-    config.fusion.parameters.sobel_threshold = 0.05
     config.extraction.roi.min_size = (256, 256)
+
+    config.matching.anomalies_per_hybrid = 1
+    config.matching.max_anomalies_per_hybrid_deviation = 1
+
+    # Fusion settings
+    config.fusion.set_backend("classical")
+    config.fusion.parameters.max_alpha = 0.8
+    config.fusion.parameters.sq = 1.0
+    config.fusion.parameters.steepness_factor = 3.0
+    config.fusion.parameters.upsampling_factor = 4
+    config.fusion.parameters.fusion_use_sobel_for_alpha_mask = False
+    config.fusion.parameters.shave_pixels = 0
+    config.fusion.parameters.fusion_variation = True
+    config.fusion.parameters.alpha_variation = 0.01
+    config.fusion.parameters.sq_variation = 0.01
+    config.fusion.parameters.steepness_variation = 1.0
+    config.fusion.parameters.selected_confidence = "90%"
+
+    config.extraction.roi.fixed_size = None
+    config.extraction.roi.min_size = (1, 128, 128)
+    config.matching.intensity_weight = 0.3
+    config.matching.gradient_weight = 0.7
+    config.extraction.roi.preserve_aspect_ratio = True
+
+
     return config
 
 

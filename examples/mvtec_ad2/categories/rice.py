@@ -39,11 +39,11 @@ def main() -> None:
 
     # Fusion settings
     config.fusion.set_backend("classical")
-    config.fusion.parameters.max_alpha = 1.0
+    config.fusion.parameters.max_alpha = 0.8
     # Preserve narrow defect passages while retaining an inward edge transition.
-    config.fusion.parameters.sq = 0.5
+    config.fusion.parameters.sq = 1.0
     config.fusion.parameters.steepness_factor = 4.0
-    config.fusion.parameters.upsampling_factor = 2
+    config.fusion.parameters.upsampling_factor = 4
     config.fusion.parameters.fusion_use_sobel_for_alpha_mask = False
     config.fusion.parameters.fusion_variation = True
     config.fusion.parameters.alpha_variation = 0.02
