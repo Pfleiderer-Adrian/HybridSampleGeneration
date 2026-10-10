@@ -33,9 +33,16 @@ class FusionConfigurationTests(unittest.TestCase):
     def test_partial_parameters_receive_defaults_and_unknown_names_fail(self):
         with self.assertRaises(TypeError):
             FusionSettings.from_dict({"backend": "classical", "parameters": {}, "checkpoint": "old.pt"})
-        values = {'backend': 'classical', 'parameters': {'max_alpha': 0.7}}
+        values = {
+            'backend': 'classical',
+            'parameters': {
+                'max_alpha': 0.7,
+                'segmentation_min_alpha': 0.2,
+            },
+        }
         settings = FusionSettings.from_dict(values)
         self.assertEqual(settings.parameters.max_alpha, 0.7)
+        self.assertEqual(settings.parameters.segmentation_min_alpha, 0.2)
         self.assertEqual(settings.parameters.sq, ClassicalConfig().sq)
         values['parameters']['max_alhpa'] = 0.5
         with self.assertRaises(TypeError):
@@ -46,6 +53,7 @@ class FusionConfigurationTests(unittest.TestCase):
     def test_invalid_types_ranges_and_backend_mismatches_fail(self):
         for parameters in (
             ClassicalConfig(max_alpha=1.1), ClassicalConfig(max_alpha='0.5'),
+            ClassicalConfig(max_alpha=0.2, segmentation_min_alpha=0.3),
             ClassicalConfig(upsampling_factor=True), ClassicalConfig(sq=float('nan')),
             ClassicalConfig(selected_confidence='invalid'), ClassicalConfig(fusion_relation_mode='invalid'),
             PoissonConfig(guidance_mode='invalid'), PoissonConfig(solver_rtol=-1.0),

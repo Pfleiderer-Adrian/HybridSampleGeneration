@@ -121,6 +121,9 @@ Important classical parameters include:
 
 - `max_alpha`, `sq`, `steepness_factor` and `upsampling_factor`, which control
   the maximum anomaly contribution and the distance-transform alpha falloff.
+- `segmentation_min_alpha`, which removes target-mask pixels whose anomaly
+  contribution is below the configured threshold; `0.0` preserves the full
+  target mask.
 - `fusion_use_sobel_for_alpha_mask`, `sobel_threshold`, `dilation_size` and
   `shave_pixels`, which enable and tune the optional edge-refined alpha path.
 - `fusion_variation` plus `alpha_variation`, `sq_variation`,

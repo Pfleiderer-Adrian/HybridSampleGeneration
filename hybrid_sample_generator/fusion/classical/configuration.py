@@ -17,6 +17,7 @@ CONFIDENCE_LEVELS = {
 @dataclass(slots=True)
 class Config:
     max_alpha: float = 0.8
+    segmentation_min_alpha: float = 0.0
     sq: float = 2
     steepness_factor: float = 3
     upsampling_factor: int = 2
@@ -50,8 +51,12 @@ class Config:
             positive=("sq", "steepness_factor", "upsampling_factor", "fusion_relation_min_context_size"),
             nonnegative=("sobel_threshold", "dilation_size", "shave_pixels", "alpha_variation",
                          "sq_variation", "steepness_variation", "fusion_relative_bg_threshold"),
-            unit_interval=("max_alpha",),
+            unit_interval=("max_alpha", "segmentation_min_alpha"),
         )
+        if self.segmentation_min_alpha > self.max_alpha:
+            raise ValueError(
+                "segmentation_min_alpha must not exceed max_alpha."
+            )
         if self.selected_confidence not in CONFIDENCE_LEVELS:
             raise ValueError(f"Unknown fusion confidence level {self.selected_confidence!r}.")
         if self.fusion_relation_mode not in {"delta", "ratio"}:

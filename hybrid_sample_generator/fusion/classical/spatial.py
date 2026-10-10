@@ -66,12 +66,17 @@ def fuse_spatial(
         anomaly_crop * alpha_crop
         + prepared.background_slice * (1.0 - alpha_crop)
     )
+    segmentation_mask = (
+        (prepared.target_mask > 0)
+        & (alpha_mask >= params.segmentation_min_alpha)
+    )
     return finalize_spatial_fusion(
         prepared,
         fused_region,
         extraction_config,
         crop_roi=crop_roi,
         dynamic_roi_size=dynamic_roi_size,
+        segmentation_mask=segmentation_mask,
     )
 
 

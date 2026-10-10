@@ -74,6 +74,44 @@ class ClassicalFusionBackendTests(unittest.TestCase):
                 self.assertEqual(output.image.shape, control.shape)
                 self.assertGreater(int(output.segmentation.sum()), 0)
 
+    def test_segmentation_min_alpha_removes_weakly_blended_pixels(self):
+        backend = ClassicalFusionBackend(
+            Config(
+                max_alpha=0.8,
+                segmentation_min_alpha=0.5,
+                sq=2.0,
+                steepness_factor=1.0,
+                upsampling_factor=1,
+                fusion_variation=False,
+                fusion_normalization_border_width=None,
+            )
+        )
+        control = np.full((1, 7, 7), 0.2, dtype=np.float32)
+        anomaly = np.zeros((1, 5, 5), dtype=np.float32)
+        mask = np.zeros((1, 5, 5), dtype=np.uint8)
+        anomaly[0, 1:4, 1:4] = 0.8
+        mask[0, 1:4, 1:4] = np.array(
+            [[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=np.uint8
+        )
+        sample = {
+            "synth_anomaly": anomaly,
+            "anomaly_meta": {"scale_factor": (1.0, 1.0)},
+            "tgt_mask": mask,
+            "anomaly_roi": anomaly.copy(),
+            "anomaly_roi_mask": mask.copy(),
+        }
+
+        output = backend.fuse(
+            sample,
+            control,
+            (0.5, 0.5),
+            extraction_config=self._extraction_config(2),
+        )
+
+        self.assertEqual(int(output.segmentation.sum()), 1)
+        self.assertEqual(int(output.segmentation[0, 3, 3]), 1)
+        self.assertGreater(float(np.abs(output.image - control).sum()), 0.0)
+
     def test_fuse_validates_configuration_metadata_mask_and_dimensions(self):
         sample = self._sample(2)
         control = np.zeros((1, 8, 8), dtype=np.float32)
