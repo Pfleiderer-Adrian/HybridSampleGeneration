@@ -36,7 +36,9 @@ jobs:
           python - <<'PY'
           import os
           import zipfile
+          from email.parser import Parser
           from pathlib import Path
+          from packaging.requirements import Requirement
           
           expected = os.environ["RELEASE_TAG"].removeprefix("v")
           
@@ -51,6 +53,12 @@ jobs:
                       if name.endswith(".dist-info/METADATA")
                   )
                   metadata = archive.read(metadata_name).decode()
+
+              for dependency in Parser().parsestr(metadata).get_all("Requires-Dist", []):
+                  if Requirement(dependency).url is not None:
+                      raise SystemExit(
+                          f"PyPI does not accept direct URL dependencies: {dependency}"
+                      )
                   
               actual = next(
                   line.removeprefix("Version: ")

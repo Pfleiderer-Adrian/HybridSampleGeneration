@@ -19,9 +19,19 @@ CUDA GPU. Install the pinned optional dependency only when image harmonization
 is needed:
 
 ```bash
-python -m pip install -e ".[harmonization]"
+python -m pip install -r requirements-harmonization.txt
 ```
 
 `libcom` downloads the selected pretrained model files on first use. The
-harmonization extra pins a compatible `libcom` revision because its current
+requirements file pins a compatible `libcom` revision because its current
 PyPI release does not contain the LBM backend.
+
+For a PyPI installation without a repository checkout, install the same pinned
+dependency directly:
+
+```bash
+python -m pip install "libcom @ git+https://github.com/bcmi/libcom.git@7a9a73ab7be2ebe4fdd92718aa778cba7bfcd92c"
+```
+
+The Git dependency is installed separately because PyPI rejects direct URL
+dependencies in package metadata, including optional extras.
