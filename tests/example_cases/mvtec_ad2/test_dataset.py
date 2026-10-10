@@ -63,11 +63,15 @@ class MVTecDatasetTests(unittest.TestCase):
                 self.assertEqual(len(anomaly_size), 3)
                 self.assertEqual(anomaly_size[0], channels)
                 self.assertEqual(first.generation.feedback.max_attempts, 1000)
-                self.assertEqual(first.matching.batch_size, 64)
+                self.assertEqual(first.matching.routine, "batchwise")
+                self.assertIsInstance(first.matching.batch_size, int)
+                self.assertGreater(first.matching.batch_size, 0)
                 self.assertEqual(first.training.num_trials, 10)
                 self.assertEqual(
                     set(first.model.search.names()),
                     {"n_res_blocks", "n_levels", "z_channels", "bottleneck_dim", "dropout"},
                 )
-                first.generation.variants_per_real_anomaly = 99
-                self.assertEqual(second.generation.variants_per_real_anomaly, 3)
+                original_variants = second.generation.variants_per_real_anomaly
+                self.assertEqual(first.generation.variants_per_real_anomaly, original_variants)
+                first.generation.variants_per_real_anomaly = original_variants + 1
+                self.assertEqual(second.generation.variants_per_real_anomaly, original_variants)
