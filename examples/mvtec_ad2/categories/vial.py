@@ -14,11 +14,18 @@ from examples.mvtec_ad2.splits import (
 from hybrid_sample_generator import HybridDataGenerator
 
 CATEGORY = "vial"
-ANOMALY_SIZE = (1, 64, 64)
+ANOMALY_SIZE = (1, 128, 129)
 
 
 def create_configuration():
     config = create_generator_configuration(CATEGORY, ANOMALY_SIZE)
+    config.matching.gradient_weight = 0.3
+    config.matching.intensity_weight = 0.7
+    #config.roi.fixed_size = None
+    #config.roi.min_padding = (20, 20, 20)
+    #config.roi.padding_ratio = (1, 1, 1)
+    config.fusion.parameters.image_harmonization = None
+
     return config
 
 

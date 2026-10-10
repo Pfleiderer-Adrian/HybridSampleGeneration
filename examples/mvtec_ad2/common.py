@@ -57,6 +57,7 @@ def apply_generator_defaults(config: Configuration) -> None:
     config.fusion.parameters.sq_variation = 0.1
     config.fusion.parameters.steepness_variation = 1.0
     config.fusion.parameters.selected_confidence = "90%"
+    config.fusion.parameters.image_harmonization = "LBM"
     # Training settings
     config.training.num_trials = 10
     config.training.trial_selection = "best"
@@ -76,7 +77,7 @@ def apply_generator_defaults(config: Configuration) -> None:
         "factor": 0.1,
         "threshold": 1e-5,
     }
-    """
+    
     # Fixed model parameters. Only entries in model.search vary between trials.
     parameters = config.model.parameters
     parameters.recon_weight = 10.0
@@ -94,7 +95,7 @@ def apply_generator_defaults(config: Configuration) -> None:
     parameters.dropout = 0.05
     parameters.skip_dropout_p = 0.85
     parameters.skip_alpha = 0.1
-    """
+    
     search = config.model.search
     search.clear()
     search.n_res_blocks = IntRange(2, 4)

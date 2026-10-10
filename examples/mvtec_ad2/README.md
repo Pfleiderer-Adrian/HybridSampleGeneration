@@ -10,6 +10,19 @@ through the `MVTECAD2_ROOT`, `MVTECAD2_OUTPUT`, and `MVTECAD2_TEXTURES`
 environment variables. The dataset root must contain one directory per MVTec
 AD 2 category.
 
+To create a fresh `comparison_v2` study for `can`, run from the repository root:
+
+```bash
+python -m examples.mvtec_ad2.comparison_v2
+```
+
+This initializes the current settings from `categories/can.py` and `common.py`,
+runs the complete generator pipeline, trains a new DRAEM model, and evaluates it.
+Output is stored in `<MVTECAD2_OUTPUT>/comparison_v2/can/hybrid_generation`.
+The target directory must be new; use `--study-folder /path/to/new/study` for
+another run. Dataset and optional texture paths use the same environment
+variables as the category examples.
+
 ## Complete Python example for `can`
 
 The following code is the complete workflow used by
