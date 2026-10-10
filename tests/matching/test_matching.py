@@ -177,7 +177,11 @@ class MatchingSelectionTests(unittest.TestCase):
         self.config.batch_size = 5
         self.config.anomalies_per_hybrid = 5
 
-        with patch("hybrid_sample_generator.matching.pair_matcher.template_matching_prepared", side_effect=self._match):
+        def bounded_match(template, control, config):
+            score, center = self._match(template, control, config)
+            return score / 3, center
+
+        with patch("hybrid_sample_generator.matching.pair_matcher.template_matching_prepared", side_effect=bounded_match):
             first = self._selected_reals(self._plan(seed=42))
             repeated = self._selected_reals(self._plan(seed=42))
             changed = self._selected_reals(self._plan(seed=123))
@@ -185,6 +189,13 @@ class MatchingSelectionTests(unittest.TestCase):
         self.assertEqual(len(first), 5)
         self.assertEqual(first, repeated)
         self.assertNotEqual(set(first), set(changed))
+
+    def test_out_of_range_correlation_is_rejected_and_cached_as_invalid(self):
+        self._populate(rois=1)
+        with patch("hybrid_sample_generator.matching.pair_matcher.template_matching_prepared",
+                   return_value=(22.68, (20., 20.))):
+            self.assertEqual(self._plan(), [])
+        self.assertFalse(self.repository.list_match_candidates("control-0")[0].is_valid)
 
     def test_changed_weights_and_algorithm_version_recompute_cached_pairs(self):
         self._populate(rois=2)

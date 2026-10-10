@@ -16,7 +16,7 @@ from hybrid_sample_generator.persistence.artifact_store import ArtifactStore
 from hybrid_sample_generator.persistence.identifiers import stable_id
 from hybrid_sample_generator.persistence.study_repository import StudyRepository
 
-MATCHER_ALGORITHM_VERSION = 1
+MATCHER_ALGORITHM_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -89,7 +89,7 @@ class PairMatcher:
             score, center = template_matching_prepared(prepared, self.control_prepared, self.config)
             self.stats.matching_seconds += perf_counter() - started
             self.stats.computed_pairs += 1
-            valid = center is not None and np.isfinite(score) and score >= -1
+            valid = center is not None and np.isfinite(score) and -1 <= score <= 1
             position = tuple(float(v) for v in np.asarray(center) / self.spatial_shape) if valid else None
             cached = MatchCandidate(self.original.id, record.id, self.signature, valid,
                                     float(score) if np.isfinite(score) else None, position,
