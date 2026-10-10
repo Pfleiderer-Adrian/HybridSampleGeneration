@@ -1,6 +1,9 @@
 """Batch and epoch loops for trainable generation models."""
 
+import csv
 import math
+import os
+from pathlib import Path
 
 import torch
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -106,6 +109,24 @@ def run_epoch(
     return average_metric_dicts(metric_dicts)
 
 
+def _write_history_csv(path, rows):
+    """Atomically persist the history of all completed epochs."""
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.tmp")
+    metric_names = sorted(
+        {key for row in rows for key in row}
+        - {"epoch", "learning_rate", "beta_kl"}
+    )
+    fieldnames = ["epoch", "learning_rate", "beta_kl", *metric_names]
+
+    with temporary.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    os.replace(temporary, destination)
+
+
 def train(
     model,
     train_loader,
@@ -114,10 +135,12 @@ def train(
     *,
     anomaly_size,
     best_model_path=None,
+    history_path=None,
 ):
     """Train through the common batch-level generative model interface."""
     train_history = []
     val_history = []
+    epoch_history = []
     best_epoch = 0
     best_val = float("inf")
 
@@ -170,6 +193,25 @@ def train(
                     )
 
             lr = current_lr(optimizer, scheduler)
+            beta_kl = getattr(model, "_beta_kl", "")
+            row = {
+                "epoch": epoch + 1,
+                "learning_rate": lr,
+                "beta_kl": float(beta_kl) if beta_kl != "" else "",
+            }
+            row.update(
+                {f"train_{key}": float(value) for key, value in train_metrics.items()}
+            )
+            row.update(
+                {
+                    f"validation_{key}": float(value)
+                    for key, value in val_metrics.items()
+                }
+            )
+            epoch_history.append(row)
+            if history_path is not None:
+                _write_history_csv(history_path, epoch_history)
+
             tqdm.write(format_epoch_log(epoch + 1, lr, train_metrics, val_metrics))
             progress.set_postfix(
                 lr=f"{lr:.5f}", train=f"{train_value:.4f}", val=f"{val_value:.4f}"

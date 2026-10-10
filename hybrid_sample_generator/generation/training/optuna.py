@@ -111,6 +111,10 @@ def objective(
     model_path = os.path.join(
         config.study.paths.trained_models, f"model_trial_{trial.number}_best.pth"
     )
+    history_path = os.path.join(
+        config.study.paths.trained_models,
+        f"model_trial_{trial.number}_history.csv",
+    )
     _, validation_losses, best_epoch, best_validation = train(
         model=model,
         train_loader=train_loader,
@@ -118,11 +122,13 @@ def objective(
         config=training,
         anomaly_size=config.extraction.anomaly_size,
         best_model_path=model_path,
+        history_path=history_path,
     )
     params = asdict(parameters)
     for key, value in params.items():
         trial.set_user_attr(key, value)
     trial.set_user_attr("model_path", model_path)
+    trial.set_user_attr("history_path", history_path)
     trial.set_user_attr("best_epoch", best_epoch)
     trial.set_user_attr("best_val_loss", float(best_validation))
     trial.set_user_attr("params", params)

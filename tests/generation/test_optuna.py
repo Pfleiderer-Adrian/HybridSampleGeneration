@@ -52,6 +52,7 @@ class OptunaRegressionTests(unittest.TestCase):
             self.assertEqual(trial.user_attrs['best_epoch'], 1)
             self.assertEqual(trial.user_attrs['model_name'], self.config.model.name)
             self.assertTrue(Path(trial.user_attrs['model_path']).is_file())
+            self.assertTrue(Path(trial.user_attrs['history_path']).is_file())
             self.assertTrue(trial.user_attrs['params'])
             self.assertEqual(trial.value, trial.user_attrs['best_val_loss'])
 

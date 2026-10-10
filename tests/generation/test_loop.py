@@ -1,4 +1,5 @@
 """Behavioral tests for the actual generator training loop."""
+import csv
 import tempfile
 import unittest
 from pathlib import Path
@@ -74,14 +75,26 @@ class TrainingLoopTests(unittest.TestCase):
         config = TrainingConfiguration(epochs=4, learning_rate=.1, early_stopping={'patience': 1, 'delta': 0.}, lr_scheduler={'patience': 0, 'factor': .5})
         with tempfile.TemporaryDirectory() as root, patch('torch.cuda.is_available', return_value=False):
             path = Path(root) / 'best.pt'
-            training, validation, epoch, value = train(model, [torch.ones(1)], [torch.ones(1)], config, anomaly_size=(1, 2, 2), best_model_path=path)
+            history_path = Path(root) / 'trial_history.csv'
+            training, validation, epoch, value = train(model, [torch.ones(1)], [torch.ones(1)], config, anomaly_size=(1, 2, 2), best_model_path=path, history_path=history_path)
             self.assertTrue(path.is_file())
+            with history_path.open(encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle))
             self.assertEqual([state['epoch'] for state in model.saved], [1, 2])
             self.assertEqual(validation, [3., 2., 4.])
             self.assertEqual((epoch, value), (2, 2.))
             self.assertEqual(len(training), 3)
             self.assertAlmostEqual(model.optimizer.param_groups[0]['lr'], .05)
             self.assertEqual(model.validation_grad_enabled, [False] * 3)
+            self.assertEqual([row["epoch"] for row in rows], ["1", "2", "3"])
+            self.assertEqual(
+                [row["validation_selection"] for row in rows],
+                ["3.0", "2.0", "4.0"],
+            )
+            self.assertTrue(all(row["learning_rate"] == "0.1" for row in rows))
+            self.assertTrue(all(row["beta_kl"] == "" for row in rows))
+            self.assertIn("train_loss", rows[0])
+            self.assertIn("validation_loss", rows[0])
 
 
 class SchedulerTests(unittest.TestCase):
