@@ -76,6 +76,13 @@ are not loaded or matched. The ROI sequence restarts on each planning run.
 in descending match-score order. `batchwise` evaluates and ranks only a seeded
 subset of at most `batch_size` ROIs per control.
 
+Template matching uses Float64 correlation and rejects constant or numerically
+flat templates and search windows. Window variance must exceed
+`max(1e-16, 64 * eps64 * max(global centered energy, local second moment))`.
+This numerical safeguard is not configurable and can exclude suitable placements
+on very uniform surfaces; an invalid active intensity or gradient score also
+invalidates the combined score.
+
 All three modes prepare control and ROI gradients on demand and reuse them
 within the planning run. Pair results, including rejected pairs, are cached in
 SQLite by matcher signature. Repeated planning with unchanged inputs and weights
