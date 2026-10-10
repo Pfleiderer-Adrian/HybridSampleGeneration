@@ -31,6 +31,7 @@ DESCRIPTIONS = {
     "extraction.roi.min_size": "Minimum dynamic ROI size, either scalar or per axis.",
     "extraction.roi.min_padding": "Minimum ROI padding around the anomaly on each axis.",
     "extraction.roi.padding_ratio": "Additional ROI padding relative to anomaly size on each axis.",
+    "extraction.roi.preserve_aspect_ratio": "Expand dynamic ROIs to match the spatial aspect ratio of the full image sample.",
     "augmentation.mask_transforms.use_mask_transform": "Master switch for all mask transformations. When disabled, configured probabilities and parameters are retained but no mask transformation is applied.",
     "augmentation.mask_transforms.mask_transform_probs": "Probabilities for global, local, and class-specific transforms.",
     "augmentation.mask_transforms.mask_transform_params": "Parameter ranges for individual transforms.",
