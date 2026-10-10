@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 import numpy as np
 
-from hybrid_sample_generator.visualization.widgets import EntityBrowserTab, insert_tree_scrollbars
+from hybrid_sample_generator.visualization.maintenance import StudyMaintenance
 from hybrid_sample_generator.visualization.queries import HybridContext, StudyBrowserModel
 from hybrid_sample_generator.visualization.rendering import ArrayCache, Marker, PanelSpec
 from hybrid_sample_generator.visualization.state import SelectionController
+from hybrid_sample_generator.visualization.widgets import (
+    EntityBrowserTab,
+    insert_tree_scrollbars,
+)
 
 
 MARKER_COLORS = (
@@ -30,10 +34,16 @@ class HybridsTab(EntityBrowserTab):
         model: StudyBrowserModel,
         cache: ArrayCache,
         selection: SelectionController,
+        maintenance: StudyMaintenance,
+        *,
+        on_data_changed,
     ) -> None:
         self.model = model
         self.selection = selection
+        self.maintenance = maintenance
+        self.on_data_changed = on_data_changed
         self.context: HybridContext | None = None
+        self._selected_placement_id: str | None = None
         self._item_payload = {}
         self._leaf_items = []
         super().__init__(master, cache=cache, rows=2, columns=3)
@@ -76,6 +86,13 @@ class HybridsTab(EntityBrowserTab):
             variable=self.difference_var,
             command=self._show_context,
         ).pack(anchor="w", pady=(6, 0))
+        self.delete_button = ttk.Button(
+            self.details_frame,
+            text="Delete selected hybrid sample…",
+            command=self._delete_selected_hybrid,
+            state="disabled",
+        )
+        self.delete_button.pack(fill="x", pady=(8, 0))
         self.refresh()
 
     def refresh(self) -> None:
@@ -101,6 +118,8 @@ class HybridsTab(EntityBrowserTab):
         self.tree.delete(*self.tree.get_children())
         self._item_payload.clear()
         self._leaf_items.clear()
+        self._selected_placement_id = None
+        self.delete_button.configure(state="disabled")
         preferred_item = None
         status_filter = self.hybrid_status_filter.get() or "all"
         query = self.search_query
@@ -171,6 +190,10 @@ class HybridsTab(EntityBrowserTab):
         if not selected:
             return
         kind, entity_id = self._item_payload[selected[0]]
+        self._selected_placement_id = entity_id if kind == "placement" else None
+        self.delete_button.configure(
+            state="normal" if self._selected_placement_id else "disabled"
+        )
         if kind == "original":
             hybrid_items = self.tree.get_children(selected[0])
             if not hybrid_items:
@@ -198,6 +221,51 @@ class HybridsTab(EntityBrowserTab):
             ),
         )
         self._show_context()
+
+    def _delete_selected_hybrid(self) -> None:
+        placement_id = self._selected_placement_id
+        if placement_id is None:
+            return
+        placement = self.model.placement_by_id.get(placement_id)
+        if placement is None:
+            self.delete_button.configure(state="disabled")
+            return
+        hybrid_id = placement.hybrid_sample_id
+        try:
+            impact = self.maintenance.preview_removal("placement", placement_id)
+        except Exception as exc:
+            messagebox.showerror(
+                "Cannot inspect dependencies",
+                str(exc),
+                parent=self,
+            )
+            return
+        confirmed = messagebox.askyesno(
+            "Delete hybrid sample",
+            f"Delete hybrid sample {hybrid_id}?\n\n"
+            f"Selected placement: {placement_id}\n\n"
+            f"{impact.describe()}\n\n"
+            "Artifact files will be moved into the study's .trash folder.",
+            parent=self,
+        )
+        if not confirmed:
+            return
+        try:
+            trash_path = self.maintenance.archive_and_remove(impact)
+            self.context = None
+            self._selected_placement_id = None
+            self.cache.clear()
+            self.on_data_changed()
+        except Exception as exc:
+            messagebox.showerror("Removal failed", str(exc), parent=self)
+            return
+        messagebox.showinfo(
+            "Hybrid sample deleted",
+            f"Deleted hybrid sample: {hybrid_id}\n"
+            f"Deleted placements: {len(impact.placement_ids)}\n"
+            f"Archived artifacts: {trash_path}",
+            parent=self,
+        )
 
     def _show_context(self) -> None:
         if self.context is None:
