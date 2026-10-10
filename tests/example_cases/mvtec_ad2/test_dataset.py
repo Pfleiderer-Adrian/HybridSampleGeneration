@@ -71,5 +71,7 @@ class MVTecDatasetTests(unittest.TestCase):
                     set(first.model.search.names()),
                     {"n_res_blocks", "n_levels", "z_channels", "bottleneck_dim", "dropout"},
                 )
-                first.generation.variants_per_real_anomaly = 99
-                self.assertEqual(second.generation.variants_per_real_anomaly, 3)
+                original_variants = second.generation.variants_per_real_anomaly
+                self.assertEqual(first.generation.variants_per_real_anomaly, original_variants)
+                first.generation.variants_per_real_anomaly = original_variants + 1
+                self.assertEqual(second.generation.variants_per_real_anomaly, original_variants)
