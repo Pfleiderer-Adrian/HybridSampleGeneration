@@ -6,6 +6,7 @@ Select with `config.fusion.set_backend('classical')`.
 | --- | --- | --- | --- |
 | `config.fusion.parameters.max_alpha` | `float` | `0.8` | Maximum anomaly mixing weight; range [0, 1]. |
 | `config.fusion.parameters.segmentation_min_alpha` | `float` | `0.0` | Minimum anomaly mixing weight required for a pixel to remain in the output segmentation mask; range [0, max_alpha]. |
+| `config.fusion.parameters.image_harmonization` | `str \| None` | `None` | Optional final 2D harmonization step: None, 'PCTNet', or 'LBM'. Requires the harmonization dependency extra and one or three image channels. |
 | `config.fusion.parameters.sq` | `float` | `2` | Shape parameter for the spatial alpha mask. |
 | `config.fusion.parameters.steepness_factor` | `float` | `3` | Steepness of the transition at the anomaly boundary. |
 | `config.fusion.parameters.upsampling_factor` | `int` | `2` | Factor for finer alpha mask computation. |

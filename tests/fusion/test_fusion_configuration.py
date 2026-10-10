@@ -38,11 +38,13 @@ class FusionConfigurationTests(unittest.TestCase):
             'parameters': {
                 'max_alpha': 0.7,
                 'segmentation_min_alpha': 0.2,
+                'image_harmonization': 'PCTNet',
             },
         }
         settings = FusionSettings.from_dict(values)
         self.assertEqual(settings.parameters.max_alpha, 0.7)
         self.assertEqual(settings.parameters.segmentation_min_alpha, 0.2)
+        self.assertEqual(settings.parameters.image_harmonization, 'PCTNet')
         self.assertEqual(settings.parameters.sq, ClassicalConfig().sq)
         values['parameters']['max_alhpa'] = 0.5
         with self.assertRaises(TypeError):
@@ -54,6 +56,7 @@ class FusionConfigurationTests(unittest.TestCase):
         for parameters in (
             ClassicalConfig(max_alpha=1.1), ClassicalConfig(max_alpha='0.5'),
             ClassicalConfig(max_alpha=0.2, segmentation_min_alpha=0.3),
+            ClassicalConfig(image_harmonization='pctnet'),
             ClassicalConfig(upsampling_factor=True), ClassicalConfig(sq=float('nan')),
             ClassicalConfig(selected_confidence='invalid'), ClassicalConfig(fusion_relation_mode='invalid'),
             PoissonConfig(guidance_mode='invalid'), PoissonConfig(solver_rtol=-1.0),

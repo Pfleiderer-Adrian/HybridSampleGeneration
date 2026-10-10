@@ -435,6 +435,8 @@ config.fusion.parameters.dilation_size = 1
 config.fusion.parameters.shave_pixels = 0
 config.fusion.parameters.max_alpha = 0.9  # default: classical backend
 config.fusion.parameters.fusion_variation = False
+# Optional final pretrained harmonization step:
+config.fusion.parameters.image_harmonization = "PCTNet"  # None, "PCTNet", or "LBM"
 
 config.validate()
 ```
@@ -455,6 +457,11 @@ Important classical parameters include:
 
 - `max_alpha`, `sq`, `steepness_factor` and `upsampling_factor`, which control
   the maximum anomaly contribution and the distance-transform alpha falloff.
+- `image_harmonization`, which optionally runs pretrained PCTNet or LBM after
+  classical blending. It supports 2D samples with one or three channels and
+  requires `python -m pip install -e ".[harmonization]"` plus a CUDA GPU.
+  Pixels outside the current placement mask remain unchanged. `None` disables
+  this post-processing step.
 - `fusion_use_sobel_for_alpha_mask`, `sobel_threshold`, `dilation_size` and
   `shave_pixels`, which enable and tune the optional edge-refined alpha path.
 - `fusion_variation` plus `alpha_variation`, `sq_variation`,

@@ -193,6 +193,7 @@ def finalize_spatial_fusion(
     crop_roi,
     dynamic_roi_size,
     segmentation_mask: np.ndarray | None = None,
+    image_postprocessor=None,
     metrics: dict[str, Any] | None = None,
 ) -> FusionOutput:
     """Write a fused region and construct segmentation and ROI outputs."""
@@ -235,6 +236,15 @@ def finalize_spatial_fusion(
             segmentation=segmentation,
             metrics=metrics,
         )
+
+    if image_postprocessor is not None:
+        processed = np.asarray(image_postprocessor(fused_image, segmentation))
+        if processed.shape != fused_image.shape:
+            raise ValueError(
+                f"image postprocessor returned shape {processed.shape}; "
+                f"expected {fused_image.shape}."
+            )
+        fused_image = processed.astype(fused_image.dtype, copy=False)
 
     centroid = tuple(
         float(prepared.offset[axis]) + float(prepared.crop_shape[axis]) / 2.0

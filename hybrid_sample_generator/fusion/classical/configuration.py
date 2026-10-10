@@ -18,6 +18,7 @@ CONFIDENCE_LEVELS = {
 class Config:
     max_alpha: float = 0.8
     segmentation_min_alpha: float = 0.0
+    image_harmonization: str | None = None
     sq: float = 2
     steepness_factor: float = 3
     upsampling_factor: int = 2
@@ -59,5 +60,10 @@ class Config:
             )
         if self.selected_confidence not in CONFIDENCE_LEVELS:
             raise ValueError(f"Unknown fusion confidence level {self.selected_confidence!r}.")
+        if self.image_harmonization not in {None, "PCTNet", "LBM"}:
+            raise ValueError(
+                "fusion.parameters.image_harmonization must be None, "
+                "'PCTNet', or 'LBM'."
+            )
         if self.fusion_relation_mode not in {"delta", "ratio"}:
             raise ValueError("fusion.parameters.fusion_relation_mode must be 'delta' or 'ratio'.")

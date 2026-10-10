@@ -27,6 +27,7 @@ def fuse_spatial(
     alpha_builder,
     anomaly_roi=None,
     anomaly_roi_mask=None,
+    image_postprocessor=None,
 ) -> FusionOutput:
     """Prepare, alpha-blend, and finalize one 2D or 3D anomaly."""
     prepared = prepare_spatial_fusion(
@@ -77,6 +78,7 @@ def fuse_spatial(
         crop_roi=crop_roi,
         dynamic_roi_size=dynamic_roi_size,
         segmentation_mask=segmentation_mask,
+        image_postprocessor=image_postprocessor,
     )
 
 
