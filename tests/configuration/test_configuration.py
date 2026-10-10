@@ -159,6 +159,7 @@ class ConfigurationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             config = Configuration("config-test", save_path=root)
             config.extraction.anomaly_size = (3, 32, 32)
+            config.extraction.roi.preserve_aspect_ratio = True
             config.model.set_model("VAE_ResNet_2D")
             config.matching.routine = "local"
             config.matching.hybrids_per_original = 3
@@ -179,6 +180,8 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(serialized["matching"]["anomalies_per_hybrid"], 2)
             self.assertEqual(serialized["matching"]["hybrids_per_original"], 3)
             self.assertEqual(serialized["generation"]["variants_per_real_anomaly"], 5)
+            self.assertTrue(serialized["extraction"]["roi"]["preserve_aspect_ratio"])
+            self.assertTrue(loaded.extraction.roi.preserve_aspect_ratio)
             self.assertEqual(serialized["training"]["num_trials"], 4)
             self.assertEqual(serialized["training"]["trial_selection"], 2)
             self.assertEqual(loaded.to_dict(), config.to_dict())

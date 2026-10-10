@@ -31,8 +31,12 @@ The principal settings are:
   padding and proportional padding.
 - `config.extraction.roi.min_size`: scalar or per-axis lower bound for a dynamic
   ROI.
+- `config.extraction.roi.preserve_aspect_ratio`: expand a dynamic ROI without
+  shrinking any axis until it follows the spatial aspect ratio of the complete
+  image sample. This setting is ignored when `fixed_size` is configured.
 
-ROI tuples contain spatial axes only: `(H, W)` for 2D and `(D, H, W)` for 3D.
+ROI tuples contain spatial axes only: `(H, W)` for 2D and `(D, H, W)` for 3D;
+an optional leading channel entry is also accepted and ignored for ROI sizing.
 
 ## Synthetic variants
 
