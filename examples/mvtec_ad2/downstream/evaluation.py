@@ -15,7 +15,7 @@ from .patches import tiled_logits
 def evaluation_loader(dataset, settings):
     # Full-resolution images may have different shapes; tile one image at a time.
     return DataLoader(dataset, batch_size=1 if dataset.data.mode == "patch" else settings.batch_size,
-                      num_workers=settings.num_workers)
+                      num_workers=settings.num_workers, persistent_workers=False)
 
 
 def binary_metrics(labels, scores):

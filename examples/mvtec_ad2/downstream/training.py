@@ -30,6 +30,7 @@ def train(dataset, validation, config, output):
     optimizer = torch.optim.Adam(model.parameters(), lr=settings.learning_rate)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=sorted(set([max(1, int(settings.epochs*.8)), max(1, int(settings.epochs*.9))])), gamma=.2)
     loader = DataLoader(dataset, batch_size=settings.batch_size, num_workers=settings.num_workers,
+                        persistent_workers=False,
                         generator=torch.Generator().manual_seed(config.seed))
     validation_loader = evaluation_loader(validation, settings)
     output = Path(output)

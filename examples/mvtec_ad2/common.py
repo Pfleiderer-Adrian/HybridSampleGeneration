@@ -125,7 +125,7 @@ def create_downstream_configuration() -> DownstreamConfiguration:
     config.training.epochs = 100
     config.training.batch_size = 8
     config.training.learning_rate = 1e-4
-    config.training.num_workers = 0
+    config.training.num_workers = 4
     config.training.device = "auto"
     config.training.reconstruction_width = 128
     config.training.segmentation_width = 64
