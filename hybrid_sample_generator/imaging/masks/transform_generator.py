@@ -97,8 +97,12 @@ class TransformGenerator:
         seed: int | None = None,
     ):
         """Build from mask-transform settings and explicit shared inputs."""
+        transform_probs = None
+        if config.use_mask_transform:
+            transform_probs = dict(DEFAULT_TRANSFORM_PROBS)
+            transform_probs.update(config.mask_transform_probs)
         return cls(
-            config.mask_transform_probs,
+            transform_probs,
             use_mask_transform=config.use_mask_transform,
             padding_factor=config.padding_factor,
             transform_params=config.mask_transform_params,
@@ -113,7 +117,7 @@ class TransformGenerator:
         self,
         transform_probs: Dict[int | str, Any] | None = None,
         *,
-        use_mask_transform: bool = False,
+        use_mask_transform: bool = True,
         padding_factor: int = 2,
         transform_params: Dict[int | str, Dict[str, Any]] | None = None,
         priorities: list[int] | tuple[int, ...] | None = None,
@@ -127,9 +131,11 @@ class TransformGenerator:
         self.class_transform_probs = {}
         self.padding_factor = padding_factor
         if use_mask_transform:
-            self.set_transform_probs(DEFAULT_TRANSFORM_PROBS)
-        if transform_probs:
-            self.set_transform_probs(transform_probs)
+            self.set_transform_probs(
+                DEFAULT_TRANSFORM_PROBS
+                if transform_probs is None
+                else transform_probs
+            )
         self.transform_params = deepcopy(DEFAULT_TRANSFORM_PARAMS)
         if use_mask_transform:
             self.transform_params["elastic"].update(

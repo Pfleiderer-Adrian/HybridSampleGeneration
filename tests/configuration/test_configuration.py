@@ -187,7 +187,7 @@ class ConfigurationTests(unittest.TestCase):
                 MaskTransformConfiguration,
             )
 
-    def test_mask_transform_configuration_builds_runtime_generator(self):
+    def test_disabled_mask_transform_ignores_explicit_probabilities(self):
         config = MaskTransformConfiguration(
             use_mask_transform=False,
             padding_factor=3,
@@ -204,6 +204,20 @@ class ConfigurationTests(unittest.TestCase):
 
         self.assertEqual(generator.padding_factor, 3)
         self.assertTrue(generator.mask_transform_local_as_global)
+        self.assertEqual(generator.global_transform_probs, {})
+        self.assertEqual(generator.transform_params["rotate"]["max_rotation"], 12.0)
+
+    def test_enabled_mask_transform_applies_explicit_probabilities(self):
+        config = MaskTransformConfiguration(use_mask_transform=True)
+        config.setGlobalParam("rotate", probability=0.25, max_rotation=12.0)
+
+        generator = TransformGenerator.from_config(
+            config,
+            anomaly_size=(1, 16, 16),
+            background_threshold=0.01,
+            seed=7,
+        )
+
         self.assertEqual(generator.global_transform_probs["rotate"], 0.25)
         self.assertEqual(generator.transform_params["rotate"]["max_rotation"], 12.0)
 

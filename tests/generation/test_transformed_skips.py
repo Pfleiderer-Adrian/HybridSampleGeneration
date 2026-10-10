@@ -55,7 +55,9 @@ class TransformedSkipTests(unittest.TestCase):
                                 sample,
                                 mode="posterior",
                                 posterior_skip_source="transformed",
-                                target_mask_generator=TransformGenerator(),
+                                target_mask_generator=TransformGenerator(
+                                    use_mask_transform=False
+                                ),
                                 **kwargs,
                             )
 
@@ -92,7 +94,7 @@ class TransformedSkipTests(unittest.TestCase):
                 {"img": image, "ori_mask": mask},
                 mode="posterior",
                 posterior_skip_source="transformed",
-                target_mask_generator=TransformGenerator(),
+                target_mask_generator=TransformGenerator(use_mask_transform=False),
             )
 
     def test_zero_alphas_skip_the_second_encoder(self):
@@ -104,7 +106,7 @@ class TransformedSkipTests(unittest.TestCase):
                 {"img": image, "ori_mask": mask},
                 mode="posterior",
                 posterior_skip_source="transformed",
-                target_mask_generator=TransformGenerator(),
+                target_mask_generator=TransformGenerator(use_mask_transform=False),
                 variation_strength=0.0,
             )
         self.assertEqual(encoder.call_count, 1)
@@ -119,7 +121,10 @@ class TransformedSkipTests(unittest.TestCase):
                 settings = {"zoom": 1.0}
                 params = {"zoom": {"min_zoom": 0.8, "max_zoom": 0.8}}
                 expected_mask, expected_image = TransformGenerator(
-                    settings, transform_params=params, rng=np.random.default_rng(19)
+                    settings,
+                    use_mask_transform=True,
+                    transform_params=params,
+                    rng=np.random.default_rng(19),
                 ).create_target_mask_and_transformed_image(mask, image)
                 encoder_inputs = []
                 hook = model.encoder.register_forward_pre_hook(
@@ -131,7 +136,9 @@ class TransformedSkipTests(unittest.TestCase):
                         mode="posterior",
                         posterior_skip_source="transformed",
                         target_mask_generator=TransformGenerator(
-                            settings, transform_params=params,
+                            settings,
+                            use_mask_transform=True,
+                            transform_params=params,
                             rng=np.random.default_rng(19),
                         ),
                         variation_strength=0.0,
@@ -161,14 +168,22 @@ class TransformedSkipTests(unittest.TestCase):
             np.zeros((1, 8, 8), dtype=np.uint8),
         )
         service._model = model
-        service._generate_variant({}, np.zeros((1, 8, 8)), TransformGenerator())
+        service._generate_variant(
+            {},
+            np.zeros((1, 8, 8)),
+            TransformGenerator(use_mask_transform=False),
+        )
         self.assertEqual(
             model.generate.call_args.kwargs["posterior_skip_source"],
             "transformed",
         )
 
         config.model.set_model("VAE_ConvNeXt_2D")
-        service._generate_variant({}, np.zeros((1, 8, 8)), TransformGenerator())
+        service._generate_variant(
+            {},
+            np.zeros((1, 8, 8)),
+            TransformGenerator(use_mask_transform=False),
+        )
         self.assertNotIn(
             "posterior_skip_source",
             model.generate.call_args.kwargs,
@@ -176,7 +191,11 @@ class TransformedSkipTests(unittest.TestCase):
 
         config.model.set_model("cVAE_ConvNeXt_2D")
         config.generation.sampling_mode = "prior"
-        service._generate_variant({}, np.zeros((1, 8, 8)), TransformGenerator())
+        service._generate_variant(
+            {},
+            np.zeros((1, 8, 8)),
+            TransformGenerator(use_mask_transform=False),
+        )
         self.assertNotIn(
             "posterior_skip_source",
             model.generate.call_args.kwargs,
