@@ -89,13 +89,14 @@ def _correlation(template, control):
     return np.where(valid, np.clip(scores, -1, 1), np.nan)
 
 
-def template_matching(template, control, config: MatchingConfiguration):
+def template_matching(template, control, config: MatchingConfiguration, *, source_position=None):
     """Match full images while preparing each input once for this call."""
     with_gradient = float(config.gradient_weight) > 0
     return template_matching_prepared(
         prepare_matching_array(template, with_gradient=with_gradient),
         prepare_matching_array(control, with_gradient=with_gradient),
         config,
+        source_position=source_position,
     )
 
 
@@ -103,6 +104,8 @@ def template_matching_prepared(
     template: PreparedArray,
     control: PreparedArray,
     config: MatchingConfiguration,
+    *,
+    source_position=None,
 ):
     if any(
         template_size > control_size
@@ -124,6 +127,25 @@ def template_matching_prepared(
     ):
         score_maps.append(_correlation(template.gradient, control.gradient))
         weights.append(float(config.gradient_weight))
+    if float(config.distance_weight) > 0:
+        position = np.asarray(source_position, dtype=np.float64)
+        shape = np.asarray(control.intensity.shape, dtype=np.float64)
+        roi_shape = np.asarray(template.intensity.shape, dtype=np.float64)
+        if position.shape != shape.shape or not np.isfinite(position).all() or np.any((position < 0) | (position > 1)):
+            raise ValueError("Distance matching requires a normalized source_position in [0, 1] for each spatial axis.")
+        lower = roi_shape / (2 * shape)
+        upper = 1 - lower
+        max_distance = np.linalg.norm(np.maximum(np.abs(lower - position), np.abs(upper - position)))
+        output_shape = tuple(int(n - w + 1) for n, w in zip(shape, roi_shape))
+        squared_distance = np.zeros(output_shape, dtype=np.float64)
+        for axis, size in enumerate(output_shape):
+            centers = (np.arange(size, dtype=np.float64) + roi_shape[axis] / 2) / shape[axis]
+            broadcast_shape = [1] * len(shape)
+            broadcast_shape[axis] = size
+            squared_distance += ((centers - position[axis]) ** 2).reshape(broadcast_shape)
+        proximity = np.ones(output_shape, dtype=np.float64) if max_distance == 0 else 1 - np.clip(np.sqrt(squared_distance) / max_distance, 0, 1)
+        score_maps.append(proximity)
+        weights.append(float(config.distance_weight))
     if not score_maps:
         return -2.0, None
 

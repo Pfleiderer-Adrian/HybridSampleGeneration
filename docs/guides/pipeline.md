@@ -57,6 +57,13 @@ variant index, seed, image and target mask. Feedback generation is bounded by
 - `allow_sibling_variants_in_same_hybrid`: whether variants with the same real
   parent may occur together in one hybrid.
 - `intensity_weight` and `gradient_weight`: weights for template matching.
+- `distance_weight`: optional weight for proximity to the origianl anomaly's normalized
+  source centroid (default `0.0`, preserving existing matching). For `local`,
+  `global` and `batchwise`, proximity is `1 - distance / maximum_distance`, using
+  normalized window centers and the farthest valid window center as the maximum.
+  It ranges from 0 to 1 and is averaged with the active intensity/gradient scores
+  before selecting a position. Invalid correlation windows remain invalid.
+  Fixed-placement modes do not use this weight.
 - `seed`: reproducibility seed owned by the matching phase.
 
 `local`, `global`, `batchwise` and `fixed_from_extraction_control_fusion` target

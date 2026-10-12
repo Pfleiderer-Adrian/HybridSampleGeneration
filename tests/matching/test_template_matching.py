@@ -11,6 +11,40 @@ from hybrid_sample_generator.matching.pair_matcher import matcher_signature
 
 
 class TemplateMatchingTests(unittest.TestCase):
+    def test_distance_weight_prefers_source_position_in_2d_and_3d(self):
+        for dims in (2, 3):
+            template = np.arange(4 ** dims, dtype=float).reshape((1,) + (4,) * dims)
+            control = np.zeros((1,) + (12,) * dims)
+            scores = np.zeros((9,) * dims)
+            scores[(0,) * dims] = .9
+            scores[(8,) * dims] = .8
+            origin = (10 / 12,) * dims
+            with patch('hybrid_sample_generator.matching.template_matching._correlation', return_value=scores):
+                config = MatchingConfiguration(intensity_weight=1, gradient_weight=0)
+                self.assertEqual(template_matching(template, control, config)[1], (2.,) * dims)
+                config.distance_weight = 1
+                score, center = template_matching(template, control, config, source_position=origin)
+                self.assertEqual(center, (10.,) * dims)
+                self.assertAlmostEqual(score, .9)
+
+    def test_distance_only_and_missing_source_position(self):
+        config = MatchingConfiguration(intensity_weight=0, gradient_weight=0, distance_weight=1)
+        config.validate()
+        template = np.ones((1, 4, 4))
+        control = np.ones((1, 12, 12))
+        self.assertEqual(template_matching(template, control, config, source_position=(.5, .5)), (1., (6., 6.)))
+        with self.assertRaisesRegex(ValueError, 'source_position'):
+            template_matching(template, control, config)
+        for weight in (-1, float('nan'), float('inf')):
+            config.distance_weight = weight
+            with self.assertRaisesRegex(ValueError, 'distance_weight'):
+                config.validate()
+
+    def test_distance_does_not_rescue_invalid_correlation(self):
+        config = MatchingConfiguration(intensity_weight=1, gradient_weight=0, distance_weight=1)
+        self.assertEqual(template_matching(np.ones((1, 4, 4)), np.ones((1, 12, 12)),
+                                         config, source_position=(.5, .5)), (-2., None))
+
     def test_window_moments_match_direct_sums_in_2d_and_3d(self):
         for shape, window in (((7, 9), (3, 4)), ((6, 7, 8), (2, 3, 4))):
             array = np.random.default_rng(12).normal(size=shape)
@@ -84,6 +118,10 @@ class TemplateMatchingTests(unittest.TestCase):
     def test_cache_signature_changes_with_weights_and_algorithm_version(self):
         config = MatchingConfiguration()
         original = matcher_signature(config)
+        config.distance_weight = 1
+        self.assertNotEqual(original, matcher_signature(config))
+        config.distance_weight = 0
+        self.assertEqual(original, matcher_signature(config))
         config.gradient_weight += 1
         self.assertNotEqual(original, matcher_signature(config))
         with patch('hybrid_sample_generator.matching.pair_matcher.MATCHER_ALGORITHM_VERSION', 999):

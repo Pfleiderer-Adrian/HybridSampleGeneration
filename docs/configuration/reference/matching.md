@@ -11,6 +11,7 @@
 | `config.matching.batch_size` | `int` | `32` | Batch size for candidate scoring; positive. |
 | `config.matching.intensity_weight` | `float` | `1.0` | Weight of intensity similarity during matching. |
 | `config.matching.gradient_weight` | `float` | `2.0` | Weight of gradient similarity during matching. |
+| `config.matching.distance_weight` | `float` | `0.0` | Weight of proximity to the original anomaly's normalized source position; finite and non-negative. Zero preserves intensity/gradient-only matching. |
 
 Allowed `matching.routine` values: `local`, `global`, `batchwise`, `fixed_from_extraction_anomaly_fusion`, and `fixed_from_extraction_control_fusion`.
 

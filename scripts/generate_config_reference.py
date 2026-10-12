@@ -60,6 +60,7 @@ DESCRIPTIONS = {
     "matching.batch_size": "Batch size for candidate scoring; positive.",
     "matching.intensity_weight": "Weight of intensity similarity during matching.",
     "matching.gradient_weight": "Weight of gradient similarity during matching.",
+    "matching.distance_weight": "Weight of proximity to the original anomaly's normalized source position; finite and non-negative. Zero preserves intensity/gradient-only matching.",
     "training.num_trials": "Number of Optuna trials; positive.",
     "training.trial_selection": "Trial to use: 'best', 'last', or a non-negative trial ID.",
     "training.validation_ratio": "Fraction of data reserved for validation; range [0, 1).",
