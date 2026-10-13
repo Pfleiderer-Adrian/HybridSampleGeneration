@@ -4,6 +4,7 @@ import csv
 from pathlib import Path
 import numpy as np
 import torch
+from scipy import ndimage
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from examples.common.image_io import save_image
@@ -39,11 +40,44 @@ def curve_metrics(tp, fp, positives, negatives):
             "ap": float(np.sum(np.diff(recall)*precision))}
 
 
+class RegionOverlapMetric:
+    """Binned, equally weighted 8-connected regions; normalized partial PRO AUC."""
+
+    def __init__(self, bins):
+        self.region_histogram = np.zeros(bins, dtype=np.float64)
+        self.regions = 0
+
+    def update(self, bucket, truth):
+        for image_bucket, mask in zip(bucket, truth):
+            components, count = ndimage.label(mask, structure=np.ones((3, 3)))
+            if count:
+                sizes = np.bincount(components.ravel())
+                # Every region contributes total weight one, regardless of area.
+                weights = 1.0 / sizes[components[mask]]
+                self.region_histogram += np.bincount(
+                    image_bucket[mask], weights=weights,
+                    minlength=len(self.region_histogram))
+                self.regions += count
+
+    def compute(self, negative, limit=0.05):
+        if not self.regions or not negative.sum():
+            return None
+        fpr = np.r_[0., np.cumsum(negative[::-1]) / negative.sum()]
+        pro = np.r_[0., np.cumsum(self.region_histogram[::-1]) / self.regions]
+        end = np.searchsorted(fpr, limit, side="right")
+        # Interpolate at the exact integration limit, including threshold ties.
+        endpoint = np.interp(limit, fpr, pro)
+        x, y = np.r_[fpr[:end], limit], np.r_[pro[:end], endpoint]
+        area = np.sum(np.diff(x) * (y[1:] + y[:-1]) / 2) / limit
+        return float(np.clip(area, 0, 1))
+
+
 @torch.no_grad()
 def evaluate(model, loader, device, output=None, bins=4096, *, patch_batch_size=1):
     model.eval()
     positive = np.zeros(bins, dtype=np.int64)
     negative = np.zeros(bins, dtype=np.int64)
+    region_overlap = RegionOverlapMetric(bins)
     labels, scores, rows = [], [], []
     total_loss, count = 0., 0
     if output:
@@ -68,6 +102,7 @@ def evaluate(model, loader, device, output=None, bins=4096, *, patch_batch_size=
         bucket = np.clip((probabilities*(bins-1)).astype(np.int64), 0, bins-1)
         positive += np.bincount(bucket[truth], minlength=bins)
         negative += np.bincount(bucket[~truth], minlength=bins)
+        region_overlap.update(bucket, truth)
         labels.extend(batch["label"].tolist())
         scores.extend(image_scores.tolist())
         for sample_id, label, score, probability in zip(batch["sample_id"], batch["label"], image_scores, probabilities):
@@ -89,5 +124,6 @@ def evaluate(model, loader, device, output=None, bins=4096, *, patch_batch_size=
     return {"count": count, "segmentation_loss": total_loss/count,
             "image_auroc": image["auroc"], "image_ap": image["ap"],
             "pixel_auroc": pixel["auroc"], "pixel_ap": pixel["ap"],
+            "pixel_aupro_0.05": region_overlap.compute(negative),
             "pixel_metric_bins": bins,
             "spatial_mode": loader.dataset.data.mode}
