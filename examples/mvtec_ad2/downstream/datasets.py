@@ -1,6 +1,7 @@
 """Paired repository hybrids and real-image downstream evaluation datasets."""
 
 import numpy as np
+from copy import deepcopy
 import torch
 from torch.utils.data import Dataset
 
@@ -120,3 +121,19 @@ class RealImageDataset(Dataset):
             raise ValueError(f"Unaligned evaluation image/mask: {sample.sample_id}")
         return {"image": image, "mask": mask, "label": int(sample.label != "good"),
                 "sample_id": sample.sample_id}
+
+
+class FixedPairedValidation(MixedTrainingDataset):
+    """Deterministic DRAEM pairs from held-out healthy validation originals."""
+
+    def __init__(self, healthy_samples, config):
+        fixed = deepcopy(config)
+        fixed.seed = config.seed + 104729
+        fixed.data.normal_fraction = 0.0
+        fixed.data.hybrid_fraction = 0.0
+        fixed.data.samples_per_epoch = config.dinov3.validation_samples
+        super().__init__(healthy_samples, None, fixed)
+
+    def set_epoch(self, epoch):
+        # Identical image, crop, anomaly and flips at every validation pass.
+        super().set_epoch(0)

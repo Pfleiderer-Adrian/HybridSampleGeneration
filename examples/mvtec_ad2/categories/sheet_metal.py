@@ -30,6 +30,8 @@ def create_configuration():
     config.model.search.n_levels = IntRange(4, 5)
     config.generation.posterior_skip_source = "transformed"
 
+    config.matching.distance_weight = 0.3
+
     # Fusion settings
     config.fusion.set_backend("classical")
     config.fusion.parameters.max_alpha = 1.0

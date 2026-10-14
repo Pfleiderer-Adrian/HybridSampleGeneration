@@ -80,6 +80,7 @@ def evaluate(model, loader, device, output=None, bins=4096, *, patch_batch_size=
     region_overlap = RegionOverlapMetric(bins)
     labels, scores, rows = [], [], []
     total_loss, count = 0., 0
+    total_segmentation_loss = 0.
     if output:
         output = Path(output)
         output.mkdir(parents=True, exist_ok=True)
@@ -93,6 +94,8 @@ def evaluate(model, loader, device, output=None, bins=4096, *, patch_batch_size=
             images, masks = batch["image"].to(device), batch["mask"].to(device)
             _, logits = model(images)
         total_loss += focal_loss(logits, masks).item() * len(images)
+        if hasattr(model, "segmentation_loss"):
+            total_segmentation_loss += model.segmentation_loss(logits, masks).item() * len(images)
         count += len(images)
         maps = logits.softmax(1)[:, 1:2]
         # Same 21x21 mean-pooling image score convention as DRAEM.
@@ -121,7 +124,8 @@ def evaluate(model, loader, device, output=None, bins=4096, *, patch_batch_size=
             writer = csv.DictWriter(file, fieldnames=["sample_id", "label", "score"])
             writer.writeheader()
             writer.writerows(rows)
-    return {"count": count, "segmentation_loss": total_loss/count,
+    extra = {"segmentation_total_loss": total_segmentation_loss / count} if hasattr(model, "segmentation_loss") else {}
+    return {"count": count, "segmentation_loss": total_loss/count, **extra,
             "image_auroc": image["auroc"], "image_ap": image["ap"],
             "pixel_auroc": pixel["auroc"], "pixel_ap": pixel["ap"],
             "pixel_aupro_0.05": region_overlap.compute(negative),

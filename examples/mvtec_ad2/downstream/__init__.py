@@ -1,1 +1,1 @@
-"""DRAEM downstream detection with repository-backed hybrid training data."""
+"""DRAEM and paired DINOv3 detection with repository-backed training data."""

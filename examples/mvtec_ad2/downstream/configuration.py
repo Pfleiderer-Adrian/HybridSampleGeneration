@@ -23,6 +23,8 @@ class DataConfiguration:
 @dataclass
 class TrainingConfiguration:
     epochs: int = 100
+    validation_interval: int = 1
+    selection_metric: str = "auto"
     batch_size: int = 2
     learning_rate: float = 1e-4
     num_workers: int = 4
@@ -32,12 +34,66 @@ class TrainingConfiguration:
 
 
 @dataclass
+class DINOv3Configuration:
+    backbone: str = "facebook/dinov3-vits16-pretrain-lvd1689m"
+    revision: str = "main"
+    decoder_width: int = 64
+    decoder: str = "cnn"
+    decoder_blocks: int = 2
+    healthy_loss_weight: float = 1.0
+    consistency_weight: float = 1.0
+    dice_weight: float = 1.0
+    validation_samples: int = 128
+
+
+@dataclass
+class MemoryBankConfiguration:
+    layers: tuple[int, ...] = (3, 6, 9, 12)
+    normal_capacity: int = 20000
+    defect_capacity: int = 5000
+    tokens_per_region: int = 64
+    query_chunk_size: int = 256
+    reference_chunk_size: int = 2048
+    defect_weight: float = 1.0
+    calibration_images: int = 16
+
+
+@dataclass
 class DownstreamConfiguration:
     data: DataConfiguration = field(default_factory=DataConfiguration)
     training: TrainingConfiguration = field(default_factory=TrainingConfiguration)
     seed: int = 42
+    model: str = "draem"
+    dinov3: DINOv3Configuration = field(default_factory=DINOv3Configuration)
+    memory_bank: MemoryBankConfiguration = field(default_factory=MemoryBankConfiguration)
 
     def validate(self):
+        if self.training.selection_metric not in ("auto", "pixel_aupro_0.05"):
+            raise ValueError("selection_metric must be auto or pixel_aupro_0.05.")
+        if self.model not in ("draem", "dinov3_paired", "dinov3_segmentation", "superadd_dual_bank"):
+            raise ValueError("Unknown downstream model.")
+        bank = self.memory_bank
+        if not bank.layers or any(type(x) is not int or x < 1 for x in bank.layers) or len(set(bank.layers)) != len(bank.layers):
+            raise ValueError("Memory-bank layers must be distinct positive transformer layer numbers.")
+        for name in ("normal_capacity", "defect_capacity", "tokens_per_region", "query_chunk_size", "reference_chunk_size", "calibration_images"):
+            if type(getattr(bank, name)) is not int or getattr(bank, name) < 1:
+                raise ValueError(f"Memory-bank {name} must be a positive integer.")
+        if not math.isfinite(bank.defect_weight) or bank.defect_weight < 0:
+            raise ValueError("Memory-bank defect_weight must be finite and nonnegative.")
+        if not self.dinov3.backbone or not self.dinov3.revision:
+            raise ValueError("DINOv3 backbone and revision must be nonempty.")
+        if type(self.dinov3.decoder_width) is not int or self.dinov3.decoder_width <= 0:
+            raise ValueError("DINOv3 decoder_width must be a positive integer.")
+        if self.dinov3.decoder not in ("cnn", "dpt"):
+            raise ValueError("DINOv3 decoder must be 'cnn' or 'dpt'.")
+        if type(self.dinov3.decoder_blocks) is not int or self.dinov3.decoder_blocks < 1:
+            raise ValueError("DINOv3 decoder_blocks must be a positive integer.")
+        if type(self.dinov3.validation_samples) is not int or self.dinov3.validation_samples <= 0:
+            raise ValueError("DINOv3 validation_samples must be a positive integer.")
+        for name in ("healthy_loss_weight", "consistency_weight", "dice_weight"):
+            value = getattr(self.dinov3, name)
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"DINOv3 {name} must be finite and nonnegative.")
         for name, value in (
             ("hybrid_fraction", self.data.hybrid_fraction),
             ("normal_fraction", self.data.normal_fraction),
@@ -47,6 +103,7 @@ class DownstreamConfiguration:
         for name, value in (
             ("samples_per_epoch", self.data.samples_per_epoch),
             ("epochs", self.training.epochs), ("batch_size", self.training.batch_size),
+            ("validation_interval", self.training.validation_interval),
             ("reconstruction_width", self.training.reconstruction_width),
             ("segmentation_width", self.training.segmentation_width),
         ):
@@ -67,7 +124,7 @@ class DownstreamConfiguration:
                 raise ValueError(f"{name} dimensions must be multiples of 32, at least 64.")
         if type(self.data.patch_overlap) not in (int, float) or not 0 <= self.data.patch_overlap < 1:
             raise ValueError("patch_overlap must be in [0, 1).")
-        if self.data.normal_fraction == 1:
+        if self.data.normal_fraction == 1 and self.model != "superadd_dual_bank":
             raise ValueError("Training requires anomalous examples (normal_fraction < 1).")
 
     def to_dict(self):
@@ -77,7 +134,8 @@ class DownstreamConfiguration:
     @classmethod
     def from_dict(cls, values):
         values = dict(values)
-        for key, kind in (("data", DataConfiguration), ("training", TrainingConfiguration)):
+        for key, kind in (("data", DataConfiguration), ("training", TrainingConfiguration),
+                          ("dinov3", DINOv3Configuration), ("memory_bank", MemoryBankConfiguration)):
             values[key] = kind(**values.get(key, {}))
         result = cls(**values)
         result.validate()

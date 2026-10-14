@@ -24,6 +24,9 @@ nav:
       - Pipeline stages: guides/pipeline.md
       - Continuing a study: guides/continuing-studies.md
       - Evaluation: guides/evaluation.md
+      - Paired DINOv3 downstream: guides/dinov3-downstream.md
+      - DINOv3 segmentation decoder: guides/dinov3-segmentation.md
+      - SuperADD-inspired dual banks: guides/superadd-dual-bank.md
       - Visualization: guides/visualization.md
   - Concepts:
       - Data model and storage: concepts/study-storage.md

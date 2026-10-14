@@ -31,6 +31,10 @@ Issues = "https://github.com/Pfleiderer-Adrian/HybridSampleGeneration/issues"
 Repository = "https://github.com/Pfleiderer-Adrian/HybridSampleGeneration"
 
 [project.optional-dependencies]
+dinov3 = [
+  "transformers>=4.56,<5",
+  "Pillow>=10",
+]
 examples = [
   "nibabel>=5.2",
   "Pillow>=10",
