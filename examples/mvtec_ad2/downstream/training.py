@@ -59,7 +59,7 @@ def train(dataset, validation, config, output, *, paired_validation=None):
     checkpoints.mkdir(parents=True, exist_ok=True)
     best = -float("inf") if maximize else float("inf")
     with (output / "training_history.csv").open("w", newline="") as file:
-        fields = ["epoch", "train_loss", "validation_loss", "selection_metric", "selection_mode", "selection_score", "selection_loss", "normal", "draem", "hybrid"]
+        fields = ["epoch", "train_loss", "validation_loss", "selection_metric", "selection_mode", "selection_score", "selection_loss", "hard_normal", "normal", "draem", "hybrid"]
         writer = csv.DictWriter(file, fieldnames=fields)
         writer.writeheader()
         for epoch in range(settings.epochs):
@@ -67,6 +67,7 @@ def train(dataset, validation, config, output, *, paired_validation=None):
             model.train()
             total, seen = 0., 0
             counts = Counter()
+            hard_count = 0
             for batch in tqdm(loader, desc=f"{config.model} epoch {epoch+1}/{settings.epochs}"):
                 image, target, mask = (batch[key].to(device) for key in ("image", "target", "mask"))
                 optimizer.zero_grad(set_to_none=True)
@@ -85,6 +86,8 @@ def train(dataset, validation, config, output, *, paired_validation=None):
                 total += loss.item()*len(image)
                 seen += len(image)
                 counts.update(batch["source"])
+                if "hard_normal" in batch:
+                    hard_count += int(batch["hard_normal"].sum())
             validated = (epoch + 1) % settings.validation_interval == 0 or epoch + 1 == settings.epochs
             metrics, score = {}, None
             selection_metric = ("pixel_aupro_0.05" if maximize else
@@ -128,6 +131,7 @@ def train(dataset, validation, config, output, *, paired_validation=None):
                              "validation_loss": metrics.get("segmentation_loss", ""),
                              "selection_metric": selection_metric, "selection_mode": checkpoint["selection_mode"],
                              "selection_score": score if validated else "", "selection_loss": "" if maximize or not validated else score,
+                             "hard_normal": hard_count,
                              **{source: counts[source] for source in ("normal", "draem", "hybrid")}})
             file.flush()
     return output

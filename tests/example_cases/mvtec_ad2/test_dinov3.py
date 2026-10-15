@@ -34,6 +34,83 @@ class TinyBackbone(nn.Module):
 
 
 class DINOv3Tests(unittest.TestCase):
+    def test_convnext_fpn_paired_gradients_and_reload(self):
+        from examples.mvtec_ad2.downstream.residual_fpn import ConvNeXtResidualBlock
+        settings = DINOv3Configuration(decoder='convnext_fpn', decoder_width=4, decoder_blocks=2)
+        config = DownstreamConfiguration(model='dinov3_paired', dinov3=settings)
+        self.assertEqual(DownstreamConfiguration.from_dict(config.to_dict()).dinov3.decoder, 'convnext_fpn')
+        model = self.model(settings).train()
+        image = torch.rand(2, 3, 35, 49)
+        mask = torch.zeros(2, 1, 35, 49)
+        mask[:, :, 8:12, 10:15] = 1
+        self.assertEqual(model(image)[1].shape, (2, 2, 35, 49))
+        loss = model.paired_loss(image, image * .9, mask)
+        loss.backward()
+        self.assertTrue(torch.isfinite(loss))
+        self.assertTrue(all(p.grad is None for p in model.backbone.parameters()))
+        blocks = [m for m in model.modules() if isinstance(m, ConvNeXtResidualBlock)]
+        self.assertEqual(len(blocks), 12)
+        for block in blocks:
+            self.assertIsNotNone(block.layer_scale.grad)
+            self.assertIsNotNone(block.spatial.weight.grad)
+            self.assertTrue(torch.isfinite(block.layer_scale.grad).all())
+        for projection in model.residual_fpn.projections:
+            self.assertIsNotNone(projection.weight.grad)
+        restored = self.model(settings).eval()
+        restored.load_state_dict(model.state_dict())
+        model.eval()
+        torch.testing.assert_close(model(image)[1], restored(image)[1])
+
+    def test_isolated_decoder_variants_pair_gradients_and_reload(self):
+        for decoder in ('cnn_residual', 'cnn_multilayer'):
+            settings = DINOv3Configuration(decoder=decoder, decoder_width=4, decoder_blocks=2)
+            config = DownstreamConfiguration(model='dinov3_paired', dinov3=settings)
+            self.assertEqual(DownstreamConfiguration.from_dict(config.to_dict()).dinov3.decoder, decoder)
+            model = self.model(settings)
+            image = torch.rand(2, 3, 35, 49)
+            mask = torch.zeros(2, 1, 35, 49)
+            mask[:, :, 4:8, 10:15] = 1
+            self.assertEqual(model(image)[1].shape, (2, 2, 35, 49))
+            loss = model.paired_loss(image, image * .8, mask)
+            loss.backward()
+            self.assertTrue(torch.isfinite(loss))
+            self.assertIsNotNone(model.projection.weight.grad)
+            self.assertIsNotNone(model.decoder[-1].weight.grad)
+            self.assertTrue(all(p.grad is None for p in model.backbone.parameters()))
+            if decoder == 'cnn_multilayer':
+                self.assertEqual(model.projection.in_channels, 4 * model.backbone.config.hidden_size)
+                self.assertEqual(len(model.decoder), 3)
+            else:
+                self.assertEqual(model.projection.in_channels, model.backbone.config.hidden_size)
+                self.assertEqual(len(model.decoder), 5)
+            restored = self.model(settings).eval()
+            restored.load_state_dict(model.state_dict())
+            model.eval()
+            torch.testing.assert_close(model(image)[1], restored(image)[1])
+
+    def test_residual_fpn_paired_shapes_gradients_depth_and_reload(self):
+        settings = DINOv3Configuration(decoder='residual_fpn', decoder_width=4, decoder_blocks=2)
+        model = self.model(settings).train()
+        image = torch.rand(2, 3, 35, 49)
+        mask = torch.zeros(2, 1, 35, 49)
+        mask[:, :, 10:15, 20:25] = 1
+        self.assertEqual(model.feature_layers, (1, 2, 3, 4))
+        self.assertEqual(model(image)[1].shape, (2, 2, 35, 49))
+        loss = model.paired_loss(image, torch.zeros_like(image), mask)
+        loss.backward()
+        self.assertTrue(torch.isfinite(loss))
+        for projection in model.residual_fpn.projections:
+            self.assertIsNotNone(projection.weight.grad)
+            self.assertTrue(torch.isfinite(projection.weight.grad).all())
+        self.assertIsNotNone(model.residual_fpn.details[0].weight.grad)
+        self.assertTrue(all(p.grad is None for p in model.backbone.parameters()))
+        model.eval()
+        restored = self.model(settings).eval()
+        restored.load_state_dict(model.state_dict())
+        torch.testing.assert_close(model(image)[1], restored(image)[1])
+        shallow = self.model(DINOv3Configuration(decoder='residual_fpn', decoder_width=4, decoder_blocks=1))
+        self.assertLess(sum(p.numel() for p in shallow.parameters()), sum(p.numel() for p in model.parameters()))
+
     def test_deep_dpt_four_layers_native_output_and_gradients(self):
         settings = DINOv3Configuration(decoder='dpt', decoder_width=4, decoder_blocks=2)
         model = DINOv3Segmentation(settings, backbone=TinyBackbone())
@@ -157,6 +234,7 @@ class DINOv3Tests(unittest.TestCase):
                                          ("dinov3_paired", .5, "pixel_aupro_0.05")):
                 config.model = model_name
                 config.training.selection_metric = criterion
+                config.dinov3.decoder = 'residual_fpn' if criterion != 'auto' else 'cnn'
                 config.data.hybrid_fraction = fraction
                 with patch('examples.mvtec_ad2.downstream.training.build_model', side_effect=factory), \
                      patch('examples.mvtec_ad2.downstream.runner.build_model', side_effect=factory) as reload:

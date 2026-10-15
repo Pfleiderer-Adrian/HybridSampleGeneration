@@ -10,6 +10,8 @@ from pathlib import Path
 class DataConfiguration:
     hybrid_fraction: float = 0.5
     normal_fraction: float = 0.5
+    hard_normal_fraction: float = 0.0
+    hard_normal_manifest: str | None = None
     samples_per_epoch: int = 1000
     image_size: tuple[int, int] = (256, 256)
     mode: str = "patch"
@@ -84,8 +86,8 @@ class DownstreamConfiguration:
             raise ValueError("DINOv3 backbone and revision must be nonempty.")
         if type(self.dinov3.decoder_width) is not int or self.dinov3.decoder_width <= 0:
             raise ValueError("DINOv3 decoder_width must be a positive integer.")
-        if self.dinov3.decoder not in ("cnn", "dpt"):
-            raise ValueError("DINOv3 decoder must be 'cnn' or 'dpt'.")
+        if self.dinov3.decoder not in ("cnn", "dpt", "residual_fpn", "convnext_fpn", "cnn_residual", "cnn_multilayer"):
+            raise ValueError("Unknown DINOv3 decoder.")
         if type(self.dinov3.decoder_blocks) is not int or self.dinov3.decoder_blocks < 1:
             raise ValueError("DINOv3 decoder_blocks must be a positive integer.")
         if type(self.dinov3.validation_samples) is not int or self.dinov3.validation_samples <= 0:
@@ -97,9 +99,13 @@ class DownstreamConfiguration:
         for name, value in (
             ("hybrid_fraction", self.data.hybrid_fraction),
             ("normal_fraction", self.data.normal_fraction),
+            ("hard_normal_fraction", self.data.hard_normal_fraction),
         ):
             if isinstance(value, bool) or not isinstance(value, (float, int)) or not 0 <= value <= 1:
                 raise ValueError(f"{name} must be in [0, 1].")
+        if self.data.hard_normal_fraction > 0:
+            if self.data.mode != "patch" or not self.data.hard_normal_manifest or self.data.normal_fraction == 0:
+                raise ValueError("Hard-normal sampling requires patch mode, a manifest and normal examples.")
         for name, value in (
             ("samples_per_epoch", self.data.samples_per_epoch),
             ("epochs", self.training.epochs), ("batch_size", self.training.batch_size),

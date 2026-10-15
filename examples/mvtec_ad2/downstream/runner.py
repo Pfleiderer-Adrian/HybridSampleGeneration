@@ -39,6 +39,8 @@ def train_downstream(generator_config, manifest, config: DownstreamConfiguration
     if config.model == "dinov3_paired" and config.training.selection_metric != "pixel_aupro_0.05":
         validation_config = deepcopy(config)
         validation_config.data.hybrid_fraction = 0.0
+        validation_config.data.hard_normal_fraction = 0.0
+        validation_config.data.hard_normal_manifest = None
         prepare_textures(study_folder, validation_config.data)
         paired_validation = FixedPairedValidation(
             manifest_samples(manifest, "validation", healthy_only=True), validation_config)
@@ -50,6 +52,8 @@ def train_downstream(generator_config, manifest, config: DownstreamConfiguration
     output = study_folder / "downstream" / config.model / run_id
     output.mkdir(parents=True)
     config.save(output / "configuration.json")
+    if dataset is not None and dataset.hard_pool is not None:
+        (output / "hard_normal_manifest.json").write_text(json.dumps(dataset.hard_pool, indent=2) + "\n")
     used_manifest = {
         **manifest,
         "hybrid_provenance": hybrids.provenance if hybrids is not None else [],

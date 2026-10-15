@@ -7,6 +7,7 @@ from torch.utils.data import Dataset
 
 from .draem.synthesis import TextureSynthesizer
 from .sampling import source_plan
+from .hard_normals import load_pool
 from .patches import crop_training_patch
 from examples.mvtec_ad2.splits import verify_repository
 from .transforms import aligned_flips, image_tensor, mask_tensor, read_image
@@ -73,11 +74,18 @@ class MixedTrainingDataset(Dataset):
         self.synthesis = TextureSynthesizer(config.data.texture_root) if config.data.hybrid_fraction < 1 else None
         if config.data.hybrid_fraction > 0 and (hybrids is None or len(hybrids) == 0):
             raise ValueError("hybrid_fraction > 0 requires eligible hybrid pairs.")
+        self.hard_pool = (load_pool(config.data.hard_normal_manifest, healthy_samples, config.data.patch_size)
+                          if config.data.hard_normal_fraction > 0 else None)
+        self.healthy_by_id = {sample.sample_id: sample for sample in healthy_samples}
         self.set_epoch(0)
 
     def set_epoch(self, epoch):
         self.epoch = epoch
         self.plan = source_plan(self.config.data, self.config.seed, epoch)
+        normal_indices = [i for i, source in enumerate(self.plan) if source == "normal"]
+        count = round(len(normal_indices) * self.config.data.hard_normal_fraction)
+        selector = np.random.default_rng(np.random.SeedSequence([self.config.seed, epoch, 1667]))
+        self.hard_indices = set(selector.choice(normal_indices, size=count, replace=False).tolist())
 
     def __len__(self):
         return len(self.plan)
@@ -88,10 +96,21 @@ class MixedTrainingDataset(Dataset):
         if source == "hybrid":
             image, target, mask = self.hybrids.sample(int(rng.integers(len(self.hybrids))), rng)
         else:
-            sample = self.healthy_samples[int(rng.integers(len(self.healthy_samples)))]
+            record = (self.hard_pool["records"][int(rng.integers(len(self.hard_pool["records"])))]
+                      if index in self.hard_indices else None)
+            sample = (self.healthy_by_id[record["sample_id"]] if record is not None else
+                      self.healthy_samples[int(rng.integers(len(self.healthy_samples)))])
             array = read_image(sample.image_path)
             size = self.config.data.image_size
-            if self.config.data.mode == "patch":
+            if record is not None:
+                ph, pw = self.config.data.patch_size
+                top, left = record["top"], record["left"]
+                if top > max(0, array.shape[-2]-ph) or left > max(0, array.shape[-1]-pw):
+                    raise ValueError("Hard-normal crop lies outside its source image.")
+                array = array[:, top:top+ph, left:left+pw]
+                array = np.pad(array, ((0, 0), (0, ph-array.shape[-2]), (0, pw-array.shape[-1])), mode="edge")
+                size = None
+            elif self.config.data.mode == "patch":
                 array, _, _ = crop_training_patch(array, array, np.zeros((1, *array.shape[-2:]), dtype=np.uint8),
                                                   self.config.data.patch_size, rng)
                 size = None
@@ -101,7 +120,8 @@ class MixedTrainingDataset(Dataset):
             else:
                 image, mask = target.clone(), torch.zeros_like(target[:1])
         image, target, mask = aligned_flips(image, target, mask, rng)
-        return {"image": image, "target": target, "mask": mask, "source": source}
+        return {"image": image, "target": target, "mask": mask, "source": source,
+                "hard_normal": index in self.hard_indices}
 
 
 class RealImageDataset(Dataset):
@@ -130,6 +150,8 @@ class FixedPairedValidation(MixedTrainingDataset):
         fixed = deepcopy(config)
         fixed.seed = config.seed + 104729
         fixed.data.normal_fraction = 0.0
+        fixed.data.hard_normal_fraction = 0.0
+        fixed.data.hard_normal_manifest = None
         fixed.data.hybrid_fraction = 0.0
         fixed.data.samples_per_epoch = config.dinov3.validation_samples
         super().__init__(healthy_samples, None, fixed)
