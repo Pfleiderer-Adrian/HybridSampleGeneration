@@ -44,14 +44,21 @@ def train_downstream(generator_config, manifest, config: DownstreamConfiguration
         prepare_textures(study_folder, validation_config.data)
         paired_validation = FixedPairedValidation(
             manifest_samples(manifest, "validation", healthy_only=True), validation_config)
+    real_samples = [s for s in manifest_samples(manifest, "train") if s.label != "good"]
+    if config.data.include_real_defects:
+        held_out = {str(Path(s.image_path).resolve()) for part in ("validation", "test") for s in manifest_samples(manifest, part)}
+        if any(not s.mask_path or str(Path(s.image_path).resolve()) in held_out for s in real_samples):
+            raise ValueError("Real training defects must have masks and be disjoint from validation/test.")
     dataset = None if normal_only_bank else MixedTrainingDataset(
-        manifest_samples(manifest, "train", healthy_only=True), hybrids, config
+        manifest_samples(manifest, "train", healthy_only=True), hybrids, config, real_samples=real_samples
     )
     validation = RealImageDataset(manifest_samples(manifest, "validation"), config.data)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid4().hex[:8]
     output = study_folder / "downstream" / config.model / run_id
     output.mkdir(parents=True)
     config.save(output / "configuration.json")
+    if config.data.include_real_defects:
+        (output / "real_training_sources.json").write_text(json.dumps({"sample_ids": [s.sample_id for s in real_samples], "per_epoch": "one defect-containing crop per real training image", "loss": "focal+dice only for real defects; no healthy partner or consistency"}, indent=2) + "\n")
     if dataset is not None and dataset.hard_pool is not None:
         (output / "hard_normal_manifest.json").write_text(json.dumps(dataset.hard_pool, indent=2) + "\n")
     used_manifest = {

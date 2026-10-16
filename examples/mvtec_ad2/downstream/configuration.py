@@ -8,6 +8,7 @@ from pathlib import Path
 
 @dataclass
 class DataConfiguration:
+    include_real_defects: bool = False
     hybrid_fraction: float = 0.5
     normal_fraction: float = 0.5
     hard_normal_fraction: float = 0.0
@@ -74,6 +75,10 @@ class DownstreamConfiguration:
             raise ValueError("selection_metric must be auto or pixel_aupro_0.05.")
         if self.model not in ("draem", "dinov3_paired", "dinov3_segmentation", "superadd_dual_bank"):
             raise ValueError("Unknown downstream model.")
+        if type(self.data.include_real_defects) is not bool:
+            raise ValueError("include_real_defects must be boolean.")
+        if self.data.include_real_defects and self.model not in ("dinov3_paired", "dinov3_segmentation"):
+            raise ValueError("Real defect augmentation is supported for DINOv3 segmentation models.")
         bank = self.memory_bank
         if not bank.layers or any(type(x) is not int or x < 1 for x in bank.layers) or len(set(bank.layers)) != len(bank.layers):
             raise ValueError("Memory-bank layers must be distinct positive transformer layer numbers.")

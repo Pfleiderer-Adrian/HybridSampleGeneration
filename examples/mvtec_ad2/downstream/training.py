@@ -59,7 +59,7 @@ def train(dataset, validation, config, output, *, paired_validation=None):
     checkpoints.mkdir(parents=True, exist_ok=True)
     best = -float("inf") if maximize else float("inf")
     with (output / "training_history.csv").open("w", newline="") as file:
-        fields = ["epoch", "train_loss", "validation_loss", "selection_metric", "selection_mode", "selection_score", "selection_loss", "hard_normal", "normal", "draem", "hybrid"]
+        fields = ["epoch", "train_loss", "validation_loss", "selection_metric", "selection_mode", "selection_score", "selection_loss", "real", "hard_normal", "normal", "draem", "hybrid"]
         writer = csv.DictWriter(file, fieldnames=fields)
         writer.writeheader()
         for epoch in range(settings.epochs):
@@ -72,7 +72,16 @@ def train(dataset, validation, config, output, *, paired_validation=None):
                 image, target, mask = (batch[key].to(device) for key in ("image", "target", "mask"))
                 optimizer.zero_grad(set_to_none=True)
                 if config.model == "dinov3_paired":
-                    loss = model.paired_loss(image, target, mask)
+                    if "real" in batch["source"]:
+                        paired = torch.tensor([s != "real" for s in batch["source"]], device=device)
+                        loss = image.new_zeros(())
+                        if paired.any():
+                            loss = model.paired_loss(image[paired], target[paired], mask[paired]) * paired.sum() / len(image)
+                        if (~paired).any():
+                            _, logits = model(image[~paired])
+                            loss = loss + model.segmentation_loss(logits, mask[~paired]) * (~paired).sum() / len(image)
+                    else:
+                        loss = model.paired_loss(image, target, mask)
                 elif config.model == "dinov3_segmentation":
                     _, logits = model(image)
                     loss = model.segmentation_loss(logits, mask)
@@ -132,6 +141,6 @@ def train(dataset, validation, config, output, *, paired_validation=None):
                              "selection_metric": selection_metric, "selection_mode": checkpoint["selection_mode"],
                              "selection_score": score if validated else "", "selection_loss": "" if maximize or not validated else score,
                              "hard_normal": hard_count,
-                             **{source: counts[source] for source in ("normal", "draem", "hybrid")}})
+                             **{source: counts[source] for source in ("normal", "draem", "hybrid", "real")}})
             file.flush()
     return output

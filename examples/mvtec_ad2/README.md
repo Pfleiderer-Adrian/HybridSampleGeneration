@@ -98,3 +98,20 @@ predictions, and metrics below:
 
 This is a custom anomaly-supervised experiment protocol and not the official
 unsupervised MVTec benchmark.
+
+### Adding real training defects to DINOv3
+
+Set `data.include_real_defects = true` (default: `false`) for
+`dinov3_paired` or `dinov3_segmentation`. Every masked defect image in the
+persisted **training partition** contributes one defect-containing crop per
+epoch, shuffled together with the existing mixture. These examples are added
+to `samples_per_epoch`; the original normal/DRAEM/hybrid quotas remain intact.
+Validation and test partitions are unchanged and must not overlap the real
+training image paths. No private images are added.
+
+Real defect images use Focal + Dice supervision. They have no healthy partner,
+so partner and consistency losses are skipped for these samples. Other paired
+samples retain their original losses. The run records the included image IDs
+in `real_training_sources.json` and the observed `real` count in
+`training_history.csv`. Use `training.selection_metric = "pixel_aupro_0.05"`
+for selection on real validation defects without synthetic validation pairs.
