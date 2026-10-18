@@ -28,7 +28,7 @@ def paired_validation_loss(model, loader, device):
     return total / count
 
 
-def train(dataset, validation, config, output, *, paired_validation=None):
+def train(dataset, validation, config, output, *, paired_validation=None, resume_checkpoint=None):
     config.validate()
     random.seed(config.seed)
     np.random.seed(config.seed)
@@ -58,11 +58,43 @@ def train(dataset, validation, config, output, *, paired_validation=None):
     checkpoints = output / "checkpoints"
     checkpoints.mkdir(parents=True, exist_ok=True)
     best = -float("inf") if maximize else float("inf")
-    with (output / "training_history.csv").open("w", newline="") as file:
+    start_epoch = 0
+    if resume_checkpoint is not None:
+        checkpoint = torch.load(resume_checkpoint, map_location="cpu", weights_only=True, mmap=True)
+        if checkpoint["configuration"] != config.to_dict():
+            raise ValueError("Resume configuration differs from the saved training configuration.")
+        start_epoch = checkpoint["epoch"]
+        with (output / "training_history.csv").open() as history_file:
+            history = list(csv.DictReader(history_file))
+        if not history or int(history[-1]["epoch"]) != start_epoch:
+            raise ValueError("Resume checkpoint and training history must end at the same epoch.")
+        model.load_state_dict(checkpoint["model"])
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        scheduler.load_state_dict(checkpoint["scheduler"])
+        old_best = torch.load(checkpoints / "best.pt", map_location="cpu", weights_only=True, mmap=True)
+        best = old_best["selection_score"]
+        del old_best
+        states = checkpoint.get("random_states")
+        if states:
+            random.setstate(states["python"])
+            name, keys, pos, gaussian, cached = states["numpy"]
+            np.random.set_state((name, np.array(keys, dtype=np.uint32), pos, gaussian, cached))
+            torch.set_rng_state(states["torch_cpu"])
+            loader.generator.set_state(states["loader"])
+            if torch.cuda.is_available() and states.get("torch_cuda"):
+                torch.cuda.set_rng_state_all(states["torch_cuda"])
+        else:
+            # Legacy checkpoints did not persist RNG state. Dataset crops are
+            # still deterministic from (seed, epoch, sample index).
+            print("Resuming legacy checkpoint without stored RNG states.", flush=True)
+        del checkpoint
+        print(f"Resuming after completed epoch {start_epoch}; best score {best}.", flush=True)
+    with (output / "training_history.csv").open("a" if resume_checkpoint else "w", newline="") as file:
         fields = ["epoch", "train_loss", "validation_loss", "selection_metric", "selection_mode", "selection_score", "selection_loss", "real", "hard_normal", "normal", "draem", "hybrid"]
         writer = csv.DictWriter(file, fieldnames=fields)
-        writer.writeheader()
-        for epoch in range(settings.epochs):
+        if resume_checkpoint is None:
+            writer.writeheader()
+        for epoch in range(start_epoch, settings.epochs):
             dataset.set_epoch(epoch)
             model.train()
             total, seen = 0., 0
@@ -132,10 +164,23 @@ def train(dataset, validation, config, output, *, paired_validation=None):
                 checkpoint["selection_loss"] = score
             if config.model in ("dinov3_paired", "dinov3_segmentation"):
                 checkpoint["backbone_config"] = model.backbone.config.to_dict()
-            torch.save(checkpoint, checkpoints / "last.pt")
+            numpy_state = np.random.get_state()
+            checkpoint["random_states"] = {
+                "python": random.getstate(),
+                "numpy": (numpy_state[0], numpy_state[1].tolist(), *numpy_state[2:]),
+                "torch_cpu": torch.get_rng_state(),
+                "torch_cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
+                "loader": loader.generator.get_state(),
+            }
+            # Readers and restart jobs must only ever see complete checkpoints.
+            temporary = checkpoints / "last.pt.tmp"
+            torch.save(checkpoint, temporary)
+            temporary.replace(checkpoints / "last.pt")
             if validated and (score > best if maximize else score < best):
                 best = score
-                torch.save(checkpoint, checkpoints / "best.pt")
+                temporary = checkpoints / "best.pt.tmp"
+                torch.save(checkpoint, temporary)
+                temporary.replace(checkpoints / "best.pt")
             writer.writerow({"epoch": epoch+1, "train_loss": total/seen,
                              "validation_loss": metrics.get("segmentation_loss", ""),
                              "selection_metric": selection_metric, "selection_mode": checkpoint["selection_mode"],

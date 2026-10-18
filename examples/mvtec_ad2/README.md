@@ -115,3 +115,13 @@ samples retain their original losses. The run records the included image IDs
 in `real_training_sources.json` and the observed `real` count in
 `training_history.csv`. Use `training.selection_metric = "pixel_aupro_0.05"`
 for selection on real validation defects without synthetic validation pairs.
+
+Training can resume in the same output directory with
+`train(..., resume_checkpoint=path_to_last_checkpoint)`. This restores model,
+optimizer, scheduler, completed epoch and the previous best selection score;
+the existing CSV history is appended. The saved training configuration must
+match. New checkpoints also persist Python, NumPy, Torch and training-loader
+random states and are replaced atomically. Legacy checkpoints lack those random
+states, so an interrupted epoch may be repeated and bitwise equivalence across
+a GPU migration is not guaranteed. Deterministic epoch/index-based crop sampling
+is retained.
