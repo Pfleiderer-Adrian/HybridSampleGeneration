@@ -1,5 +1,6 @@
 """Tests for anomaly matching, caching, and placement planning."""
 
+from collections import Counter
 import contextlib
 import io
 import tempfile
@@ -161,6 +162,55 @@ class MatchingSelectionTests(unittest.TestCase):
         self.assertEqual(len(plans), 2)
         self.assertTrue(all(len(self.repository.list_placements(plan.id)) == 1 for plan in plans))
         self.assertEqual(len({p.synthetic_anomaly_id for p in self.repository.list_placements()}), 2)
+
+    def test_variants_and_sources_are_balanced_reproducibly(self):
+        self._populate(controls=13, rois=2, variants=5)
+        target = "hybrid_sample_generator.matching.pair_matcher.template_matching_prepared"
+        for routine in ("local", "global", "batchwise"):
+            with self.subTest(routine=routine):
+                self.config.routine = routine
+                self.config.batch_size = 2
+                with patch(target, side_effect=self._match):
+                    plans = self._plan(seed=42)
+                    first = [p.synthetic_anomaly_id for p in self.repository.list_placements()]
+                    selected_reals = self._selected_reals(plans)
+                    self._plan(seed=42)
+                    repeated = [p.synthetic_anomaly_id for p in self.repository.list_placements()]
+                    self._plan(seed=123)
+                    changed = [p.synthetic_anomaly_id for p in self.repository.list_placements()]
+                self.assertEqual(first, repeated)
+                self.assertNotEqual(first, changed)
+                for real in self.reals:
+                    counts = Counter(first)
+                    uses = [counts[f"synthetic-{self.reals.index(real)}-{index}"] for index in range(5)]
+                    self.assertLessEqual(max(uses) - min(uses), 1)
+                if routine != "local":
+                    self.assertEqual(selected_reals[:2], ["real-1", "real-0"])
+                    counts = Counter(selected_reals)
+                    self.assertEqual(sorted(counts.values()), [6, 7])
+
+    def test_source_balance_updates_between_siblings_in_the_same_hybrid(self):
+        self._populate(controls=2, rois=3, variants=3)
+        self.config.routine = "global"
+        self.config.anomalies_per_hybrid = 3
+        self.config.allow_sibling_variants_in_same_hybrid = True
+        with patch("hybrid_sample_generator.matching.pair_matcher.template_matching_prepared",
+                   side_effect=self._match):
+            plans = self._plan()
+        self.assertEqual(self._selected_reals(plans),
+                         ["real-2", "real-1", "real-0"] * 2)
+
+    def test_balanced_variants_preserve_no_reuse_and_sibling_constraints(self):
+        self._populate(controls=8, rois=1, variants=5)
+        self.config.routine = "global"
+        self.config.reuse_synthetic_across_hybrids = False
+        self.config.anomalies_per_hybrid = 2
+        with patch("hybrid_sample_generator.matching.pair_matcher.template_matching_prepared",
+                   side_effect=self._match):
+            plans = self._plan()
+        self.assertEqual(len(plans), 5)
+        self.assertTrue(all(len(self.repository.list_placements(p.id)) == 1 for p in plans))
+        self.assertEqual(len({p.synthetic_anomaly_id for p in self.repository.list_placements()}), 5)
 
     def test_local_exhausts_invalid_pool_once_and_returns_no_plan(self):
         self._populate()

@@ -4,6 +4,18 @@ import numpy as np
 
 from hybrid_sample_generator.configuration.matching import MatchingConfiguration
 from hybrid_sample_generator.domain.records import RealAnomaly
+from hybrid_sample_generator.persistence.identifiers import stable_seed
+
+
+def balanced_variants(variants, *, usage_counts, seed, original_id, real_id, hybrid_index):
+    """Prefer least-used siblings, breaking ties reproducibly for each target."""
+    ordered = sorted(variants, key=lambda variant: (variant.variant_index, variant.id))
+    rng = np.random.default_rng(
+        stable_seed(seed, original_id, real_id, hybrid_index, "variant_selection")
+    )
+    rng.shuffle(ordered)
+    ordered.sort(key=lambda variant: usage_counts.get(variant.id, 0))
+    return ordered
 
 
 class LocalROISelector:
@@ -14,15 +26,19 @@ class LocalROISelector:
         self.variants_by_real = variants_by_real
         self.index = 0
 
-    def options(self, matcher, *, hybrid_index, used_synthetic_ids, reuse_synthetic):
+    def options(self, matcher, *, hybrid_index, used_synthetic_ids, reuse_synthetic,
+                usage_counts, seed, original_id):
         for _ in range(len(self.records)):
             record = self.records[self.index]
             self.index = (self.index + 1) % len(self.records)
-            variants = self.variants_by_real[record.id]
-            shift = hybrid_index % len(variants)
+            variants = balanced_variants(
+                self.variants_by_real[record.id], usage_counts=usage_counts,
+                seed=seed, original_id=original_id, real_id=record.id,
+                hybrid_index=hybrid_index,
+            )
             available = [
                 variant
-                for variant in variants[shift:] + variants[:shift]
+                for variant in variants
                 if reuse_synthetic or variant.id not in used_synthetic_ids
             ]
             if not available:
@@ -33,14 +49,30 @@ class LocalROISelector:
                     yield candidate, variant
 
 
-def variant_options(candidates, variants_by_real, *, hybrid_index: int):
-    options = []
+def variant_options(candidates, variants_by_real, *, hybrid_index: int,
+                    usage_counts, seed, original_id, source_usage=None):
+    # Reconsider priority after every yield: the planner increments usage only
+    # when it accepts a placement, including within multi-placement hybrids.
+    pending = []
     for candidate in candidates:
-        variants = variants_by_real[candidate.real_anomaly.id]
-        shift = hybrid_index % len(variants)
-        for synthetic in variants[shift:] + variants[:shift]:
-            options.append((candidate, synthetic))
-    return options
+        real_id = candidate.real_anomaly.id
+        variants = balanced_variants(
+            variants_by_real[real_id], usage_counts=usage_counts, seed=seed,
+            original_id=original_id, real_id=real_id, hybrid_index=hybrid_index,
+        )
+        pending.extend((candidate, synthetic) for synthetic in variants)
+    while pending:
+        index = 0
+        if source_usage is not None:
+            index = min(
+                range(len(pending)),
+                key=lambda i: (
+                    source_usage[pending[i][0].real_anomaly.id],
+                    -float(pending[i][0].score),
+                    pending[i][0].real_anomaly.id,
+                ),
+            )
+        yield pending.pop(index)
 
 
 def placement_count(config: MatchingConfiguration, seed: int) -> int:

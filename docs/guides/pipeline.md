@@ -80,8 +80,25 @@ reached. Each hybrid tries at most one pass through the ROI pool; unused ROIs
 are not loaded or matched. The ROI sequence restarts on each planning run.
 
 `global` evaluates all real anomaly ROIs for each control and selects placements
-in descending match-score order. `batchwise` evaluates and ranks only a seeded
-subset of at most `batch_size` ROIs per control.
+by ascending accepted-placement count per real anomaly ROI, then descending
+match score. Counts span all target images and hybrids in the current planning
+run and update after each accepted placement. This favors unused sources before
+reusing sources, even when their matching scores are lower. Invalid or
+overlapping candidates do not increment counts. `batchwise` applies the same
+ordering within a seeded subset of at most `batch_size` ROIs per control;
+therefore equal usage across the entire pool is not guaranteed. Counts restart
+on replanning. `local` retains its sequential, lazy ROI assignment, and fixed
+extraction routines retain their existing source ordering.
+
+Within each real anomaly source, synthetic variants with the fewest accepted
+placements in the current planning run are preferred. Ties are shuffled
+reproducibly using the study seed, target original ID, source ID and hybrid
+index. This also distributes variants when `hybrids_per_original=1`.
+Counts restart on each planning run; rejected candidates do not count.
+Reuse restrictions, sibling restrictions and overlap checks still apply.
+Variant balancing operates within each real anomaly ROI; source balancing in
+`global` and `batchwise` operates separately across those ROIs, not across
+capture groups or defect classes.
 
 Template matching uses Float64 correlation and rejects constant or numerically
 flat templates and search windows. Window variance must exceed
