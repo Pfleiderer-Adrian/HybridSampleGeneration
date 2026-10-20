@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from time import perf_counter
 
 import numpy as np
@@ -81,6 +82,8 @@ def plan_hybrid_samples(
     local_rois = _LocalROISelector(real_anomalies, variants_by_real)
 
     used_synthetic_ids: set[str] = set()
+    variant_usage: Counter[str] = Counter()
+    source_usage: Counter[str] = Counter()
     planned: list[HybridSample] = []
     placements: list[Placement] = []
 
@@ -120,6 +123,9 @@ def plan_hybrid_samples(
                 options = local_rois.options(
                     local_matcher,
                     hybrid_index=hybrid_index,
+                    usage_counts=variant_usage,
+                    seed=seed,
+                    original_id=original.id,
                     used_synthetic_ids=used_synthetic_ids,
                     reuse_synthetic=config.reuse_synthetic_across_hybrids,
                 )
@@ -133,7 +139,11 @@ def plan_hybrid_samples(
                 options = _variant_options(
                     ordered_candidates,
                     variants_by_real,
+                    source_usage=(source_usage if config.routine in {"global", "batchwise"} else None),
                     hybrid_index=hybrid_index,
+                    usage_counts=variant_usage,
+                    seed=seed,
+                    original_id=original.id,
                 )
 
             selected = []
@@ -155,6 +165,7 @@ def plan_hybrid_samples(
                 ):
                     continue
                 selected.append((candidate, synthetic))
+                source_usage[candidate.real_anomaly.id] += 1
                 selected_synthetic_ids.add(synthetic.id)
                 selected_real_ids.add(candidate.real_anomaly.id)
                 used_positions.append(
@@ -195,6 +206,7 @@ def plan_hybrid_samples(
                     )
                 )
                 used_synthetic_ids.add(synthetic.id)
+                variant_usage[synthetic.id] += 1
 
             if len(selected) < desired_count:
                 print(
