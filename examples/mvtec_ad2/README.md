@@ -161,7 +161,7 @@ All eight categories use frozen DINOv3 Small + CNN decoder width64, seed42,
 100epochs, batch8, Adam learning rate1e-4, 256px patches, and the existing
 grouped60/40 train/validation split (seed42; acquisition variants kept together).
 The original public image universe is unchanged, but partition membership is new.
-Validation runs every epoch and selects
+Validation runs every five epochs (and at the final epoch) and selects
 maximum AUC-PRO0.05. `protocol.json` records the pinned backbone revision and
 loss rules. `queue_status.json` records the GPU1-only queue (three concurrent
 runs). Configurations, splits, preflight image/mask examples and per-job status

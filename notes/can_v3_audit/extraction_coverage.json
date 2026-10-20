@@ -1,0 +1,513 @@
+{
+  "minimum_component_pixels": 163,
+  "real_training_images": 54,
+  "images_with_extracted_defects": 24,
+  "omitted_images": [
+    {
+      "source": "test_public_bad_014_overexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 47,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_014_regular.png",
+      "extracted": false,
+      "largest_component_pixels": 47,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_014_shift_1.png",
+      "extracted": false,
+      "largest_component_pixels": 47,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_014_shift_2.png",
+      "extracted": false,
+      "largest_component_pixels": 47,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_014_shift_3.png",
+      "extracted": false,
+      "largest_component_pixels": 47,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_014_underexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 47,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_010_overexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 67,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_010_regular.png",
+      "extracted": false,
+      "largest_component_pixels": 67,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_010_shift_1.png",
+      "extracted": false,
+      "largest_component_pixels": 67,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_010_shift_2.png",
+      "extracted": false,
+      "largest_component_pixels": 67,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_010_shift_3.png",
+      "extracted": false,
+      "largest_component_pixels": 67,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_010_underexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 67,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_005_overexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 129,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_005_regular.png",
+      "extracted": false,
+      "largest_component_pixels": 129,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_005_shift_1.png",
+      "extracted": false,
+      "largest_component_pixels": 129,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_005_shift_2.png",
+      "extracted": false,
+      "largest_component_pixels": 129,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_005_shift_3.png",
+      "extracted": false,
+      "largest_component_pixels": 129,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_005_underexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 129,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_002_overexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 25,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_002_regular.png",
+      "extracted": false,
+      "largest_component_pixels": 25,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_002_shift_1.png",
+      "extracted": false,
+      "largest_component_pixels": 25,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_002_shift_2.png",
+      "extracted": false,
+      "largest_component_pixels": 25,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_002_shift_3.png",
+      "extracted": false,
+      "largest_component_pixels": 25,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_002_underexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 25,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_004_overexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 105,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_004_regular.png",
+      "extracted": false,
+      "largest_component_pixels": 105,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_004_shift_1.png",
+      "extracted": false,
+      "largest_component_pixels": 105,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_004_shift_2.png",
+      "extracted": false,
+      "largest_component_pixels": 105,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_004_shift_3.png",
+      "extracted": false,
+      "largest_component_pixels": 105,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_004_underexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 105,
+      "components": 2
+    }
+  ],
+  "all_images": [
+    {
+      "source": "test_public_bad_014_overexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 47,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_014_regular.png",
+      "extracted": false,
+      "largest_component_pixels": 47,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_014_shift_1.png",
+      "extracted": false,
+      "largest_component_pixels": 47,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_014_shift_2.png",
+      "extracted": false,
+      "largest_component_pixels": 47,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_014_shift_3.png",
+      "extracted": false,
+      "largest_component_pixels": 47,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_014_underexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 47,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_010_overexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 67,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_010_regular.png",
+      "extracted": false,
+      "largest_component_pixels": 67,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_010_shift_1.png",
+      "extracted": false,
+      "largest_component_pixels": 67,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_010_shift_2.png",
+      "extracted": false,
+      "largest_component_pixels": 67,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_010_shift_3.png",
+      "extracted": false,
+      "largest_component_pixels": 67,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_010_underexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 67,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_005_overexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 129,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_005_regular.png",
+      "extracted": false,
+      "largest_component_pixels": 129,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_005_shift_1.png",
+      "extracted": false,
+      "largest_component_pixels": 129,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_005_shift_2.png",
+      "extracted": false,
+      "largest_component_pixels": 129,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_005_shift_3.png",
+      "extracted": false,
+      "largest_component_pixels": 129,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_005_underexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 129,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_002_overexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 25,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_002_regular.png",
+      "extracted": false,
+      "largest_component_pixels": 25,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_002_shift_1.png",
+      "extracted": false,
+      "largest_component_pixels": 25,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_002_shift_2.png",
+      "extracted": false,
+      "largest_component_pixels": 25,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_002_shift_3.png",
+      "extracted": false,
+      "largest_component_pixels": 25,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_002_underexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 25,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_004_overexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 105,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_004_regular.png",
+      "extracted": false,
+      "largest_component_pixels": 105,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_004_shift_1.png",
+      "extracted": false,
+      "largest_component_pixels": 105,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_004_shift_2.png",
+      "extracted": false,
+      "largest_component_pixels": 105,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_004_shift_3.png",
+      "extracted": false,
+      "largest_component_pixels": 105,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_004_underexposed.png",
+      "extracted": false,
+      "largest_component_pixels": 105,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_012_overexposed.png",
+      "extracted": true,
+      "largest_component_pixels": 409,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_012_regular.png",
+      "extracted": true,
+      "largest_component_pixels": 409,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_012_shift_1.png",
+      "extracted": true,
+      "largest_component_pixels": 409,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_012_shift_2.png",
+      "extracted": true,
+      "largest_component_pixels": 409,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_012_shift_3.png",
+      "extracted": true,
+      "largest_component_pixels": 409,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_012_underexposed.png",
+      "extracted": true,
+      "largest_component_pixels": 409,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_001_overexposed.png",
+      "extracted": true,
+      "largest_component_pixels": 250,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_001_regular.png",
+      "extracted": true,
+      "largest_component_pixels": 250,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_001_shift_1.png",
+      "extracted": true,
+      "largest_component_pixels": 250,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_001_shift_2.png",
+      "extracted": true,
+      "largest_component_pixels": 250,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_001_shift_3.png",
+      "extracted": true,
+      "largest_component_pixels": 250,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_001_underexposed.png",
+      "extracted": true,
+      "largest_component_pixels": 250,
+      "components": 1
+    },
+    {
+      "source": "test_public_bad_013_overexposed.png",
+      "extracted": true,
+      "largest_component_pixels": 259,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_013_regular.png",
+      "extracted": true,
+      "largest_component_pixels": 259,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_013_shift_1.png",
+      "extracted": true,
+      "largest_component_pixels": 259,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_013_shift_2.png",
+      "extracted": true,
+      "largest_component_pixels": 259,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_013_shift_3.png",
+      "extracted": true,
+      "largest_component_pixels": 259,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_013_underexposed.png",
+      "extracted": true,
+      "largest_component_pixels": 259,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_008_overexposed.png",
+      "extracted": true,
+      "largest_component_pixels": 446,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_008_regular.png",
+      "extracted": true,
+      "largest_component_pixels": 446,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_008_shift_1.png",
+      "extracted": true,
+      "largest_component_pixels": 446,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_008_shift_2.png",
+      "extracted": true,
+      "largest_component_pixels": 446,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_008_shift_3.png",
+      "extracted": true,
+      "largest_component_pixels": 446,
+      "components": 2
+    },
+    {
+      "source": "test_public_bad_008_underexposed.png",
+      "extracted": true,
+      "largest_component_pixels": 446,
+      "components": 2
+    }
+  ]
+}

@@ -43,7 +43,7 @@ def main() -> None:
     config.matching.anomalies_per_hybrid = 2
     config.matching.hybrids_per_original = 1
     config.generation.variants_per_real_anomaly = 5
-    config.matching.reuse_synthetic_across_hybrids = False
+    config.matching.reuse_synthetic_across_hybrids = True
     config.matching.max_anomalies_per_hybrid_deviation = 1
 
     # Fusion settings

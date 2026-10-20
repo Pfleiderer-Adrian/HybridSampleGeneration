@@ -11,7 +11,7 @@ def apply_generator_defaults(config: Configuration) -> None:
     """
     # extraction settings
     config.extraction.add_background_noise = False
-    config.extraction.min_coverage_ratio = 0.01
+    config.extraction.min_coverage_ratio = 0.001
     config.extraction.roi.fixed_size = None
     config.extraction.roi.min_padding = (20, 20, 20)
     config.extraction.roi.padding_ratio = (0.5, 0.5, 0.5)
@@ -31,15 +31,15 @@ def apply_generator_defaults(config: Configuration) -> None:
     config.generation.feedback.threshold_relaxation_factor = 0.9
     config.generation.feedback.max_attempts = 1000
     config.generation.variation_strength = 1.25
-    config.generation.variants_per_real_anomaly = 3
+    config.generation.variants_per_real_anomaly = 5
 
     # matching settings
     config.matching.routine = "batchwise"
     config.matching.batch_size = 64
-    config.matching.hybrids_per_original = 3
+    config.matching.hybrids_per_original = 1
     config.matching.reuse_synthetic_across_hybrids = True
     config.matching.allow_sibling_variants_in_same_hybrid = False
-    config.matching.anomalies_per_hybrid = 2
+    config.matching.anomalies_per_hybrid = 1
     config.matching.max_anomalies_per_hybrid_deviation = 1
 
     # Fusion settings

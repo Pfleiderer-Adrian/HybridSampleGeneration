@@ -41,7 +41,8 @@ def source_aware_loss(model, image, target, mask, sources, *, pair_healthy_sampl
     return loss
 
 
-def train(dataset, validation, config, output, *, paired_validation=None, resume_checkpoint=None):
+def train(dataset, validation, config, output, *, paired_validation=None, resume_checkpoint=None,
+          allow_validation_interval_change=False):
     config.validate()
     random.seed(config.seed)
     np.random.seed(config.seed)
@@ -74,7 +75,13 @@ def train(dataset, validation, config, output, *, paired_validation=None, resume
     start_epoch = 0
     if resume_checkpoint is not None:
         checkpoint = torch.load(resume_checkpoint, map_location="cpu", weights_only=True, mmap=True)
-        if checkpoint["configuration"] != config.to_dict():
+        saved_config = checkpoint["configuration"]
+        requested_config = config.to_dict()
+        if allow_validation_interval_change:
+            from copy import deepcopy
+            saved_config = deepcopy(saved_config)
+            saved_config["training"]["validation_interval"] = settings.validation_interval
+        if saved_config != requested_config:
             raise ValueError("Resume configuration differs from the saved training configuration.")
         start_epoch = checkpoint["epoch"]
         with (output / "training_history.csv").open() as history_file:

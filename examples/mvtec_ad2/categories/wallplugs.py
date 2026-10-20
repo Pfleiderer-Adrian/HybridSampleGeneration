@@ -39,8 +39,8 @@ def create_configuration():
 
     config.extraction.roi.fixed_size = None
     config.extraction.roi.min_size = (1, 128, 128)
-    config.matching.intensity_weight = 0.0
-    config.matching.gradient_weight = 1.0
+    config.matching.intensity_weight = 0.3
+    config.matching.gradient_weight = 0.7
     config.matching.distance_weight = 0.0
     config.extraction.roi.preserve_aspect_ratio = True
     config.extraction.preserve_aspect_ratio = True

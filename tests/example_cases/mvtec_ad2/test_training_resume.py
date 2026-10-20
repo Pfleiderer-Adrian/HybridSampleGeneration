@@ -20,6 +20,25 @@ class Model(nn.Module):
     def forward(self,image):return None,self.weight*image[:, :1]
     def segmentation_loss(self,logits,mask):return (logits-mask).square().mean()
 class ResumeTests(unittest.TestCase):
+    def test_explicit_validation_interval_change_preserves_training(self):
+        from copy import deepcopy
+        cfg=DownstreamConfiguration(model='dinov3_segmentation');cfg.training.epochs=3;cfg.training.num_workers=0;cfg.training.device='cpu';cfg.training.selection_metric='pixel_aupro_0.05'
+        metric={'segmentation_loss':.1,'segmentation_total_loss':.1,'pixel_aupro_0.05':.9}
+        with tempfile.TemporaryDirectory() as tmp:
+            output=Path(tmp)
+            with patch('examples.mvtec_ad2.downstream.training.build_model',side_effect=lambda _:Model()),patch('examples.mvtec_ad2.downstream.training.evaluation_loader',return_value=[]):
+                with patch('examples.mvtec_ad2.downstream.training.evaluate',side_effect=[metric,RuntimeError('interruption')]):
+                    with self.assertRaises(RuntimeError):train(Data(),None,cfg,output)
+                changed=deepcopy(cfg);changed.training.validation_interval=3
+                with self.assertRaises(ValueError):train(Data(),None,changed,output,resume_checkpoint=output/'checkpoints/last.pt')
+                with patch('examples.mvtec_ad2.downstream.training.evaluate',return_value={**metric,'pixel_aupro_0.05':.2}) as evaluate:
+                    train(Data(),None,changed,output,resume_checkpoint=output/'checkpoints/last.pt',allow_validation_interval_change=True)
+                    self.assertEqual(evaluate.call_count,1)
+            rows=list(csv.DictReader((output/'training_history.csv').open()))
+            self.assertEqual([r['epoch'] for r in rows],['1','2','3'])
+            self.assertEqual(rows[1]['selection_score'],'')
+            self.assertEqual(torch.load(output/'checkpoints/best.pt',weights_only=True)['epoch'],1)
+
     def test_resume_equals_uninterrupted_and_preserves_best(self):
         cfg=DownstreamConfiguration(model='dinov3_segmentation');cfg.training.epochs=3;cfg.training.num_workers=0;cfg.training.device='cpu';cfg.training.selection_metric='pixel_aupro_0.05'
         def metrics(score):return {'segmentation_loss':.1,'segmentation_total_loss':.1,'pixel_aupro_0.05':score}
