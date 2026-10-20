@@ -8,6 +8,8 @@ from pathlib import Path
 
 @dataclass
 class DataConfiguration:
+    # Explicit quotas override legacy fractions and appended real examples.
+    source_quotas: dict[str, int] | None = None
     include_real_defects: bool = False
     hybrid_fraction: float = 0.5
     normal_fraction: float = 0.5
@@ -38,6 +40,7 @@ class TrainingConfiguration:
 
 @dataclass
 class DINOv3Configuration:
+    pair_healthy_samples: bool = True
     backbone: str = "facebook/dinov3-vits16-pretrain-lvd1689m"
     revision: str = "main"
     decoder_width: int = 64
@@ -71,6 +74,21 @@ class DownstreamConfiguration:
     memory_bank: MemoryBankConfiguration = field(default_factory=MemoryBankConfiguration)
 
     def validate(self):
+        quotas = self.data.source_quotas
+        if quotas is not None:
+            if (not isinstance(quotas, dict) or not quotas
+                    or set(quotas) - {"normal", "real", "draem", "cutmix", "hybrid"}
+                    or any(type(n) is not int or n < 0 for n in quotas.values())
+                    or sum(quotas.values()) != self.data.samples_per_epoch):
+                raise ValueError("source_quotas must contain nonnegative source counts summing to samples_per_epoch.")
+            if self.model not in ("dinov3_paired", "dinov3_segmentation"):
+                raise ValueError("Explicit source quotas require a DINOv3 segmentation model.")
+            if (quotas.get("real", 0) or quotas.get("cutmix", 0)) and not self.data.include_real_defects:
+                raise ValueError("Real/CutMix quotas require include_real_defects.")
+            if self.data.hard_normal_fraction:
+                raise ValueError("Explicit source quotas currently exclude hard-normal sampling.")
+        if type(self.dinov3.pair_healthy_samples) is not bool:
+            raise ValueError("pair_healthy_samples must be boolean.")
         if self.training.selection_metric not in ("auto", "pixel_aupro_0.05"):
             raise ValueError("selection_metric must be auto or pixel_aupro_0.05.")
         if self.model not in ("draem", "dinov3_paired", "dinov3_segmentation", "superadd_dual_bank"):

@@ -1,0 +1,1020 @@
+{
+  "can": {
+    "eligible_training_hybrids": 318,
+    "target_images": 318,
+    "donor_images_used": 21,
+    "donor_capture_groups_used": 6,
+    "donor_heldout_overlap": [],
+    "top_donor_images": [
+      [
+        "original_62ae9f1f52d4f441ba9e",
+        62
+      ],
+      [
+        "original_353442ee87b286ef31f4",
+        59
+      ],
+      [
+        "original_35e94bd16511f4b378ad",
+        36
+      ],
+      [
+        "original_df97f07692357acd0f8d",
+        35
+      ],
+      [
+        "original_2344cc66303f8022e052",
+        30
+      ],
+      [
+        "original_ffe12ff939f6a9af1594",
+        27
+      ],
+      [
+        "original_f0fe92f93f0646121443",
+        23
+      ],
+      [
+        "original_4b562a2bc7ecd44f6537",
+        21
+      ],
+      [
+        "original_3bef247127ed8d7c402a",
+        20
+      ],
+      [
+        "original_82ef546a6226a2854a71",
+        20
+      ]
+    ],
+    "capture_usage": {
+      "test_public_bad_012": 82,
+      "test_public_bad_013": 139,
+      "test_public_bad_011": 51,
+      "test_public_bad_009": 141,
+      "test_public_bad_008": 13,
+      "test_public_bad_001": 8
+    },
+    "sample_size": 48,
+    "metrics_median": {
+      "score": 0.4606048892869816,
+      "mask_fraction": 0.00016691693268369175,
+      "mean_abs_inside": 18.820463180541992,
+      "mean_abs_far_outside": 0.0,
+      "changed_pixels_outside_share": 0.0,
+      "far_background_changed_fraction": 0.0
+    },
+    "score_all_quantiles": [
+      0.22134061355441592,
+      0.40558203663425074,
+      0.46893239785740504,
+      0.6193171031139864,
+      0.9454940397050822
+    ],
+    "study": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation",
+    "frozen_manifest": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/can/split_manifest.json",
+    "configuration": {
+      "schema_version": 10,
+      "study": {
+        "name": "comparison_v2",
+        "folder": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation",
+        "seed": 42
+      },
+      "extraction": {
+        "anomaly_size": [
+          3,
+          128,
+          128
+        ],
+        "separate_components": true,
+        "min_coverage_ratio": 0.01,
+        "add_background_noise": false,
+        "preserve_aspect_ratio": true,
+        "normalization": "z-score",
+        "normalization_eps": 1e-06,
+        "roi": {
+          "fixed_size": null,
+          "min_size": [
+            1,
+            128,
+            128
+          ],
+          "min_padding": [
+            20,
+            20,
+            20
+          ],
+          "padding_ratio": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "preserve_aspect_ratio": true
+        }
+      },
+      "augmentation": {
+        "mask_transforms": {
+          "use_mask_transform": true,
+          "mask_transform_probs": {
+            "zoom": 0.5,
+            "stretch": 0.5,
+            "rotate": 0.5,
+            "elastic": 0.5,
+            "local_dilate": 0,
+            "local_stretch": 0,
+            "local_rotate": 0,
+            "local_elastic": 0
+          },
+          "mask_transform_params": {},
+          "priorities": null,
+          "local_as_global": false,
+          "padding_factor": 2
+        },
+        "random_offset_enabled": true,
+        "random_offset_max_fraction": 0.8,
+        "random_offset_foreground_threshold": 0.01
+      },
+      "generation": {
+        "sampling_mode": "posterior",
+        "posterior_skip_source": "transformed",
+        "variation_strength": 1.5,
+        "clamp_output": false,
+        "background_threshold": 0.18,
+        "variants_per_real_anomaly": 3,
+        "feedback": {
+          "enabled": false,
+          "similarity_threshold": 0.01,
+          "threshold_relaxation_factor": 0.9,
+          "max_attempts": 1000
+        }
+      },
+      "matching": {
+        "routine": "batchwise",
+        "hybrids_per_original": 1,
+        "anomalies_per_hybrid": 1,
+        "max_anomalies_per_hybrid_deviation": 1,
+        "reuse_synthetic_across_hybrids": true,
+        "allow_sibling_variants_in_same_hybrid": false,
+        "batch_size": 16,
+        "intensity_weight": 0.3,
+        "gradient_weight": 0.7
+      },
+      "training": {
+        "num_trials": 10,
+        "trial_selection": "best",
+        "validation_ratio": 0.1,
+        "batch_size": 8,
+        "epochs": 1000,
+        "learning_rate": 0.0001,
+        "dtype": null,
+        "gradient_clip_norm": 1.0,
+        "monitor_metric": "selection",
+        "early_stopping_enabled": true,
+        "early_stopping": {
+          "patience": 400,
+          "delta": 0.0001
+        },
+        "lr_scheduler_enabled": true,
+        "lr_scheduler": {
+          "patience": 200,
+          "factor": 0.1,
+          "threshold": 1e-05
+        }
+      },
+      "evaluation": {
+        "foreground_threshold": 0.18,
+        "outlier_thresholds": {
+          "Contrast": {
+            "min": null,
+            "max": null
+          },
+          "Homogeneity": {
+            "min": null,
+            "max": null
+          },
+          "Energy": {
+            "min": null,
+            "max": null
+          },
+          "Correlation": {
+            "min": null,
+            "max": null
+          },
+          "roi_Contrast": {
+            "min": null,
+            "max": null
+          },
+          "roi_Homogeneity": {
+            "min": null,
+            "max": null
+          },
+          "roi_Energy": {
+            "min": null,
+            "max": null
+          },
+          "roi_Correlation": {
+            "min": null,
+            "max": null
+          },
+          "Volume": {
+            "min": null,
+            "max": null
+          },
+          "D-center": {
+            "min": null,
+            "max": null
+          },
+          "H-center": {
+            "min": null,
+            "max": null
+          },
+          "W-center": {
+            "min": null,
+            "max": null
+          }
+        }
+      },
+      "model": {
+        "name": "cVAE_ConvNeXt_2D",
+        "parameters": {
+          "n_res_blocks": 4,
+          "n_spade_blocks": 2,
+          "n_levels": 4,
+          "z_channels": 32,
+          "bottleneck_dim": 64,
+          "recon_weight": 10.0,
+          "beta_kl_start": 0.0,
+          "beta_kl_max": 0.08,
+          "beta_kl_warmup_start": 0,
+          "beta_kl_warmup_epochs": 200,
+          "free_bits": 0.001,
+          "latent_recon_weight": 0.0,
+          "latent_recon_noise_scale": 1.0,
+          "latent_recon_image_noise_std": 0.03,
+          "recon_loss": "smoothl1",
+          "recon_smoothl1_beta": 1.0,
+          "use_transpose_conv": false,
+          "foreground_weight": 0.8,
+          "background_weight": 0.2,
+          "drop_path_rate": 0.001,
+          "dropout": 0.001,
+          "skip_dropout_p": 1.0,
+          "skip_dropout_ps": null,
+          "skip_alpha": 0.0,
+          "skip_alphas": null
+        },
+        "search": {
+          "n_res_blocks": {
+            "low": 2,
+            "high": 4,
+            "step": 1,
+            "log": false,
+            "type": "int"
+          },
+          "n_levels": {
+            "low": 3,
+            "high": 4,
+            "step": 1,
+            "log": false,
+            "type": "int"
+          },
+          "z_channels": {
+            "values": [
+              16,
+              32,
+              64,
+              96
+            ],
+            "type": "choice"
+          },
+          "bottleneck_dim": {
+            "values": [
+              32,
+              64,
+              128,
+              160
+            ],
+            "type": "choice"
+          },
+          "dropout": {
+            "low": 0.01,
+            "high": 0.2,
+            "step": null,
+            "log": false,
+            "type": "float"
+          }
+        }
+      },
+      "fusion": {
+        "backend": "classical",
+        "parameters": {
+          "max_alpha": 0.8,
+          "segmentation_min_alpha": 0.1,
+          "image_harmonization": "LBM",
+          "sq": 1.0,
+          "steepness_factor": 3.0,
+          "upsampling_factor": 4,
+          "sobel_threshold": 0.05,
+          "dilation_size": 2,
+          "shave_pixels": 0,
+          "fusion_use_sobel_for_alpha_mask": false,
+          "fusion_variation": true,
+          "alpha_variation": 0.01,
+          "sq_variation": 0.02,
+          "steepness_variation": 0.15,
+          "selected_confidence": "90%",
+          "fusion_normalization_border_width": 2,
+          "fusion_restore_anomaly_bg_relation": true,
+          "fusion_relation_mode": "delta",
+          "fusion_relation_norm_classes_separately": false,
+          "fusion_relation_min_context_size": 8,
+          "fusion_keep_bg": false,
+          "fusion_bg_value": null,
+          "fusion_relative_bg_threshold": 0.01,
+          "fusion_bg_exterior_only": true
+        }
+      }
+    }
+  },
+  "vial": {
+    "eligible_training_hybrids": 693,
+    "target_images": 231,
+    "donor_images_used": 33,
+    "donor_capture_groups_used": 8,
+    "donor_heldout_overlap": [],
+    "top_donor_images": [
+      [
+        "original_95ac86cd0049526eaa8f",
+        406
+      ],
+      [
+        "original_a22829db09da75291ca6",
+        138
+      ],
+      [
+        "original_a1cbce6eec48550a5a44",
+        131
+      ],
+      [
+        "original_8fb3a222815e999470da",
+        122
+      ],
+      [
+        "original_4df9a4aef5268ebf9a16",
+        99
+      ],
+      [
+        "original_614faef35e020bb9c8fa",
+        58
+      ],
+      [
+        "original_73cabe7eb8eff8c69055",
+        57
+      ],
+      [
+        "original_f95471d4ad441b161c12",
+        53
+      ],
+      [
+        "original_22e700d249bfc732f15b",
+        39
+      ],
+      [
+        "original_97d5c3c4361c559f19c5",
+        31
+      ]
+    ],
+    "capture_usage": {
+      "test_public_bad_007": 177,
+      "test_public_bad_000": 980,
+      "test_public_bad_009": 1,
+      "test_public_bad_010": 19,
+      "test_public_bad_008": 48,
+      "test_public_bad_001": 73,
+      "test_public_bad_006": 16,
+      "test_public_bad_013": 2
+    },
+    "sample_size": 48,
+    "metrics_median": {
+      "score": 0.5705333272809912,
+      "mask_fraction": 0.00011635338345864662,
+      "mean_abs_inside": 31.20639419555664,
+      "mean_abs_far_outside": 0.0,
+      "changed_pixels_outside_share": 0.0,
+      "far_background_changed_fraction": 0.0
+    },
+    "score_all_quantiles": [
+      0.3706340573939651,
+      0.5176486067244084,
+      0.5654425266959444,
+      0.6079099508038266,
+      0.73671597337193
+    ],
+    "study": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation",
+    "frozen_manifest": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/vial/split_manifest.json",
+    "configuration": {
+      "schema_version": 10,
+      "study": {
+        "name": "comparison_v2_vial",
+        "folder": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation",
+        "seed": 42
+      },
+      "extraction": {
+        "anomaly_size": [
+          1,
+          64,
+          64
+        ],
+        "separate_components": true,
+        "min_coverage_ratio": 0.01,
+        "add_background_noise": false,
+        "preserve_aspect_ratio": true,
+        "normalization": "z-score",
+        "normalization_eps": 1e-06,
+        "roi": {
+          "fixed_size": null,
+          "min_size": 0,
+          "min_padding": [
+            20,
+            20,
+            20
+          ],
+          "padding_ratio": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "preserve_aspect_ratio": false
+        }
+      },
+      "augmentation": {
+        "mask_transforms": {
+          "use_mask_transform": true,
+          "mask_transform_probs": {},
+          "mask_transform_params": {},
+          "priorities": null,
+          "local_as_global": false,
+          "padding_factor": 2
+        },
+        "random_offset_enabled": true,
+        "random_offset_max_fraction": 0.8,
+        "random_offset_foreground_threshold": 0.01
+      },
+      "generation": {
+        "sampling_mode": "posterior",
+        "posterior_skip_source": "transformed",
+        "variation_strength": 1.25,
+        "clamp_output": false,
+        "background_threshold": 0.18,
+        "variants_per_real_anomaly": 3,
+        "feedback": {
+          "enabled": false,
+          "similarity_threshold": 0.01,
+          "threshold_relaxation_factor": 0.9,
+          "max_attempts": 1000
+        }
+      },
+      "matching": {
+        "routine": "batchwise",
+        "hybrids_per_original": 3,
+        "anomalies_per_hybrid": 2,
+        "max_anomalies_per_hybrid_deviation": 1,
+        "reuse_synthetic_across_hybrids": true,
+        "allow_sibling_variants_in_same_hybrid": false,
+        "batch_size": 64,
+        "intensity_weight": 1.0,
+        "gradient_weight": 2.0
+      },
+      "training": {
+        "num_trials": 10,
+        "trial_selection": "best",
+        "validation_ratio": 0.1,
+        "batch_size": 8,
+        "epochs": 1000,
+        "learning_rate": 0.0001,
+        "dtype": null,
+        "gradient_clip_norm": 1.0,
+        "monitor_metric": "selection",
+        "early_stopping_enabled": true,
+        "early_stopping": {
+          "patience": 400,
+          "delta": 0.0001
+        },
+        "lr_scheduler_enabled": true,
+        "lr_scheduler": {
+          "patience": 200,
+          "factor": 0.1,
+          "threshold": 1e-05
+        }
+      },
+      "evaluation": {
+        "foreground_threshold": 0.18,
+        "outlier_thresholds": {
+          "Contrast": {
+            "min": null,
+            "max": null
+          },
+          "Homogeneity": {
+            "min": null,
+            "max": null
+          },
+          "Energy": {
+            "min": null,
+            "max": null
+          },
+          "Correlation": {
+            "min": null,
+            "max": null
+          },
+          "roi_Contrast": {
+            "min": null,
+            "max": null
+          },
+          "roi_Homogeneity": {
+            "min": null,
+            "max": null
+          },
+          "roi_Energy": {
+            "min": null,
+            "max": null
+          },
+          "roi_Correlation": {
+            "min": null,
+            "max": null
+          },
+          "Volume": {
+            "min": null,
+            "max": null
+          },
+          "D-center": {
+            "min": null,
+            "max": null
+          },
+          "H-center": {
+            "min": null,
+            "max": null
+          },
+          "W-center": {
+            "min": null,
+            "max": null
+          }
+        }
+      },
+      "model": {
+        "name": "cVAE_ConvNeXt_2D",
+        "parameters": {
+          "n_res_blocks": 4,
+          "n_spade_blocks": 2,
+          "n_levels": 4,
+          "z_channels": 32,
+          "bottleneck_dim": 64,
+          "recon_weight": 10.0,
+          "beta_kl_start": 0.0,
+          "beta_kl_max": 0.08,
+          "beta_kl_warmup_start": 0,
+          "beta_kl_warmup_epochs": 200,
+          "free_bits": 0.001,
+          "latent_recon_weight": 0.0,
+          "latent_recon_noise_scale": 1.0,
+          "latent_recon_image_noise_std": 0.03,
+          "recon_loss": "smoothl1",
+          "recon_smoothl1_beta": 1.0,
+          "use_transpose_conv": false,
+          "foreground_weight": 0.8,
+          "background_weight": 0.2,
+          "drop_path_rate": 0.001,
+          "dropout": 0.001,
+          "skip_dropout_p": 1.0,
+          "skip_dropout_ps": null,
+          "skip_alpha": 0.0,
+          "skip_alphas": null
+        },
+        "search": {
+          "n_res_blocks": {
+            "low": 2,
+            "high": 4,
+            "step": 1,
+            "log": false,
+            "type": "int"
+          },
+          "n_levels": {
+            "low": 3,
+            "high": 4,
+            "step": 1,
+            "log": false,
+            "type": "int"
+          },
+          "z_channels": {
+            "values": [
+              16,
+              32,
+              64,
+              96
+            ],
+            "type": "choice"
+          },
+          "bottleneck_dim": {
+            "values": [
+              32,
+              64,
+              128,
+              160
+            ],
+            "type": "choice"
+          },
+          "dropout": {
+            "low": 0.01,
+            "high": 0.2,
+            "step": null,
+            "log": false,
+            "type": "float"
+          }
+        }
+      },
+      "fusion": {
+        "backend": "classical",
+        "parameters": {
+          "max_alpha": 1.0,
+          "segmentation_min_alpha": 0.0,
+          "image_harmonization": null,
+          "sq": 0.1,
+          "steepness_factor": 5.0,
+          "upsampling_factor": 2,
+          "sobel_threshold": 0.01,
+          "dilation_size": 1,
+          "shave_pixels": 0,
+          "fusion_use_sobel_for_alpha_mask": false,
+          "fusion_variation": true,
+          "alpha_variation": 0.05,
+          "sq_variation": 0.1,
+          "steepness_variation": 1.0,
+          "selected_confidence": "90%",
+          "fusion_normalization_border_width": 2,
+          "fusion_restore_anomaly_bg_relation": true,
+          "fusion_relation_mode": "delta",
+          "fusion_relation_norm_classes_separately": false,
+          "fusion_relation_min_context_size": 8,
+          "fusion_keep_bg": false,
+          "fusion_bg_value": null,
+          "fusion_relative_bg_threshold": 0.01,
+          "fusion_bg_exterior_only": true
+        }
+      }
+    }
+  },
+  "wallplugs": {
+    "eligible_training_hybrids": 765,
+    "target_images": 255,
+    "donor_images_used": 41,
+    "donor_capture_groups_used": 8,
+    "donor_heldout_overlap": [],
+    "top_donor_images": [
+      [
+        "original_bed9b45a3f8633a6b790",
+        142
+      ],
+      [
+        "original_11f26517383015416e46",
+        117
+      ],
+      [
+        "original_d3819aa73b6bd0c067c6",
+        111
+      ],
+      [
+        "original_0caf3f545e0e8d7b2e2c",
+        99
+      ],
+      [
+        "original_9d999ffb51230cd24d52",
+        96
+      ],
+      [
+        "original_5b6c16e6383c5206bf66",
+        83
+      ],
+      [
+        "original_9241bbacb10e090ce396",
+        72
+      ],
+      [
+        "original_285c158e748a266666a1",
+        64
+      ],
+      [
+        "original_c02f4e3ae8c474feca61",
+        64
+      ],
+      [
+        "original_e539656daabcd4af0046",
+        55
+      ]
+    ],
+    "capture_usage": {
+      "test_public_bad_003": 107,
+      "test_public_bad_013": 356,
+      "test_public_bad_009": 315,
+      "test_public_bad_000": 234,
+      "test_public_bad_006": 195,
+      "test_public_bad_001": 182,
+      "test_public_bad_007": 110,
+      "test_public_bad_008": 31
+    },
+    "sample_size": 47,
+    "metrics_median": {
+      "score": 0.380336129787191,
+      "mask_fraction": 0.001803329567504085,
+      "mean_abs_inside": 34.9473876953125,
+      "mean_abs_far_outside": 0.0,
+      "changed_pixels_outside_share": 0.0,
+      "far_background_changed_fraction": 0.0
+    },
+    "score_all_quantiles": [
+      0.3023319950394988,
+      0.36115462491704153,
+      0.38641738486504024,
+      0.4166356320910522,
+      0.6008173906188136
+    ],
+    "study": "/mnt/results/mvtec2/experiments/comparison_v2/wallplugs/hybrid_generation",
+    "frozen_manifest": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/split_manifest.json",
+    "configuration": {
+      "schema_version": 10,
+      "study": {
+        "name": "comparison_v2_wallplugs",
+        "folder": "/mnt/results/mvtec2/experiments/comparison_v2/wallplugs/hybrid_generation",
+        "seed": 42
+      },
+      "extraction": {
+        "anomaly_size": [
+          1,
+          128,
+          128
+        ],
+        "separate_components": true,
+        "min_coverage_ratio": 0.01,
+        "add_background_noise": false,
+        "preserve_aspect_ratio": true,
+        "normalization": "z-score",
+        "normalization_eps": 1e-06,
+        "roi": {
+          "fixed_size": null,
+          "min_size": [
+            1,
+            256,
+            256
+          ],
+          "min_padding": [
+            20,
+            20,
+            20
+          ],
+          "padding_ratio": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "preserve_aspect_ratio": true
+        }
+      },
+      "augmentation": {
+        "mask_transforms": {
+          "use_mask_transform": false,
+          "mask_transform_probs": {
+            "zoom": 0.5,
+            "stretch": 0.5,
+            "rotate": 0.8,
+            "elastic": 0.5,
+            "local_dilate": 0,
+            "local_stretch": 0,
+            "local_rotate": 0,
+            "local_elastic": 0
+          },
+          "mask_transform_params": {
+            "zoom": {
+              "min_zoom": 0.97,
+              "max_zoom": 1.0
+            },
+            "stretch": {
+              "min_stretch": 0.98,
+              "max_stretch": 1.05
+            },
+            "rotate": {
+              "max_rotation": 2.0
+            },
+            "elastic": {
+              "sigma": 30,
+              "magnitude": 5
+            }
+          },
+          "priorities": null,
+          "local_as_global": false,
+          "padding_factor": 2
+        },
+        "random_offset_enabled": true,
+        "random_offset_max_fraction": 0.8,
+        "random_offset_foreground_threshold": 0.01
+      },
+      "generation": {
+        "sampling_mode": "posterior",
+        "posterior_skip_source": "transformed",
+        "variation_strength": 1.25,
+        "clamp_output": false,
+        "background_threshold": 0.18,
+        "variants_per_real_anomaly": 3,
+        "feedback": {
+          "enabled": false,
+          "similarity_threshold": 0.01,
+          "threshold_relaxation_factor": 0.9,
+          "max_attempts": 1000
+        }
+      },
+      "matching": {
+        "routine": "batchwise",
+        "hybrids_per_original": 3,
+        "anomalies_per_hybrid": 2,
+        "max_anomalies_per_hybrid_deviation": 1,
+        "reuse_synthetic_across_hybrids": true,
+        "allow_sibling_variants_in_same_hybrid": false,
+        "batch_size": 64,
+        "intensity_weight": 0.3,
+        "gradient_weight": 0.7
+      },
+      "training": {
+        "num_trials": 10,
+        "trial_selection": "best",
+        "validation_ratio": 0.1,
+        "batch_size": 8,
+        "epochs": 1000,
+        "learning_rate": 0.0001,
+        "dtype": null,
+        "gradient_clip_norm": 1.0,
+        "monitor_metric": "selection",
+        "early_stopping_enabled": true,
+        "early_stopping": {
+          "patience": 400,
+          "delta": 0.0001
+        },
+        "lr_scheduler_enabled": true,
+        "lr_scheduler": {
+          "patience": 200,
+          "factor": 0.1,
+          "threshold": 1e-05
+        }
+      },
+      "evaluation": {
+        "foreground_threshold": 0.18,
+        "outlier_thresholds": {
+          "Contrast": {
+            "min": null,
+            "max": null
+          },
+          "Homogeneity": {
+            "min": null,
+            "max": null
+          },
+          "Energy": {
+            "min": null,
+            "max": null
+          },
+          "Correlation": {
+            "min": null,
+            "max": null
+          },
+          "roi_Contrast": {
+            "min": null,
+            "max": null
+          },
+          "roi_Homogeneity": {
+            "min": null,
+            "max": null
+          },
+          "roi_Energy": {
+            "min": null,
+            "max": null
+          },
+          "roi_Correlation": {
+            "min": null,
+            "max": null
+          },
+          "Volume": {
+            "min": null,
+            "max": null
+          },
+          "D-center": {
+            "min": null,
+            "max": null
+          },
+          "H-center": {
+            "min": null,
+            "max": null
+          },
+          "W-center": {
+            "min": null,
+            "max": null
+          }
+        }
+      },
+      "model": {
+        "name": "cVAE_ConvNeXt_2D",
+        "parameters": {
+          "n_res_blocks": 4,
+          "n_spade_blocks": 2,
+          "n_levels": 4,
+          "z_channels": 32,
+          "bottleneck_dim": 64,
+          "recon_weight": 10.0,
+          "beta_kl_start": 0.0,
+          "beta_kl_max": 0.08,
+          "beta_kl_warmup_start": 0,
+          "beta_kl_warmup_epochs": 200,
+          "free_bits": 0.001,
+          "latent_recon_weight": 0.0,
+          "latent_recon_noise_scale": 1.0,
+          "latent_recon_image_noise_std": 0.03,
+          "recon_loss": "smoothl1",
+          "recon_smoothl1_beta": 1.0,
+          "use_transpose_conv": false,
+          "foreground_weight": 0.8,
+          "background_weight": 0.2,
+          "drop_path_rate": 0.001,
+          "dropout": 0.001,
+          "skip_dropout_p": 1.0,
+          "skip_dropout_ps": null,
+          "skip_alpha": 0.0,
+          "skip_alphas": null
+        },
+        "search": {
+          "n_res_blocks": {
+            "low": 2,
+            "high": 4,
+            "step": 1,
+            "log": false,
+            "type": "int"
+          },
+          "n_levels": {
+            "low": 3,
+            "high": 4,
+            "step": 1,
+            "log": false,
+            "type": "int"
+          },
+          "z_channels": {
+            "values": [
+              16,
+              32,
+              64,
+              96
+            ],
+            "type": "choice"
+          },
+          "bottleneck_dim": {
+            "values": [
+              32,
+              64,
+              128,
+              160
+            ],
+            "type": "choice"
+          },
+          "dropout": {
+            "low": 0.01,
+            "high": 0.2,
+            "step": null,
+            "log": false,
+            "type": "float"
+          }
+        }
+      },
+      "fusion": {
+        "backend": "classical",
+        "parameters": {
+          "max_alpha": 1.0,
+          "segmentation_min_alpha": 0.0,
+          "image_harmonization": null,
+          "sq": 0.1,
+          "steepness_factor": 5.0,
+          "upsampling_factor": 2,
+          "sobel_threshold": 0.01,
+          "dilation_size": 1,
+          "shave_pixels": 0,
+          "fusion_use_sobel_for_alpha_mask": false,
+          "fusion_variation": true,
+          "alpha_variation": 0.05,
+          "sq_variation": 0.1,
+          "steepness_variation": 1.0,
+          "selected_confidence": "90%",
+          "fusion_normalization_border_width": 2,
+          "fusion_restore_anomaly_bg_relation": true,
+          "fusion_relation_mode": "delta",
+          "fusion_relation_norm_classes_separately": false,
+          "fusion_relation_min_context_size": 8,
+          "fusion_keep_bg": false,
+          "fusion_bg_value": null,
+          "fusion_relative_bg_threshold": 0.01,
+          "fusion_bg_exterior_only": true
+        }
+      }
+    }
+  }
+}

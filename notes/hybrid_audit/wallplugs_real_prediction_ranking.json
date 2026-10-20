@@ -1,0 +1,434 @@
+[
+  {
+    "contrast": -0.01823599822819233,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/002_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/002_overexposed_mask.png",
+      "sample_id": "test_public_bad_002_overexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/2"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000095.npy"
+  },
+  {
+    "contrast": -0.015057536773383617,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/002_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/002_underexposed_mask.png",
+      "sample_id": "test_public_bad_002_underexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/2"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000100.npy"
+  },
+  {
+    "contrast": -0.013644721359014511,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/002_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/002_regular_mask.png",
+      "sample_id": "test_public_bad_002_regular.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/2"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000096.npy"
+  },
+  {
+    "contrast": -0.01181626133620739,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/002_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/002_shift_2_mask.png",
+      "sample_id": "test_public_bad_002_shift_2.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/2"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000098.npy"
+  },
+  {
+    "contrast": -0.0110253831371665,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/005_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/005_shift_2_mask.png",
+      "sample_id": "test_public_bad_005_shift_2.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/5"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000003.npy"
+  },
+  {
+    "contrast": -0.007930256426334381,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/002_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/002_shift_1_mask.png",
+      "sample_id": "test_public_bad_002_shift_1.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/2"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000097.npy"
+  },
+  {
+    "contrast": -0.006620045751333237,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/002_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/002_shift_3_mask.png",
+      "sample_id": "test_public_bad_002_shift_3.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/2"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000099.npy"
+  },
+  {
+    "contrast": 0.011700043454766273,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/005_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/005_underexposed_mask.png",
+      "sample_id": "test_public_bad_005_underexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/5"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000005.npy"
+  },
+  {
+    "contrast": 0.012177115306258202,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/005_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/005_overexposed_mask.png",
+      "sample_id": "test_public_bad_005_overexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/5"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000000.npy"
+  },
+  {
+    "contrast": 0.023420989513397217,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/005_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/005_shift_1_mask.png",
+      "sample_id": "test_public_bad_005_shift_1.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/5"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000002.npy"
+  },
+  {
+    "contrast": 0.03064757212996483,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/005_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/005_regular_mask.png",
+      "sample_id": "test_public_bad_005_regular.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/5"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000001.npy"
+  },
+  {
+    "contrast": 0.06192069128155708,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/004_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/004_shift_3_mask.png",
+      "sample_id": "test_public_bad_004_shift_3.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/4"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000105.npy"
+  },
+  {
+    "contrast": 0.11178654432296753,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/004_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/004_shift_2_mask.png",
+      "sample_id": "test_public_bad_004_shift_2.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/4"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000104.npy"
+  },
+  {
+    "contrast": 0.12242993712425232,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/004_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/004_shift_1_mask.png",
+      "sample_id": "test_public_bad_004_shift_1.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/4"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000103.npy"
+  },
+  {
+    "contrast": 0.14108499884605408,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/005_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/005_shift_3_mask.png",
+      "sample_id": "test_public_bad_005_shift_3.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/5"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000004.npy"
+  },
+  {
+    "contrast": 0.1554485559463501,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/004_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/004_underexposed_mask.png",
+      "sample_id": "test_public_bad_004_underexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/4"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000106.npy"
+  },
+  {
+    "contrast": 0.17279544472694397,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/004_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/004_regular_mask.png",
+      "sample_id": "test_public_bad_004_regular.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/4"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000102.npy"
+  },
+  {
+    "contrast": 0.20764106512069702,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/004_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/004_overexposed_mask.png",
+      "sample_id": "test_public_bad_004_overexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/4"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000101.npy"
+  },
+  {
+    "contrast": 0.3415261507034302,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/014_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/014_shift_2_mask.png",
+      "sample_id": "test_public_bad_014_shift_2.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/14"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000110.npy"
+  },
+  {
+    "contrast": 0.37676817178726196,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/014_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/014_underexposed_mask.png",
+      "sample_id": "test_public_bad_014_underexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/14"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000112.npy"
+  },
+  {
+    "contrast": 0.41368231177330017,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/014_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/014_overexposed_mask.png",
+      "sample_id": "test_public_bad_014_overexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/14"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000107.npy"
+  },
+  {
+    "contrast": 0.4161045551300049,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/012_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/012_regular_mask.png",
+      "sample_id": "test_public_bad_012_regular.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/12"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000013.npy"
+  },
+  {
+    "contrast": 0.4201130270957947,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/012_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/012_underexposed_mask.png",
+      "sample_id": "test_public_bad_012_underexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/12"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000017.npy"
+  },
+  {
+    "contrast": 0.4295540153980255,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/012_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/012_overexposed_mask.png",
+      "sample_id": "test_public_bad_012_overexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/12"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000012.npy"
+  },
+  {
+    "contrast": 0.43340495228767395,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/014_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/014_regular_mask.png",
+      "sample_id": "test_public_bad_014_regular.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/14"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000108.npy"
+  },
+  {
+    "contrast": 0.5034380555152893,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/014_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/014_shift_1_mask.png",
+      "sample_id": "test_public_bad_014_shift_1.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/14"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000109.npy"
+  },
+  {
+    "contrast": 0.5225197076797485,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/014_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/014_shift_3_mask.png",
+      "sample_id": "test_public_bad_014_shift_3.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/14"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000111.npy"
+  },
+  {
+    "contrast": 0.6462948322296143,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/011_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/011_shift_3_mask.png",
+      "sample_id": "test_public_bad_011_shift_3.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/11"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000010.npy"
+  },
+  {
+    "contrast": 0.665716826915741,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/012_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/012_shift_2_mask.png",
+      "sample_id": "test_public_bad_012_shift_2.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/12"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000015.npy"
+  },
+  {
+    "contrast": 0.6758734583854675,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/011_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/011_shift_2_mask.png",
+      "sample_id": "test_public_bad_011_shift_2.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/11"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000009.npy"
+  },
+  {
+    "contrast": 0.6805235147476196,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/012_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/012_shift_1_mask.png",
+      "sample_id": "test_public_bad_012_shift_1.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/12"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000014.npy"
+  },
+  {
+    "contrast": 0.7075708508491516,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/011_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/011_regular_mask.png",
+      "sample_id": "test_public_bad_011_regular.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/11"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000007.npy"
+  },
+  {
+    "contrast": 0.7502241134643555,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/012_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/012_shift_3_mask.png",
+      "sample_id": "test_public_bad_012_shift_3.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/12"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000016.npy"
+  },
+  {
+    "contrast": 0.7818374037742615,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/011_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/011_underexposed_mask.png",
+      "sample_id": "test_public_bad_011_underexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/11"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000011.npy"
+  },
+  {
+    "contrast": 0.8276653289794922,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/011_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/011_overexposed_mask.png",
+      "sample_id": "test_public_bad_011_overexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/11"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000006.npy"
+  },
+  {
+    "contrast": 0.8332324028015137,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/bad/011_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/wallplugs/test_public/ground_truth/bad/011_shift_1_mask.png",
+      "sample_id": "test_public_bad_011_shift_1.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/11"
+    },
+    "prediction": "/mnt/results/mvtec2/submissions/dinov3_global_best_wallplugs_updated_20261018T164253Z/models/wallplugs/predictions/validation/000008.npy"
+  }
+]

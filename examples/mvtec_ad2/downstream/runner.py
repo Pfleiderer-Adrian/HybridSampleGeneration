@@ -13,6 +13,7 @@ from hybrid_sample_generator.persistence.study_repository import StudyRepository
 
 from .configuration import DownstreamConfiguration
 from .datasets import HybridPairs, MixedTrainingDataset, RealImageDataset, FixedPairedValidation
+from .quota_dataset import FixedQuotaDataset
 from .models import build_model
 from .evaluation import evaluate, evaluation_loader
 from .textures import prepare_textures
@@ -25,15 +26,17 @@ def train_downstream(generator_config, manifest, config: DownstreamConfiguration
     config.validate()
     study_folder = Path(generator_config.study.folder)
     hybrids = None
+    quotas = config.data.source_quotas
     normal_only_bank = config.model == "superadd_dual_bank" and config.data.normal_fraction == 1
-    if config.data.hybrid_fraction > 0 and not normal_only_bank:
+    needs_hybrids = quotas.get("hybrid", 0) > 0 if quotas is not None else config.data.hybrid_fraction > 0
+    if needs_hybrids and not normal_only_bank:
         database = Path(generator_config.study.paths.artifact_database)
         if not database.is_file():
             raise ValueError("No materialized hybrid study found.")
         repository = StudyRepository(database)
         store = ArtifactStore(study_folder)
         hybrids = HybridPairs(repository, store, manifest, config.data)
-    if not normal_only_bank:
+    if not normal_only_bank and (quotas is None or quotas.get("draem", 0)):
         prepare_textures(study_folder, config.data)
     paired_validation = None
     if config.model == "dinov3_paired" and config.training.selection_metric != "pixel_aupro_0.05":
@@ -49,16 +52,21 @@ def train_downstream(generator_config, manifest, config: DownstreamConfiguration
         held_out = {str(Path(s.image_path).resolve()) for part in ("validation", "test") for s in manifest_samples(manifest, part)}
         if any(not s.mask_path or str(Path(s.image_path).resolve()) in held_out for s in real_samples):
             raise ValueError("Real training defects must have masks and be disjoint from validation/test.")
-    dataset = None if normal_only_bank else MixedTrainingDataset(
-        manifest_samples(manifest, "train", healthy_only=True), hybrids, config, real_samples=real_samples
-    )
+    if normal_only_bank:
+        dataset = None
+    elif quotas is not None:
+        dataset = FixedQuotaDataset(manifest_samples(manifest, "train", healthy_only=True),
+                                    real_samples, hybrids, config)
+    else:
+        dataset = MixedTrainingDataset(
+            manifest_samples(manifest, "train", healthy_only=True), hybrids, config, real_samples=real_samples)
     validation = RealImageDataset(manifest_samples(manifest, "validation"), config.data)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid4().hex[:8]
     output = study_folder / "downstream" / config.model / run_id
     output.mkdir(parents=True)
     config.save(output / "configuration.json")
     if config.data.include_real_defects:
-        (output / "real_training_sources.json").write_text(json.dumps({"sample_ids": [s.sample_id for s in real_samples], "per_epoch": "one defect-containing crop per real training image", "loss": "focal+dice only for real defects; no healthy partner or consistency"}, indent=2) + "\n")
+        (output / "real_training_sources.json").write_text(json.dumps({"sample_ids": [s.sample_id for s in real_samples], "per_epoch": ("fixed quota; every real image before repeats" if quotas is not None else "one defect-containing crop per real training image"), "source_quotas": quotas, "loss": "focal+dice only for real defects; no healthy partner or consistency"}, indent=2) + "\n")
     if dataset is not None and dataset.hard_pool is not None:
         (output / "hard_normal_manifest.json").write_text(json.dumps(dataset.hard_pool, indent=2) + "\n")
     used_manifest = {

@@ -125,3 +125,45 @@ random states and are replaced atomically. Legacy checkpoints lack those random
 states, so an interrupted epoch may be repeated and bitwise equivalence across
 a GPU migration is not guaranteed. Deterministic epoch/index-based crop sampling
 is retained.
+
+### Fixed source quotas for downstream comparisons
+
+`config.data.source_quotas` can specify exact per-epoch counts for `normal`,
+`real`, `draem`, `cutmix`, and `hybrid`. Counts must sum to
+`config.data.samples_per_epoch`. When set, these quotas replace the legacy
+fraction-based plan and the additional once-per-image real-defect entries.
+Every real training image is sampled before repeats within each epoch; the real
+quota must therefore cover the training defect-image count. Hard-normal sampling
+is disabled for this mode.
+
+Set `config.dinov3.pair_healthy_samples = False` to supervise healthy examples
+with segmentation loss only (Focal, with Dice omitted for empty masks). Real
+examples always receive Focal + Dice only. Synthetic examples retain healthy
+partner supervision and background probability consistency. The default `True`
+preserves the historical healthy paired-loss behavior.
+
+`cutmix` is a defect-aware rectangular 2D adaptation: donor defect pixels guide
+the rectangle center, Beta(1,1) sets its area, image pixels and ground-truth labels
+are copied together, and the healthy receiver is retained as the partner. The
+rectangle itself is **not** the defect label. Donors and receivers must come
+from the training partition. This mode needs no hybrid-generation study.
+
+The uniform benchmark lives at
+`/mnt/results/mvtec2/experiments/vergleich_benchmark`:
+
+- `01_real_only`: 500 normal + 500 real patches per epoch.
+- `02_real_draem`: 500 normal + 100 real + 400 DRAEM patches.
+- `03_real_cutmix`: 500 normal + 100 real + 400 CutMix patches.
+- `04_real_hybrid`, `05_real_hybrid_draem`, and
+  `06_real_hybrid_draem_cutmix`: reserved; not queued.
+
+All eight categories use frozen DINOv3 Small + CNN decoder width64, seed42,
+100epochs, batch8, Adam learning rate1e-4, 256px patches, and the existing
+grouped60/40 train/validation split (seed42; acquisition variants kept together).
+The original public image universe is unchanged, but partition membership is new.
+Validation runs every epoch and selects
+maximum AUC-PRO0.05. `protocol.json` records the pinned backbone revision and
+loss rules. `queue_status.json` records the GPU1-only queue (three concurrent
+runs). Configurations, splits, preflight image/mask examples and per-job status
+are stored under each variant/category directory. Checkpoints and predictions
+are under its `downstream/dinov3_paired/` run directory.

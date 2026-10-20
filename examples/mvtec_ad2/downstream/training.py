@@ -28,6 +28,19 @@ def paired_validation_loss(model, loader, device):
     return total / count
 
 
+def source_aware_loss(model, image, target, mask, sources, *, pair_healthy_samples=True):
+    """Use true healthy partners only for the requested source types."""
+    paired = torch.tensor([source != "real" and (pair_healthy_samples or source != "normal")
+                           for source in sources], device=image.device)
+    loss = image.new_zeros(())
+    if paired.any():
+        loss = model.paired_loss(image[paired], target[paired], mask[paired]) * paired.sum() / len(image)
+    if (~paired).any():
+        _, logits = model(image[~paired])
+        loss = loss + model.segmentation_loss(logits, mask[~paired]) * (~paired).sum() / len(image)
+    return loss
+
+
 def train(dataset, validation, config, output, *, paired_validation=None, resume_checkpoint=None):
     config.validate()
     random.seed(config.seed)
@@ -90,7 +103,7 @@ def train(dataset, validation, config, output, *, paired_validation=None, resume
         del checkpoint
         print(f"Resuming after completed epoch {start_epoch}; best score {best}.", flush=True)
     with (output / "training_history.csv").open("a" if resume_checkpoint else "w", newline="") as file:
-        fields = ["epoch", "train_loss", "validation_loss", "selection_metric", "selection_mode", "selection_score", "selection_loss", "real", "hard_normal", "normal", "draem", "hybrid"]
+        fields = ["epoch", "train_loss", "validation_loss", "selection_metric", "selection_mode", "selection_score", "selection_loss", "real", "cutmix", "hard_normal", "normal", "draem", "hybrid"]
         writer = csv.DictWriter(file, fieldnames=fields)
         if resume_checkpoint is None:
             writer.writeheader()
@@ -104,16 +117,8 @@ def train(dataset, validation, config, output, *, paired_validation=None, resume
                 image, target, mask = (batch[key].to(device) for key in ("image", "target", "mask"))
                 optimizer.zero_grad(set_to_none=True)
                 if config.model == "dinov3_paired":
-                    if "real" in batch["source"]:
-                        paired = torch.tensor([s != "real" for s in batch["source"]], device=device)
-                        loss = image.new_zeros(())
-                        if paired.any():
-                            loss = model.paired_loss(image[paired], target[paired], mask[paired]) * paired.sum() / len(image)
-                        if (~paired).any():
-                            _, logits = model(image[~paired])
-                            loss = loss + model.segmentation_loss(logits, mask[~paired]) * (~paired).sum() / len(image)
-                    else:
-                        loss = model.paired_loss(image, target, mask)
+                    loss = source_aware_loss(model, image, target, mask, batch["source"],
+                                             pair_healthy_samples=config.dinov3.pair_healthy_samples)
                 elif config.model == "dinov3_segmentation":
                     _, logits = model(image)
                     loss = model.segmentation_loss(logits, mask)
@@ -185,6 +190,7 @@ def train(dataset, validation, config, output, *, paired_validation=None, resume
                              "validation_loss": metrics.get("segmentation_loss", ""),
                              "selection_metric": selection_metric, "selection_mode": checkpoint["selection_mode"],
                              "selection_score": score if validated else "", "selection_loss": "" if maximize or not validated else score,
+                             "cutmix": counts["cutmix"],
                              "hard_normal": hard_count,
                              **{source: counts[source] for source in ("normal", "draem", "hybrid", "real")}})
             file.flush()

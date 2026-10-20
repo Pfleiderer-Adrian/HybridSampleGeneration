@@ -1,0 +1,506 @@
+[
+  {
+    "contrast": 0.004553178325295448,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/012_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/012_overexposed_mask.png",
+      "sample_id": "test_public_bad_012_overexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/12"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000014.npy"
+  },
+  {
+    "contrast": 0.012654255144298077,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/012_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/012_shift_2_mask.png",
+      "sample_id": "test_public_bad_012_shift_2.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/12"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000017.npy"
+  },
+  {
+    "contrast": 0.013945898972451687,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/012_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/012_regular_mask.png",
+      "sample_id": "test_public_bad_012_regular.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/12"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000015.npy"
+  },
+  {
+    "contrast": 0.03261300176382065,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/012_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/012_underexposed_mask.png",
+      "sample_id": "test_public_bad_012_underexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/12"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000020.npy"
+  },
+  {
+    "contrast": 0.06749001890420914,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/014_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/014_underexposed_mask.png",
+      "sample_id": "test_public_bad_014_underexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/14"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000114.npy"
+  },
+  {
+    "contrast": 0.06915074586868286,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/012_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/012_shift_3_mask.png",
+      "sample_id": "test_public_bad_012_shift_3.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/12"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000018.npy"
+  },
+  {
+    "contrast": 0.09110762923955917,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/014_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/014_shift_1_mask.png",
+      "sample_id": "test_public_bad_014_shift_1.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/14"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000110.npy"
+  },
+  {
+    "contrast": 0.0954841673374176,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/014_shift_4.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/014_shift_4_mask.png",
+      "sample_id": "test_public_bad_014_shift_4.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/14"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000113.npy"
+  },
+  {
+    "contrast": 0.09757819771766663,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/012_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/012_shift_1_mask.png",
+      "sample_id": "test_public_bad_012_shift_1.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/12"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000016.npy"
+  },
+  {
+    "contrast": 0.10314341634511948,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/014_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/014_regular_mask.png",
+      "sample_id": "test_public_bad_014_regular.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/14"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000109.npy"
+  },
+  {
+    "contrast": 0.11127227544784546,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/014_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/014_overexposed_mask.png",
+      "sample_id": "test_public_bad_014_overexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/14"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000108.npy"
+  },
+  {
+    "contrast": 0.11127272248268127,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/014_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/014_shift_3_mask.png",
+      "sample_id": "test_public_bad_014_shift_3.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/14"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000112.npy"
+  },
+  {
+    "contrast": 0.1271909922361374,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/012_shift_4.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/012_shift_4_mask.png",
+      "sample_id": "test_public_bad_012_shift_4.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/12"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000019.npy"
+  },
+  {
+    "contrast": 0.13398586213588715,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/014_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/014_shift_2_mask.png",
+      "sample_id": "test_public_bad_014_shift_2.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/14"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000111.npy"
+  },
+  {
+    "contrast": 0.22901234030723572,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/004_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/004_shift_1_mask.png",
+      "sample_id": "test_public_bad_004_shift_1.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/4"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000103.npy"
+  },
+  {
+    "contrast": 0.23839077353477478,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/004_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/004_overexposed_mask.png",
+      "sample_id": "test_public_bad_004_overexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/4"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000101.npy"
+  },
+  {
+    "contrast": 0.25952377915382385,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/004_shift_4.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/004_shift_4_mask.png",
+      "sample_id": "test_public_bad_004_shift_4.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/4"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000106.npy"
+  },
+  {
+    "contrast": 0.3157755732536316,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/004_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/004_shift_3_mask.png",
+      "sample_id": "test_public_bad_004_shift_3.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/4"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000105.npy"
+  },
+  {
+    "contrast": 0.3217107653617859,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/004_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/004_shift_2_mask.png",
+      "sample_id": "test_public_bad_004_shift_2.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/4"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000104.npy"
+  },
+  {
+    "contrast": 0.345077246427536,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/004_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/004_regular_mask.png",
+      "sample_id": "test_public_bad_004_regular.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/4"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000102.npy"
+  },
+  {
+    "contrast": 0.443768173456192,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/004_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/004_underexposed_mask.png",
+      "sample_id": "test_public_bad_004_underexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/4"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000107.npy"
+  },
+  {
+    "contrast": 0.5686411261558533,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/005_shift_4.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/005_shift_4_mask.png",
+      "sample_id": "test_public_bad_005_shift_4.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/5"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000005.npy"
+  },
+  {
+    "contrast": 0.5782005190849304,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/005_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/005_underexposed_mask.png",
+      "sample_id": "test_public_bad_005_underexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/5"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000006.npy"
+  },
+  {
+    "contrast": 0.5952914953231812,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/005_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/005_shift_1_mask.png",
+      "sample_id": "test_public_bad_005_shift_1.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/5"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000002.npy"
+  },
+  {
+    "contrast": 0.6016318798065186,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/005_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/005_shift_2_mask.png",
+      "sample_id": "test_public_bad_005_shift_2.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/5"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000003.npy"
+  },
+  {
+    "contrast": 0.6057709455490112,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/005_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/005_shift_3_mask.png",
+      "sample_id": "test_public_bad_005_shift_3.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/5"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000004.npy"
+  },
+  {
+    "contrast": 0.6178675293922424,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/005_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/005_overexposed_mask.png",
+      "sample_id": "test_public_bad_005_overexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/5"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000000.npy"
+  },
+  {
+    "contrast": 0.6281856894493103,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/005_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/005_regular_mask.png",
+      "sample_id": "test_public_bad_005_regular.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/5"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000001.npy"
+  },
+  {
+    "contrast": 0.7213097810745239,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/002_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/002_shift_1_mask.png",
+      "sample_id": "test_public_bad_002_shift_1.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/2"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000096.npy"
+  },
+  {
+    "contrast": 0.7577206492424011,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/002_shift_4.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/002_shift_4_mask.png",
+      "sample_id": "test_public_bad_002_shift_4.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/2"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000099.npy"
+  },
+  {
+    "contrast": 0.7722405791282654,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/002_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/002_shift_3_mask.png",
+      "sample_id": "test_public_bad_002_shift_3.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/2"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000098.npy"
+  },
+  {
+    "contrast": 0.7961013913154602,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/002_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/002_underexposed_mask.png",
+      "sample_id": "test_public_bad_002_underexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/2"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000100.npy"
+  },
+  {
+    "contrast": 0.8086174726486206,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/002_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/002_shift_2_mask.png",
+      "sample_id": "test_public_bad_002_shift_2.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/2"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000097.npy"
+  },
+  {
+    "contrast": 0.8175762295722961,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/002_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/002_regular_mask.png",
+      "sample_id": "test_public_bad_002_regular.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/2"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000095.npy"
+  },
+  {
+    "contrast": 0.8371179699897766,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/002_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/002_overexposed_mask.png",
+      "sample_id": "test_public_bad_002_overexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/2"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000094.npy"
+  },
+  {
+    "contrast": 0.8723608255386353,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/011_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/011_underexposed_mask.png",
+      "sample_id": "test_public_bad_011_underexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/11"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000013.npy"
+  },
+  {
+    "contrast": 0.8863064050674438,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/011_shift_4.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/011_shift_4_mask.png",
+      "sample_id": "test_public_bad_011_shift_4.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/11"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000012.npy"
+  },
+  {
+    "contrast": 0.8895418047904968,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/011_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/011_shift_1_mask.png",
+      "sample_id": "test_public_bad_011_shift_1.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/11"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000009.npy"
+  },
+  {
+    "contrast": 0.8898878693580627,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/011_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/011_regular_mask.png",
+      "sample_id": "test_public_bad_011_regular.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/11"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000008.npy"
+  },
+  {
+    "contrast": 0.8953627943992615,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/011_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/011_shift_3_mask.png",
+      "sample_id": "test_public_bad_011_shift_3.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/11"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000011.npy"
+  },
+  {
+    "contrast": 0.9095900058746338,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/011_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/011_overexposed_mask.png",
+      "sample_id": "test_public_bad_011_overexposed.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/11"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000007.npy"
+  },
+  {
+    "contrast": 0.9295926094055176,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/bad/011_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/vial/test_public/ground_truth/bad/011_shift_2_mask.png",
+      "sample_id": "test_public_bad_011_shift_2.png",
+      "split": "test_public",
+      "label": "bad",
+      "acquisition_group": "test_public/bad/11"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/vial/hybrid_generation/downstream/dinov3_paired/20261016T191020Z_bfade391/predictions/validation/000010.npy"
+  }
+]

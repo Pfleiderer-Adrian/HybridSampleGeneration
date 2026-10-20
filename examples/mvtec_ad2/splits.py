@@ -1,6 +1,7 @@
 """Deterministic, persisted train/validation/test splits for MVTec AD 2."""
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -56,6 +57,67 @@ def create_manifest(category_root, config: SplitConfiguration | None = None):
         "split": asdict(config),
         "partitions": partitions,
     }
+    manifest["fingerprint"] = _fingerprint(manifest)
+    return manifest
+
+
+def capture_group(sample):
+    """Keep acquisition variants together without conflating unrelated folders."""
+    match = re.match(r"^(\d+)(?:_|$)", Path(sample.image_path).stem)
+    if match is None:
+        raise ValueError(f"Cannot determine numeric capture ID: {sample.image_path}")
+    return sample.split, sample.label, int(match.group(1))
+
+
+def create_grouped_manifest(category_root, config: SplitConfiguration | None = None):
+    """Stratified train/validation split with disjoint acquisition groups.
+
+    Randomize groups with the configured seed and select whole groups nearest
+    to the desired per-label validation image count. Exact percentages are only
+    possible when group sizes permit them. Existing image-level splits are not
+    modified by this opt-in entry point.
+    """
+    config = config or SplitConfiguration(test_fraction=0., validation_fraction=.4)
+    config.validate()
+    if config.test_fraction:
+        raise ValueError("Grouped manifest currently supports train/validation only.")
+    unique = {str(s.image_path.resolve()): s for s in discover_samples(category_root)}
+    labels = {}
+    for _, sample in sorted(unique.items()):
+        labels.setdefault(sample.label, {}).setdefault(capture_group(sample), []).append(sample)
+    if "good" not in labels or len(labels) < 2:
+        raise ValueError("Both healthy images and annotated anomalies are required.")
+    rng = np.random.default_rng(config.seed)
+    partitions = {name: [] for name in ("train", "validation", "test")}
+    counts = {}
+    for label, groups in sorted(labels.items()):
+        if len(groups) < 2:
+            raise ValueError(f"At least two independent {label!r} capture groups are required.")
+        keys = sorted(groups)
+        rng.shuffle(keys)
+        total = sum(len(groups[k]) for k in keys)
+        target = max(1, min(total - 1, round(total * config.validation_fraction)))
+        # Subset-sum keeps complete groups while approaching the target count.
+        reachable = {0: ()}
+        for index, key in enumerate(keys):
+            size = len(groups[key])
+            additions = {n + size: selected + (index,) for n, selected in list(reachable.items())
+                         if n + size < total and n + size not in reachable}
+            reachable.update(additions)
+            if target in reachable:
+                break
+        selected_count = min((n for n in reachable if n), key=lambda n: (abs(n - target), n))
+        held_out = set(reachable[selected_count])
+        for index, key in enumerate(keys):
+            part = "validation" if index in held_out else "train"
+            partitions[part].extend(_serialize(s) for s in groups[key])
+        counts[label] = {"total_images": total, "validation_images": selected_count,
+                         "total_groups": len(keys), "validation_groups": len(held_out)}
+    manifest = {"version": 1, "category_root": str(Path(category_root).expanduser().resolve()),
+                "split": asdict(config), "grouping": {
+                    "rule": "source_split/label/numeric_capture_id",
+                    "selection": "seeded group shuffle; nearest per-label image-count subset",
+                    "counts": counts}, "partitions": partitions}
     manifest["fingerprint"] = _fingerprint(manifest)
     return manifest
 

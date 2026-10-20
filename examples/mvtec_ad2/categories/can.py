@@ -27,7 +27,7 @@ def create_configuration():
     config.matching.anomalies_per_hybrid = 1
     config.matching.hybrids_per_original = 1
     config.generation.variants_per_real_anomaly = 5
-    config.matching.reuse_synthetic_across_hybrids = False
+    config.matching.reuse_synthetic_across_hybrids = True
     config.matching.max_anomalies_per_hybrid_deviation = 1
 
     # Fusion settings
@@ -49,8 +49,9 @@ def create_configuration():
 
     config.extraction.roi.fixed_size = None
     config.extraction.roi.min_size = (1, 128, 128)
-    config.matching.intensity_weight = 0.3
+    config.matching.intensity_weight = 0.0
     config.matching.gradient_weight = 0.7
+    config.matching.distance_weight = 0.3
     config.extraction.roi.preserve_aspect_ratio = True
 
     config.augmentation.mask_transforms.use_mask_transform = True

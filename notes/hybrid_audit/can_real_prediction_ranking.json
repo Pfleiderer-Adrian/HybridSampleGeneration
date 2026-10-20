@@ -1,0 +1,398 @@
+[
+  {
+    "contrast": -0.00011162795271957293,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/000_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/000_underexposed_mask.png",
+      "sample_id": "test_public_bad_000_underexposed.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000141.npy"
+  },
+  {
+    "contrast": -0.00010991688031936064,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/000_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/000_overexposed_mask.png",
+      "sample_id": "test_public_bad_000_overexposed.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000126.npy"
+  },
+  {
+    "contrast": -0.00010374980047345161,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/010_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/010_overexposed_mask.png",
+      "sample_id": "test_public_bad_010_overexposed.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000124.npy"
+  },
+  {
+    "contrast": -4.779553273692727e-05,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/010_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/010_shift_2_mask.png",
+      "sample_id": "test_public_bad_010_shift_2.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000017.npy"
+  },
+  {
+    "contrast": 0.00020904926350340247,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/000_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/000_shift_1_mask.png",
+      "sample_id": "test_public_bad_000_shift_1.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000003.npy"
+  },
+  {
+    "contrast": 0.0010945765534415841,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/000_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/000_shift_3_mask.png",
+      "sample_id": "test_public_bad_000_shift_3.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000006.npy"
+  },
+  {
+    "contrast": 0.004327062517404556,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/004_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/004_regular_mask.png",
+      "sample_id": "test_public_bad_004_regular.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000129.npy"
+  },
+  {
+    "contrast": 0.0128674590960145,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/004_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/004_overexposed_mask.png",
+      "sample_id": "test_public_bad_004_overexposed.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000128.npy"
+  },
+  {
+    "contrast": 0.015752321109175682,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/004_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/004_shift_2_mask.png",
+      "sample_id": "test_public_bad_004_shift_2.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000004.npy"
+  },
+  {
+    "contrast": 0.0221207644790411,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/004_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/004_shift_3_mask.png",
+      "sample_id": "test_public_bad_004_shift_3.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000131.npy"
+  },
+  {
+    "contrast": 0.03301309794187546,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/004_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/004_underexposed_mask.png",
+      "sample_id": "test_public_bad_004_underexposed.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000014.npy"
+  },
+  {
+    "contrast": 0.07593169808387756,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/004_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/004_shift_1_mask.png",
+      "sample_id": "test_public_bad_004_shift_1.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000137.npy"
+  },
+  {
+    "contrast": 0.5109778046607971,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/008_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/008_shift_1_mask.png",
+      "sample_id": "test_public_bad_008_shift_1.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000127.npy"
+  },
+  {
+    "contrast": 0.5294725894927979,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/008_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/008_shift_3_mask.png",
+      "sample_id": "test_public_bad_008_shift_3.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000005.npy"
+  },
+  {
+    "contrast": 0.5869861245155334,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/008_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/008_shift_2_mask.png",
+      "sample_id": "test_public_bad_008_shift_2.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000140.npy"
+  },
+  {
+    "contrast": 0.8353410959243774,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/001_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/001_shift_3_mask.png",
+      "sample_id": "test_public_bad_001_shift_3.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000136.npy"
+  },
+  {
+    "contrast": 0.8378509283065796,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/001_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/001_regular_mask.png",
+      "sample_id": "test_public_bad_001_regular.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000016.npy"
+  },
+  {
+    "contrast": 0.8970603346824646,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/012_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/012_shift_3_mask.png",
+      "sample_id": "test_public_bad_012_shift_3.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000008.npy"
+  },
+  {
+    "contrast": 0.9052747488021851,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/012_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/012_shift_1_mask.png",
+      "sample_id": "test_public_bad_012_shift_1.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000012.npy"
+  },
+  {
+    "contrast": 0.9096257090568542,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/003_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/003_overexposed_mask.png",
+      "sample_id": "test_public_bad_003_overexposed.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000009.npy"
+  },
+  {
+    "contrast": 0.9223170876502991,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/005_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/005_shift_2_mask.png",
+      "sample_id": "test_public_bad_005_shift_2.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000010.npy"
+  },
+  {
+    "contrast": 0.928098201751709,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/014_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/014_overexposed_mask.png",
+      "sample_id": "test_public_bad_014_overexposed.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000007.npy"
+  },
+  {
+    "contrast": 0.940994918346405,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/009_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/009_regular_mask.png",
+      "sample_id": "test_public_bad_009_regular.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000001.npy"
+  },
+  {
+    "contrast": 0.9423301815986633,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/007_overexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/007_overexposed_mask.png",
+      "sample_id": "test_public_bad_007_overexposed.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000013.npy"
+  },
+  {
+    "contrast": 0.9442980289459229,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/013_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/013_regular_mask.png",
+      "sample_id": "test_public_bad_013_regular.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000125.npy"
+  },
+  {
+    "contrast": 0.9452208876609802,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/011_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/011_shift_2_mask.png",
+      "sample_id": "test_public_bad_011_shift_2.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000134.npy"
+  },
+  {
+    "contrast": 0.9480661153793335,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/006_shift_3.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/006_shift_3_mask.png",
+      "sample_id": "test_public_bad_006_shift_3.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000015.npy"
+  },
+  {
+    "contrast": 0.9488934874534607,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/013_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/013_shift_2_mask.png",
+      "sample_id": "test_public_bad_013_shift_2.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000139.npy"
+  },
+  {
+    "contrast": 0.9534361958503723,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/011_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/011_regular_mask.png",
+      "sample_id": "test_public_bad_011_regular.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000133.npy"
+  },
+  {
+    "contrast": 0.9564198851585388,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/014_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/014_regular_mask.png",
+      "sample_id": "test_public_bad_014_regular.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000130.npy"
+  },
+  {
+    "contrast": 0.9727649688720703,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/011_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/011_underexposed_mask.png",
+      "sample_id": "test_public_bad_011_underexposed.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000000.npy"
+  },
+  {
+    "contrast": 0.9740375280380249,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/003_shift_2.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/003_shift_2_mask.png",
+      "sample_id": "test_public_bad_003_shift_2.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000132.npy"
+  },
+  {
+    "contrast": 0.9837281107902527,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/006_shift_1.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/006_shift_1_mask.png",
+      "sample_id": "test_public_bad_006_shift_1.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000011.npy"
+  },
+  {
+    "contrast": 0.9847472906112671,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/014_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/014_underexposed_mask.png",
+      "sample_id": "test_public_bad_014_underexposed.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000002.npy"
+  },
+  {
+    "contrast": 0.986281156539917,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/002_underexposed.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/002_underexposed_mask.png",
+      "sample_id": "test_public_bad_002_underexposed.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000138.npy"
+  },
+  {
+    "contrast": 0.9895862340927124,
+    "sample": {
+      "image_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/bad/006_regular.png",
+      "mask_path": "/mnt/results/mvtec2/mvtec_ad_2/can/test_public/ground_truth/bad/006_regular_mask.png",
+      "sample_id": "test_public_bad_006_regular.png",
+      "split": "test_public",
+      "label": "bad"
+    },
+    "prediction": "/mnt/results/mvtec2/experiments/comparison_v2/can/hybrid_generation/downstream/dinov3_paired/20261016T171809Z_8ee3e9b4/predictions/validation/000135.npy"
+  }
+]
