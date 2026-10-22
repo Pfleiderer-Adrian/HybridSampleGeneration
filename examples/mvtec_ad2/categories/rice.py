@@ -40,9 +40,9 @@ def main() -> None:
     config.generation.variation_strength = 1.5
     config.extraction.roi.min_size = (128, 128)
 
-    config.matching.anomalies_per_hybrid = 2
-    config.matching.hybrids_per_original = 1
-    config.generation.variants_per_real_anomaly = 5
+    config.matching.anomalies_per_hybrid = 3
+    config.matching.hybrids_per_original = 2
+    config.generation.variants_per_real_anomaly = 10
     config.matching.reuse_synthetic_across_hybrids = True
     config.matching.max_anomalies_per_hybrid_deviation = 1
 

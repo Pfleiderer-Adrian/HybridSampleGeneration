@@ -18,6 +18,7 @@ from hybrid_sample_generator.configuration.evaluation import EvaluationConfigura
 from hybrid_sample_generator.configuration.extraction import ExtractionConfiguration
 from hybrid_sample_generator.configuration.generation import GenerationConfiguration
 from hybrid_sample_generator.configuration.matching import MatchingConfiguration
+from hybrid_sample_generator.configuration.postprocessing import PostprocessingConfiguration
 from hybrid_sample_generator.configuration.study import StudyConfiguration
 from hybrid_sample_generator.configuration.training import TrainingConfiguration
 
@@ -56,6 +57,7 @@ class Configuration:
         self.augmentation = AugmentationConfiguration()
         self.generation = GenerationConfiguration()
         self.matching = MatchingConfiguration()
+        self.postprocessing = PostprocessingConfiguration()
         self.training = TrainingConfiguration()
         self.evaluation = EvaluationConfiguration()
         self.model = GeneratorModelSettings()
@@ -76,6 +78,7 @@ class Configuration:
         self.augmentation.validate()
         self.generation.validate()
         self.matching.validate()
+        self.postprocessing.validate()
         self.training.validate()
         self.evaluation.validate()
         self.fusion.validate()
@@ -90,6 +93,7 @@ class Configuration:
                 "augmentation": self.augmentation.to_dict(),
                 "generation": asdict(self.generation),
                 "matching": asdict(self.matching),
+                "postprocessing": self.postprocessing.to_dict(),
                 "training": self.training.to_dict(),
                 "evaluation": asdict(self.evaluation),
                 "model": self.model.to_dict(),
@@ -136,6 +140,7 @@ class Configuration:
         config.augmentation = AugmentationConfiguration.from_dict(values["augmentation"])
         config.generation = GenerationConfiguration.from_dict(values["generation"])
         config.matching = MatchingConfiguration(**values["matching"])
+        config.postprocessing = PostprocessingConfiguration.from_dict(values.get("postprocessing", {}))
         config.training = TrainingConfiguration.from_dict(values["training"])
         config.evaluation = EvaluationConfiguration.from_dict(values["evaluation"])
         config.model = GeneratorModelSettings.from_dict(model_values)

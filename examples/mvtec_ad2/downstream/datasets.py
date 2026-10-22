@@ -14,7 +14,7 @@ from .transforms import aligned_flips, image_tensor, mask_tensor, read_image
 
 
 class HybridPairs:
-    def __init__(self, repository, store, manifest, data):
+    def __init__(self, repository, store, manifest, data, postprocessing=None):
         verify_repository(repository, manifest)
         self.store, self.data = store, data
         self.pairs = []
@@ -23,6 +23,11 @@ class HybridPairs:
             original = repository.get_original_sample(hybrid.original_sample_id)
             if original.has_anomaly:
                 continue
+            if postprocessing is not None and postprocessing.enabled:
+                from hybrid_sample_generator.postprocessing.service import decision_for
+                decision = decision_for(repository, store, hybrid, original, postprocessing)
+                if postprocessing.action == "exclude" and not decision["accepted"]:
+                    continue
             placements = repository.list_placements(hybrid.id)
             if not placements or not hybrid.image_path or not hybrid.segmentation_path:
                 raise ValueError(f"Incomplete materialized hybrid {hybrid.id}.")

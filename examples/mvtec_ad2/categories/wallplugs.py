@@ -47,6 +47,21 @@ def create_configuration():
 
     config.matching.batch_size = 64
 
+    # Quality decisions remain separate from materialized image artifacts.
+    post = config.postprocessing
+    post.enabled = True
+    post.save_previews = True
+    # Unverified thresholds: inspect reports before switching to exclude.
+    post.action = "report"
+    post.foreground.channel_reduction = "grayscale"
+    post.foreground.comparison = "above"
+    post.foreground.threshold = 40
+    post.foreground.components = "all"
+    post.foreground.min_component_area = 100
+    post.foreground.fill_holes = False
+    post.rules.minimum_object_overlap.enabled = True
+    post.rules.minimum_object_overlap.threshold = 0.95
+
     return config
 
 
@@ -65,6 +80,7 @@ def main() -> None:
     generator.generate_synthetic_anomalies()
     generator.plan_hybrid_samples()
     generator.materialize_hybrid_samples()
+    generator.postprocess_hybrid_samples()
     config.save_config_file()
 
     run_folder = train_downstream(config, manifest, create_downstream_configuration())

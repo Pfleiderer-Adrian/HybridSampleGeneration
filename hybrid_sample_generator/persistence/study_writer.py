@@ -18,6 +18,11 @@ from hybrid_sample_generator.persistence.record_mapping import (
 
 
 class StudyWriterMixin:
+    def clear_postprocessing_decisions(self) -> None:
+        """Invalidate all saved quality decisions before rematerializing."""
+        with self.connection() as connection:
+            connection.execute("DELETE FROM postprocessing_decisions")
+
     def clear_real_anomalies_and_downstream(self) -> None:
         """Invalidate derived records while preserving the ingested originals."""
         with self.connection() as connection:

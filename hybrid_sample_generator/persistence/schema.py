@@ -81,6 +81,16 @@ class StudySchemaMixin:
                     UNIQUE (original_sample_id, variant_index)
                 );
 
+                CREATE TABLE IF NOT EXISTS postprocessing_decisions (
+                    hybrid_sample_id TEXT PRIMARY KEY REFERENCES hybrid_samples(id) ON DELETE CASCADE,
+                    run_id TEXT NOT NULL,
+                    config_fingerprint TEXT NOT NULL,
+                    artifact_signature TEXT NOT NULL,
+                    accepted INTEGER NOT NULL CHECK (accepted IN (0,1)),
+                    measurements_json TEXT NOT NULL,
+                    reasons_json TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS placements (
                     id TEXT PRIMARY KEY,
                     hybrid_sample_id TEXT NOT NULL REFERENCES hybrid_samples(id) ON DELETE CASCADE,

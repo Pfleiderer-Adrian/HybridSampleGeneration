@@ -28,6 +28,7 @@ nav:
       - DINOv3 segmentation decoder: guides/dinov3-segmentation.md
       - SuperADD-inspired dual banks: guides/superadd-dual-bank.md
       - Visualization: guides/visualization.md
+      - Postprocessing: guides/postprocessing.md
   - Concepts:
       - Data model and storage: concepts/study-storage.md
       - Repository datasets: concepts/datasets.md
@@ -38,6 +39,7 @@ nav:
       - Augmentation: configuration/reference/augmentation.md
       - Generation: configuration/reference/generation.md
       - Matching: configuration/reference/matching.md
+      - Postprocessing: configuration/reference/postprocessing.md
       - Training: configuration/reference/training.md
       - Evaluation: configuration/reference/evaluation.md
       - Models:

@@ -24,11 +24,11 @@ def create_configuration():
     config.generation.variation_strength = 1.5
     config.extraction.roi.min_size = (128, 128)
 
-    config.matching.anomalies_per_hybrid = 1
-    config.matching.hybrids_per_original = 1
-    config.generation.variants_per_real_anomaly = 5
-    config.matching.reuse_synthetic_across_hybrids = False
-    config.matching.max_anomalies_per_hybrid_deviation = 1
+    config.matching.anomalies_per_hybrid = 3
+    config.matching.hybrids_per_original = 2
+    config.generation.variants_per_real_anomaly = 10
+    config.matching.reuse_synthetic_across_hybrids = True
+    config.matching.max_anomalies_per_hybrid_deviation = 2
 
     # Fusion settings
     config.fusion.set_backend("classical")
@@ -56,13 +56,13 @@ def create_configuration():
 
     config.augmentation.mask_transforms.use_mask_transform = True
 
-    """
+
 
     config.augmentation.mask_transforms.mask_transform_probs = {
         "zoom": 0.5,
         "stretch": 0.5,
         "rotate": 0.5,
-        "elastic": 0.5,
+        "elastic": 0.0,
         "local_dilate": 0,
         "local_stretch": 0,
         "local_rotate": 0,
@@ -74,8 +74,21 @@ def create_configuration():
         "rotate": {"max_rotation": 2.0},
         "elastic": {"sigma": 30, "magnitude": 5},
     }
-    """
 
+
+
+    # Quality decisions remain separate from materialized image artifacts.
+    post = config.postprocessing
+    post.enabled = True
+    post.save_previews = True
+    post.action = "exclude"
+    post.foreground.channel_reduction = "minimum"
+    post.foreground.comparison = "below"
+    post.foreground.threshold = 240
+    post.foreground.components = "largest"
+    post.foreground.fill_holes = True
+    post.rules.minimum_object_overlap.enabled = True
+    post.rules.minimum_object_overlap.threshold = 1.0
 
     return config
 
@@ -95,6 +108,7 @@ def main() -> None:
     generator.generate_synthetic_anomalies()
     generator.plan_hybrid_samples()
     generator.materialize_hybrid_samples()
+    generator.postprocess_hybrid_samples()
     config.save_config_file()
 
     run_folder = train_downstream(config, manifest, create_downstream_configuration())

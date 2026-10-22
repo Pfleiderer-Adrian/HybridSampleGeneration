@@ -20,7 +20,7 @@ from .textures import prepare_textures
 from .training import train
 
 
-def train_downstream(generator_config, manifest, config: DownstreamConfiguration):
+def train_downstream(generator_config, manifest, config: DownstreamConfiguration, *, output_root=None):
     """Train the selected model with the requested mixture and persisted split."""
     config = deepcopy(config)
     config.validate()
@@ -35,7 +35,7 @@ def train_downstream(generator_config, manifest, config: DownstreamConfiguration
             raise ValueError("No materialized hybrid study found.")
         repository = StudyRepository(database)
         store = ArtifactStore(study_folder)
-        hybrids = HybridPairs(repository, store, manifest, config.data)
+        hybrids = HybridPairs(repository, store, manifest, config.data, generator_config.postprocessing)
     if not normal_only_bank and (quotas is None or quotas.get("draem", 0)):
         prepare_textures(study_folder, config.data)
     paired_validation = None
@@ -62,9 +62,13 @@ def train_downstream(generator_config, manifest, config: DownstreamConfiguration
             manifest_samples(manifest, "train", healthy_only=True), hybrids, config, real_samples=real_samples)
     validation = RealImageDataset(manifest_samples(manifest, "validation"), config.data)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid4().hex[:8]
-    output = study_folder / "downstream" / config.model / run_id
+    output = (Path(output_root) if output_root is not None else study_folder) / "downstream" / config.model / run_id
     output.mkdir(parents=True)
     config.save(output / "configuration.json")
+    if hybrids is not None and generator_config.postprocessing.enabled:
+        (output / "postprocessing_configuration.json").write_text(
+            json.dumps(generator_config.postprocessing.to_dict(), indent=2) + "\n"
+        )
     if config.data.include_real_defects:
         (output / "real_training_sources.json").write_text(json.dumps({"sample_ids": [s.sample_id for s in real_samples], "per_epoch": ("fixed quota; every real image before repeats" if quotas is not None else "one defect-containing crop per real training image"), "source_quotas": quotas, "loss": "focal+dice only for real defects; no healthy partner or consistency"}, indent=2) + "\n")
     if dataset is not None and dataset.hard_pool is not None:
