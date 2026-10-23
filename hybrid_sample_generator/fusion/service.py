@@ -34,6 +34,7 @@ class FusionService:
         datasets: StudyDatasets,
         *,
         backend: FusionBackend | None = None,
+        store_placement_masks: bool = False,
     ) -> None:
         self.fusion_config = fusion_config
         self.extraction_config = extraction_config
@@ -41,6 +42,7 @@ class FusionService:
         self.repository = repository
         self.artifact_store = artifact_store
         self.datasets = datasets
+        self.store_placement_masks = store_placement_masks
         self._backend = backend
         self._backend_injected = backend is not None
         self._backend_settings = None
@@ -150,6 +152,10 @@ class FusionService:
                     extraction_config=self.extraction_config,
                 )
 
+            if self.store_placement_masks:
+                self.artifact_store.save_entity_array(
+                    "placements", placement.id, "full_segmentation", output.segmentation.astype(np.uint8)
+                )
             image = output.image
             segmentation = combine_label_masks(
                 segmentation,

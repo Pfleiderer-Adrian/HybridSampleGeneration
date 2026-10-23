@@ -62,6 +62,8 @@ class HybridDataGenerator:
             self.artifact_store,
             self.datasets,
             backend=fusion_backend,
+            store_placement_masks=bool(config.postprocessing.enabled and
+                config.postprocessing.rules.minimum_object_overlap.exempt_source_groups),
         )
 
     def _log_step(self, message: str) -> None:

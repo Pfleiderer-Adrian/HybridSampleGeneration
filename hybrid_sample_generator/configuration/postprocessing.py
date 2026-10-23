@@ -16,6 +16,7 @@ class ForegroundConfiguration:
 class OverlapRule:
     enabled: bool = False
     threshold: float = 1.0
+    exempt_source_groups: list[str] = field(default_factory=list)
 
 @dataclass
 class AreaRule:
@@ -53,6 +54,9 @@ class PostprocessingConfiguration:
             raise ValueError("Foreground threshold must be finite and in [0,255].")
         if type(f.min_component_area) is not int or f.min_component_area<1:
             raise ValueError("min_component_area must be a positive pixel/voxel count.")
+        groups=self.rules.minimum_object_overlap.exempt_source_groups
+        if not isinstance(groups,list) or any(not isinstance(g,str) or not g for g in groups) or len(set(groups))!=len(groups):
+            raise ValueError("exempt_source_groups must be distinct nonempty source-group names.")
         a=self.rules.mask_area_fraction;o=self.rules.minimum_object_overlap
         if any(not math.isfinite(v) or not 0<=v<=1 for v in [a.minimum,a.maximum,o.threshold]) or a.minimum>a.maximum:
             raise ValueError("Postprocessing fraction thresholds must satisfy 0 <= minimum <= maximum <= 1.")
