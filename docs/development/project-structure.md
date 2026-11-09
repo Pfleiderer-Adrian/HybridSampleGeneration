@@ -18,3 +18,17 @@
 - `examples/` — shared example helpers plus 2D image, 3D NIfTI and MVTec AD 2 workflows
 - `tests/` — tests grouped by the same feature boundaries
 - `experiments/` — unsupported prototypes, optional dependencies and isolated tests
+- `scripts/analysis/` — research analysis and report generators
+- `docs/paper/` — manuscript and bibliography sources
+
+Research outputs are stored outside the checkout. By default, reports live in
+`/mnt/results/mvtec2/reports`, audits in `/mnt/results/mvtec2/audits`, and archived
+working notes in `/mnt/results/mvtec2/notes_archive`. Analysis scripts share these
+locations through `scripts/analysis/paths.py`; `HSG_RESULTS_ROOT` overrides the
+base directory for audit and report output paths.
+
+Local compatibility links retain historical paths under `reports/` and `notes/`.
+They are ignored by Git. New code should use the canonical external locations
+and the scripts under `scripts/analysis/`. Frozen experiment snapshots and
+checkpoint provenance remain unchanged. Python environments and pinned AD
+dependencies retain their existing paths.

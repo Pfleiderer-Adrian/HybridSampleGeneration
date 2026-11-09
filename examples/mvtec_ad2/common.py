@@ -100,7 +100,7 @@ def apply_generator_defaults(config: Configuration) -> None:
     search.n_res_blocks = IntRange(2, 4)
     search.n_levels = IntRange(3, 4)
     search.z_channels = Choice((16, 32, 64, 96))
-    search.bottleneck_dim = Choice((32, 64, 128, 160))
+    search.bottleneck_dim = Choice((32, 64, 128))
     search.dropout = FloatRange(0.01, 0.20)
 
 def create_generator_configuration(category: str, anomaly_size: tuple[int, int, int]) -> Configuration:

@@ -37,3 +37,21 @@ The first version checks each entire hybrid's final union mask. It supports
 2D/3D grayscale and RGB inputs, with previews only for 2D images. Placement-type
 classification, individual-placement rules, alternative learned object masks,
 and deletion actions are not part of this version.
+
+## Source-group exceptions
+
+```python
+config.postprocessing.rules.minimum_object_overlap.exempt_source_groups = [
+    "test_public_bad_010", "test_public_bad_012"
+]
+```
+
+Source groups remove the trailing regular/exposure/shift condition and file
+extension from the original source name. This does not infer defect classes.
+With exceptions enabled before materialization, fusion additionally saves each
+placement's full-image segmentation under its placement artifact directory.
+Nonexempt placement masks still undergo object-overlap checking, even in a
+hybrid containing exempt defects. If all placements are exempt, object-overlap
+passes; area and empty-mask rules still apply. Missing placement masks produce
+an error requesting rematerialization. Saving these full-resolution masks
+requires additional disk space.

@@ -19,6 +19,9 @@ ANOMALY_SIZE = (1, 128, 128)
 
 def create_configuration():
     config = create_generator_configuration(CATEGORY, ANOMALY_SIZE)
+    # Weak encoder-to-decoder skips with strong dropout during training.
+    config.model.parameters.skip_alpha = 0.1
+    config.model.parameters.skip_dropout_p = 0.85
     config.augmentation.mask_transforms.use_mask_transform = True
     config.augmentation.mask_transforms.mask_transform_probs = {
         "zoom": 0.5,
@@ -33,17 +36,23 @@ def create_configuration():
     config.augmentation.mask_transforms.mask_transform_params = {
         "zoom": {"min_zoom": 0.97, "max_zoom": 1.0},
         "stretch": {"min_stretch": 0.98, "max_stretch": 1.05},
-        "rotate": {"max_rotation": 5.0},
+        "rotate": {"max_rotation": 180.0},
         "elastic": {"sigma": 10, "magnitude": 5},
     }
 
     config.extraction.roi.fixed_size = None
     config.extraction.roi.min_size = (1, 128, 128)
-    config.matching.intensity_weight = 0.3
-    config.matching.gradient_weight = 0.7
+    config.matching.intensity_weight = 0.4
+    config.matching.gradient_weight = 0.6
     config.matching.distance_weight = 0.0
     config.extraction.roi.preserve_aspect_ratio = True
     config.extraction.preserve_aspect_ratio = True
+
+    config.matching.anomalies_per_hybrid = 2
+    config.matching.hybrids_per_original = 5
+    config.generation.variants_per_real_anomaly = 10
+    config.matching.reuse_synthetic_across_hybrids = True
+    config.matching.max_anomalies_per_hybrid_deviation = 2
 
     config.matching.batch_size = 64
 

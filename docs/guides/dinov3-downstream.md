@@ -9,6 +9,31 @@ branch to retain details smaller than a transformer patch. It does not reconstru
 the healthy image. Inference requires only the image, never its healthy partner
 or ground-truth mask.
 
+## Alternative: native ConvNeXt feature pyramid
+
+The optional DINOv3 ConvNeXt backbone keeps four pretrained spatial feature
+stages at strides **4, 8, 16 and 32**. For a 256×256 input these are 64×64,
+32×32, 16×16 and 8×8 feature maps. The trainable `native_fpn` decoder combines
+them from coarse to fine, ending at stride 4, then upsamples and combines them
+with a full-resolution RGB detail branch. This differs from `convnext_fpn`,
+which is a decoder option on top of the existing **ViT** backbone.
+
+```python
+config = DownstreamConfiguration(model="dinov3_paired")
+config.dinov3.backbone_type = "convnext"
+config.dinov3.backbone = "facebook/dinov3-convnext-tiny-pretrain-lvd1689m"
+config.dinov3.decoder = "native_fpn"
+config.dinov3.decoder_width = 64
+config.dinov3.decoder_blocks = 2
+config.dinov3.pair_healthy_samples = False
+```
+
+Pin `revision` to a Hub commit for reproducible runs. The backbone remains
+frozen; source-aware losses, checkpoint selection, patch inference and the
+single-image inference interface are unchanged. Old configurations default to
+`backbone_type="vit"`. Checkpoints include the ConvNeXt configuration and weights,
+so evaluation can reload them without downloading the backbone again.
+
 Install the optional dependency in the environment used for downstream training:
 
 ```bash

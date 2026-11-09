@@ -1,0 +1,22 @@
+# Isolated Python 3.10 runtime; downstream DINOv3 uses the existing project runtime.
+torch==2.0.1
+torchvision==0.15.2
+numpy==1.23.5
+pytorch-lightning==1.5.0
+torchmetrics==0.6.0
+omegaconf==2.1.1
+einops==0.3.0
+transformers==4.26.1
+kornia==0.6.0
+timm==0.6.12
+opencv-python==4.11.0.86
+Pillow==9.5.0
+scipy==1.10.1
+imageio==2.38.0
+imgaug==0.4.0
+ftfy==6.3.1
+regex==2024.11.6
+tqdm==4.67.1
+setuptools==69.5.1
+clip @ git+https://github.com/openai/CLIP.git@a1d071733d7111c9c014f024669f959182114e33
+# taming-transformers sources are checked out by setup.sh (its wheel is empty).

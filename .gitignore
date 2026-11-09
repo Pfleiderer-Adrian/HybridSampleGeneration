@@ -34,3 +34,26 @@ dist/
 
 # Generated documentation site
 site/
+
+# Local compatibility links to external research outputs
+/notes/ad_visibility_audit_2026-11-02
+/notes/all_category_four_methods_2026-11-05
+/notes/can_four_method_examples_2026-11-05
+/notes/can_three_defects_filtered
+/notes/can_v3_audit
+/notes/can_v3_balanced_audit
+/notes/chat_sicherung_2026-10-18.md
+/notes/chat_sicherung_2026-10-20.md
+/notes/draem_v3_source_audit_2026-11-01
+/notes/fruit_jelly_lbm_color_comparison
+/notes/fruit_jelly_v2_vs_latest_v3
+/notes/fruit_jelly_v3_analysis
+/notes/hybrid_audit
+/notes/hybrid_resolution_audit_2026-10-31
+/notes/paper_analysis_2026-10-31
+/notes/rice_v3_analysis
+/notes/sheet_metal_v3_analysis
+/notes/storage_audit
+/notes/v3_actual_training_examples_2026-11-05
+/notes/wallplugs_v3_analysis
+/reports

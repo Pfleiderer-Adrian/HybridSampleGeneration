@@ -1,0 +1,9 @@
+upstream/
+.venv/
+.tools/
+data/
+outputs/
+weights/
+__pycache__/
+*.ckpt
+*.pt

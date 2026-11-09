@@ -619,6 +619,8 @@ materialization, FK-based evaluation and cached full-image `local` matching.
 - `examples/` — shared example helpers plus 2D image, 3D NIfTI and MVTec AD 2 workflows
 - `tests/` — tests grouped by the same feature boundaries
 - `experiments/` — unsupported prototypes, optional dependencies and isolated tests
+- `scripts/analysis/` — research analysis and report generators; output data lives under `/mnt/results/mvtec2`
+- `docs/paper/` — manuscript and bibliography sources; generated figures and tables remain in external reports
 
 ## [Cite this work](https://pfleiderer-adrian.github.io/HybridSampleGeneration/about/#cite-this-work)
 

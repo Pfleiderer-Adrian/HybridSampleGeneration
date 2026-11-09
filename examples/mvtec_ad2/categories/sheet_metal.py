@@ -1,4 +1,6 @@
 """Complete MVTec AD 2 workflow for the sheet_metal category."""
+from networkx import config
+
 from examples.mvtec_ad2.common import (
     create_downstream_configuration,
     create_generator_configuration,
@@ -30,8 +32,35 @@ def create_configuration():
     config.model.search.n_levels = IntRange(4, 5)
     config.generation.posterior_skip_source = "transformed"
 
-    config.matching.distance_weight = 0.3
+    config.matching.distance_weight = 0.8
+    config.matching.intensity_weight = 0.2
+    config.matching.gradient_weight = 0.0
+    config.fusion.parameters.image_harmonization = "LBM"
 
+    config.augmentation.mask_transforms.mask_transform_probs = {
+        "zoom": 0.5,
+        "stretch": 0.5,
+        "rotate": 0.5,
+        "elastic": 0.0,
+        "local_dilate": 0,
+        "local_stretch": 0,
+        "local_rotate": 0,
+        "local_elastic": 0,
+    }
+    config.augmentation.mask_transforms.mask_transform_params = {
+        "zoom": {"min_zoom": 0.97, "max_zoom": 1.0},
+        "stretch": {"min_stretch": 0.98, "max_stretch": 1.05},
+        "rotate": {"max_rotation": 5.0},
+        "elastic": {"sigma": 10, "magnitude": 5},
+    }
+
+    config.matching.anomalies_per_hybrid = 2
+    config.matching.hybrids_per_original = 5
+    config.generation.variants_per_real_anomaly = 10
+    config.matching.reuse_synthetic_across_hybrids = True
+    config.matching.max_anomalies_per_hybrid_deviation = 1
+
+    """
     # Fusion settings
     config.fusion.set_backend("classical")
     config.fusion.parameters.max_alpha = 1.0
@@ -48,7 +77,7 @@ def create_configuration():
     config.fusion.parameters.steepness_variation = 1.0
     config.fusion.parameters.selected_confidence = "90%"
     config.fusion.parameters.fusion_normalization_border_width = None
-
+    """
     return config
 
 

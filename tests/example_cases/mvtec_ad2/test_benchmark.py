@@ -87,6 +87,29 @@ class BenchmarkTests(unittest.TestCase):
                           pair_healthy_samples=False)
         self.assertFalse(hasattr(model, "paired_ids"))
 
+    def test_synthetic_remainder_rotates_without_changing_real_and_normal_draws(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); create_images(root)
+            manifest = create_manifest(root / "can")
+            healthy = manifest_samples(manifest, "train", healthy_only=True)
+            real = [s for s in manifest_samples(manifest, "train") if s.label != "good"]
+            cfg = self.config({"normal": 500, "real": 100, "hybrid": 134, "draem": 133, "cutmix": 133})
+            cfg.data.source_quota_rotation = ["hybrid", "draem", "cutmix"]
+            with patch("examples.mvtec_ad2.downstream.quota_dataset.TextureSynthesizer"):
+                ds = FixedQuotaDataset(healthy, real, [None], cfg)
+            totals = Counter()
+            for epoch in range(3):
+                ds.set_epoch(epoch)
+                counts = Counter(ds.plan)
+                self.assertEqual(len(ds), 1000)
+                self.assertEqual(counts["normal"], 500)
+                self.assertEqual(counts["real"], 100)
+                self.assertEqual(counts[cfg.data.source_quota_rotation[epoch]], 134)
+                totals.update({s: counts[s] for s in cfg.data.source_quota_rotation})
+                before = list(ds.entries); ds.set_epoch(epoch)
+                self.assertEqual(ds.entries, before)
+            self.assertEqual(set(totals.values()), {400})
+
     def test_invalid_quotas_fail(self):
         cfg = self.config({"normal": 5, "real": 5})
         cfg.data.source_quotas["real"] = 4

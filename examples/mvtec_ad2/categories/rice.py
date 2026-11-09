@@ -36,7 +36,8 @@ def main() -> None:
         category_root(CATEGORY),
         SplitConfiguration(test_fraction=0.2, validation_fraction=0.2, seed=42),
     )
-
+    config.model.parameters.skip_alpha = 0.1
+    config.model.parameters.skip_dropout_p = 0.85
     config.generation.variation_strength = 1.5
     config.extraction.roi.min_size = (128, 128)
 
@@ -61,7 +62,7 @@ def main() -> None:
     config.fusion.parameters.steepness_variation = 0.15
     config.fusion.parameters.selected_confidence = "90%"
 
-    config.fusion.parameters.image_harmonization = "LBM"
+    config.fusion.parameters.image_harmonization = None
 
     config.extraction.roi.fixed_size = None
     config.extraction.roi.min_size = (1, 128, 128)

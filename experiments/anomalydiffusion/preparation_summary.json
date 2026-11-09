@@ -1,0 +1,74 @@
+[
+  {
+    "category": "can",
+    "native_patches": 1338,
+    "defect_patches": 66,
+    "vanished_original_latent_masks": 24,
+    "downstream_reference_equivalent": true,
+    "split_fingerprint": "9a21a9d89e79529d0056bdff07e089d6420612f4fefd71e55e50445a887ffd48",
+    "hybrid_study": "/mnt/results/mvtec2/experiments/comparison_v3/reruns/can_three_defects_filtered_20261022T074014Z/can/hybrid_generation"
+  },
+  {
+    "category": "fabric",
+    "native_patches": 1306,
+    "defect_patches": 114,
+    "vanished_original_latent_masks": 0,
+    "downstream_reference_equivalent": true,
+    "split_fingerprint": "8dd4ad8cbe8faa39612bf1911616b76b2e8efd9a45694868d0e1f1438df2fc90",
+    "hybrid_study": "/mnt/results/mvtec2/experiments/comparison_v3/fabric/hybrid_generation"
+  },
+  {
+    "category": "fruit_jelly",
+    "native_patches": 944,
+    "defect_patches": 176,
+    "vanished_original_latent_masks": 8,
+    "downstream_reference_equivalent": true,
+    "split_fingerprint": "125d37ba40aaf61f865ca86d079b743261da7919be292ec975da709014e2116c",
+    "hybrid_study": "/mnt/results/mvtec2/experiments/comparison_v3/fruit_jelly/hybrid_generation"
+  },
+  {
+    "category": "rice",
+    "native_patches": 1074,
+    "defect_patches": 138,
+    "vanished_original_latent_masks": 0,
+    "downstream_reference_equivalent": true,
+    "split_fingerprint": "9090a07e93ffeeeaf4d7758c35770e029a9850bbafedafc884a69c4cd6b7d068",
+    "hybrid_study": "/mnt/results/mvtec2/experiments/comparison_v3/rice/hybrid_generation"
+  },
+  {
+    "category": "sheet_metal",
+    "native_patches": 894,
+    "defect_patches": 462,
+    "vanished_original_latent_masks": 12,
+    "downstream_reference_equivalent": true,
+    "split_fingerprint": "d39f003f935ec48012f0be7eb5e713e1118051d9c8ff7b84da4267d8bf9eaea2",
+    "hybrid_study": "/mnt/results/mvtec2/experiments/comparison_v3/sheet_metal/hybrid_generation"
+  },
+  {
+    "category": "vial",
+    "native_patches": 1279,
+    "defect_patches": 399,
+    "vanished_original_latent_masks": 14,
+    "downstream_reference_equivalent": true,
+    "split_fingerprint": "2e3c7e6b5745e42c5c5e80c7d64fd08c0d03882ff5a9f366f6df70216a539da8",
+    "hybrid_study": "/mnt/results/mvtec2/experiments/comparison_v3/vial/hybrid_generation"
+  },
+  {
+    "category": "wallplugs",
+    "native_patches": 1066,
+    "defect_patches": 138,
+    "vanished_original_latent_masks": 0,
+    "downstream_reference_equivalent": true,
+    "split_fingerprint": "817882fc230a3edfabc40e95024c57bfc210688f3b6ad207af0b8ea4f6119100",
+    "hybrid_study": "/mnt/results/mvtec2/experiments/comparison_v3/reruns/wallplugs_full_exempt10_12_20261022T112820Z/wallplugs/hybrid_generation"
+  },
+  {
+    "category": "walnuts",
+    "native_patches": 1836,
+    "defect_patches": 540,
+    "vanished_original_latent_masks": 18,
+    "downstream_reference_equivalent": true,
+    "split_fingerprint": "53f38a1ce908bf70a5db2f3e629663f28a54dfd2f1efebc60f0b93bc983f4ce0",
+    "hybrid_study": "/mnt/results/mvtec2/experiments/comparison_v3/walnuts/hybrid_generation"
+  }
+]

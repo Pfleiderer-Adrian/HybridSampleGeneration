@@ -14,13 +14,15 @@ from hybrid_sample_generator.persistence.study_repository import StudyRepository
 from .configuration import DownstreamConfiguration
 from .datasets import HybridPairs, MixedTrainingDataset, RealImageDataset, FixedPairedValidation
 from .quota_dataset import FixedQuotaDataset
+from .anomalydiffusion_pairs import AnomalyDiffusionPairs
 from .models import build_model
 from .evaluation import evaluate, evaluation_loader
 from .textures import prepare_textures
 from .training import train
 
 
-def train_downstream(generator_config, manifest, config: DownstreamConfiguration, *, output_root=None):
+def train_downstream(generator_config, manifest, config: DownstreamConfiguration, *, output_root=None,
+                     hybrid_ids=None):
     """Train the selected model with the requested mixture and persisted split."""
     config = deepcopy(config)
     config.validate()
@@ -35,7 +37,8 @@ def train_downstream(generator_config, manifest, config: DownstreamConfiguration
             raise ValueError("No materialized hybrid study found.")
         repository = StudyRepository(database)
         store = ArtifactStore(study_folder)
-        hybrids = HybridPairs(repository, store, manifest, config.data, generator_config.postprocessing)
+        hybrids = HybridPairs(repository, store, manifest, config.data, generator_config.postprocessing,
+                              included_ids=hybrid_ids)
     if not normal_only_bank and (quotas is None or quotas.get("draem", 0)):
         prepare_textures(study_folder, config.data)
     paired_validation = None
@@ -52,11 +55,14 @@ def train_downstream(generator_config, manifest, config: DownstreamConfiguration
         held_out = {str(Path(s.image_path).resolve()) for part in ("validation", "test") for s in manifest_samples(manifest, part)}
         if any(not s.mask_path or str(Path(s.image_path).resolve()) in held_out for s in real_samples):
             raise ValueError("Real training defects must have masks and be disjoint from validation/test.")
+    anomalydiffusion = None
+    if quotas and quotas.get("anomalydiffusion", 0):
+        anomalydiffusion = AnomalyDiffusionPairs(config.data.anomalydiffusion_manifest, manifest, config.data)
     if normal_only_bank:
         dataset = None
     elif quotas is not None:
         dataset = FixedQuotaDataset(manifest_samples(manifest, "train", healthy_only=True),
-                                    real_samples, hybrids, config)
+                                    real_samples, hybrids, config, anomalydiffusion=anomalydiffusion)
     else:
         dataset = MixedTrainingDataset(
             manifest_samples(manifest, "train", healthy_only=True), hybrids, config, real_samples=real_samples)
@@ -65,6 +71,9 @@ def train_downstream(generator_config, manifest, config: DownstreamConfiguration
     output = (Path(output_root) if output_root is not None else study_folder) / "downstream" / config.model / run_id
     output.mkdir(parents=True)
     config.save(output / "configuration.json")
+    if anomalydiffusion is not None:
+        (output / "anomalydiffusion_provenance.json").write_text(
+            json.dumps(anomalydiffusion.manifest, indent=2) + "\n")
     if hybrids is not None and generator_config.postprocessing.enabled:
         (output / "postprocessing_configuration.json").write_text(
             json.dumps(generator_config.postprocessing.to_dict(), indent=2) + "\n"

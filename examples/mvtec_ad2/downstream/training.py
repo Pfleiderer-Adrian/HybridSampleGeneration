@@ -111,6 +111,12 @@ def train(dataset, validation, config, output, *, paired_validation=None, resume
         print(f"Resuming after completed epoch {start_epoch}; best score {best}.", flush=True)
     with (output / "training_history.csv").open("a" if resume_checkpoint else "w", newline="") as file:
         fields = ["epoch", "train_loss", "validation_loss", "selection_metric", "selection_mode", "selection_score", "selection_loss", "real", "cutmix", "hard_normal", "normal", "draem", "hybrid"]
+        if resume_checkpoint is not None:
+            # Preserve the schema when resuming a historical CSV.
+            with (output / "training_history.csv").open() as history_file:
+                fields = next(csv.reader(history_file))
+        elif config.data.source_quotas and config.data.source_quotas.get("anomalydiffusion", 0):
+            fields.append("anomalydiffusion")
         writer = csv.DictWriter(file, fieldnames=fields)
         if resume_checkpoint is None:
             writer.writeheader()
@@ -199,6 +205,7 @@ def train(dataset, validation, config, output, *, paired_validation=None, resume
                              "selection_score": score if validated else "", "selection_loss": "" if maximize or not validated else score,
                              "cutmix": counts["cutmix"],
                              "hard_normal": hard_count,
-                             **{source: counts[source] for source in ("normal", "draem", "hybrid", "real")}})
+                             **{source: counts[source] for source in ("normal", "draem", "hybrid", "real", "anomalydiffusion")
+                                if source in fields}})
             file.flush()
     return output

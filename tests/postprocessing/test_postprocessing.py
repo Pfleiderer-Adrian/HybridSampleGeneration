@@ -66,6 +66,26 @@ class PostprocessingTests(unittest.TestCase):
             repo.replace_hybrid_plan([],[])
             with repo.connection() as db:self.assertEqual(db.execute('select count(*) from postprocessing_decisions').fetchone()[0],0)
 
+    def test_group_exemptions_do_not_bypass_other_placements(self):
+        from unittest.mock import Mock
+        from hybrid_sample_generator.postprocessing.service import overlap_mask,source_group
+        self.assertEqual(source_group('test_public_bad_010_shift_2.png'),'test_public_bad_010')
+        with tempfile.TemporaryDirectory() as tmp:
+            store=ArtifactStore(tmp);repo=Mock()
+            placements=[SimpleNamespace(id='exempt',synthetic_anomaly_id='s1'),SimpleNamespace(id='checked',synthetic_anomaly_id='s2')]
+            repo.list_placements.return_value=placements
+            repo.get_synthetic_anomaly.side_effect=lambda sid:SimpleNamespace(real_anomaly_id=sid)
+            repo.get_real_anomaly.side_effect=lambda rid:SimpleNamespace(original_sample_id=rid)
+            repo.get_original_sample.side_effect=lambda oid:SimpleNamespace(source_name='test_public_bad_010_regular.png' if oid=='s1' else 'test_public_bad_001_regular.png')
+            m=np.zeros((1,5,5),dtype='uint8');m[0,0,0]=1
+            store.save_entity_array('placements','checked','full_segmentation',m)
+            final=np.ones((1,5,5),dtype='uint8')
+            checked,n=overlap_mask(repo,store,SimpleNamespace(id='h'),final,['test_public_bad_010'])
+            self.assertEqual(n,1);self.assertEqual(checked.sum(),1);self.assertTrue(checked[0,0,0])
+            store.resolve(store.relative_path('placements','checked','full_segmentation')).unlink()
+            with self.assertRaisesRegex(ValueError,'Rematerialize'):
+                overlap_mask(repo,store,SimpleNamespace(id='h'),final,['test_public_bad_010'])
+
     def test_rules_and_empty_foreground_fail_safely(self):
         from hybrid_sample_generator.postprocessing.measurements import measure
         from hybrid_sample_generator.postprocessing.rules import violations

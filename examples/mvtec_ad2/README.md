@@ -167,3 +167,13 @@ loss rules. `queue_status.json` records the GPU1-only queue (three concurrent
 runs). Configurations, splits, preflight image/mask examples and per-job status
 are stored under each variant/category directory. Checkpoints and predictions
 are under its `downstream/dinov3_paired/` run directory.
+
+The uniform benchmark can use `data.source_quotas` to fix the per-epoch source
+budgets. Its hybrid comparisons use 500 healthy and 100 real-defect patches plus
+400 hybrid patches (variant 4), 200 hybrid + 200 DRAEM patches (variant 5), or
+134/133/133 hybrid/DRAEM/CutMix patches (variant 6). Setting
+`data.source_quota_rotation = ["hybrid", "draem", "cutmix"]` redistributes the
+synthetic total equally each epoch and rotates rounding remainders across those
+sources. Healthy and real quotas stay fixed. `train_downstream(...,
+output_root=...)` can save a benchmark run separately while loading hybrid pairs
+from the generator study; the split and donor provenance checks still apply.
