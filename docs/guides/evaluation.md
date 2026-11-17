@@ -1,5 +1,15 @@
 # Evaluation
 
+MVTec AD 2 downstream evaluation additionally reports `pixel_aupro_0.05` in
+validation and test metrics. It averages the detected fraction of each
+8-connected ground-truth defect region equally, integrates the PRO curve up to
+a background-pixel false positive rate of 0.05, and divides by 0.05 to normalize
+the result to [0, 1]. The endpoint is linearly interpolated. It uses the same
+`pixel_metric_bins` score quantization as pixel AUROC/AP (4096 bins by default),
+so it approximates an evaluation over all distinct scores. Images without defects
+contribute background false positives; splits without defects or background
+return `null`. Existing saved results are updated only by re-evaluation.
+
 Evaluation joins each synthetic anomaly to its real parent through
 `real_anomaly_id`. Placement ROI comparisons use the full
 Original → Hybrid → Placement → Synthetic → Real join. The CSV output contains

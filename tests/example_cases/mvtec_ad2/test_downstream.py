@@ -133,6 +133,11 @@ class DownstreamTests(unittest.TestCase):
             metrics = evaluate_downstream(output, manifest)
             self.assertIn("validation", metrics)
             self.assertIn("test", metrics)
+            for split in ("validation", "test"):
+                value = metrics[split]["pixel_aupro_0.05"]
+                self.assertIsNotNone(value)
+                self.assertGreaterEqual(value, 0.)
+                self.assertLessEqual(value, 1.)
             self.assertTrue((output / "checkpoints" / "best.pt").is_file())
             bad = {**manifest, "partitions": {**manifest["partitions"], "train": []}}
             with self.assertRaisesRegex(ValueError, "held-out"):
