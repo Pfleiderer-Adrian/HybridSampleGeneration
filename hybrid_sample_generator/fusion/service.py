@@ -63,6 +63,8 @@ class FusionService:
         if not len(synthetic_dataset):
             raise ValueError("No synthetic anomalies found.")
 
+        # Rematerialization must not retain decisions for older image contents.
+        self.repository.clear_postprocessing_decisions()
         backend = self._ensure_backend()
         generated: list[HybridSample] = []
         failures: list[HybridSample] = []
