@@ -3,7 +3,7 @@
 | Parameter | Type | Default | Meaning / values |
 | --- | --- | --- | --- |
 | `config.postprocessing.enabled` | `bool` | `False` | Require and run quality checks when explicitly called. |
-| `config.postprocessing.action` | `str` | `'report'` | `report` records failures; `exclude` also omits failures in the MVTec downstream loader. Neither deletes artifacts. |
+| `config.postprocessing.action` | `str` | `'report'` | `report` records decisions; `exclude` additionally signals downstream consumers to omit failed hybrids. Neither deletes artifacts. |
 | `config.postprocessing.save_previews` | `bool` | `False` | Write 2D original overlays with foreground in blue and anomalies in red. |
 | `config.postprocessing.foreground.method` | `str` | `'threshold'` | Object-mask estimator; currently only `threshold`. |
 | `config.postprocessing.foreground.channel_reduction` | `str` | `'minimum'` | Minimum channel value (`minimum`) or RGB luminance (`grayscale`). |

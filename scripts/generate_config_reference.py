@@ -62,7 +62,7 @@ DESCRIPTIONS = {
     "matching.gradient_weight": "Weight of gradient similarity during matching.",
     "matching.distance_weight": "Weight of proximity to the original anomaly's normalized source position; finite and non-negative. Zero preserves intensity/gradient-only matching.",
     "postprocessing.enabled": "Require and run quality checks when explicitly called.",
-    "postprocessing.action": "`report` records failures; `exclude` also omits failures in the MVTec downstream loader. Neither deletes artifacts.",
+    "postprocessing.action": "`report` records decisions; `exclude` additionally signals downstream consumers to omit failed hybrids. Neither deletes artifacts.",
     "postprocessing.save_previews": "Write 2D original overlays with foreground in blue and anomalies in red.",
     "postprocessing.foreground.method": "Object-mask estimator; currently only `threshold`.",
     "postprocessing.foreground.channel_reduction": "Minimum channel value (`minimum`) or RGB luminance (`grayscale`).",
