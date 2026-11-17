@@ -171,6 +171,19 @@ class MatchingSelectionTests(unittest.TestCase):
         self.assertEqual(match.call_count, 5)
         self.assertEqual(self.repository.count_match_candidates(), 5)
 
+    def test_distance_matching_uses_source_position_and_separate_cache(self):
+        self._populate(rois=1)
+        with patch("hybrid_sample_generator.matching.pair_matcher.template_matching_prepared",
+                   return_value=(.5, (32., 32.))) as match:
+            self._plan()
+            self.config.distance_weight = 1
+            self._plan()
+            self.assertEqual(match.call_count, 2)
+            self.assertEqual(match.call_args.kwargs, {"source_position": (.5, .5)})
+            self._plan()
+            self.assertEqual(match.call_count, 2)
+        self.assertEqual(self.repository.count_match_candidates(), 2)
+
     def test_batchwise_selection_is_reproducible_and_uses_study_seed(self):
         self._populate(rois=20)
         self.config.routine = "batchwise"

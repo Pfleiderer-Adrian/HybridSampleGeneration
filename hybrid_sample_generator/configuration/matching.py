@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 
 MATCHING_ROUTINES = {
@@ -27,6 +28,7 @@ class MatchingConfiguration:
     batch_size: int = 32
     intensity_weight: float = 1.0
     gradient_weight: float = 2.0
+    distance_weight: float = 0.0
 
     def validate(self) -> None:
         if self.routine not in MATCHING_ROUTINES:
@@ -41,5 +43,7 @@ class MatchingConfiguration:
             raise ValueError("matching.max_anomalies_per_hybrid_deviation must be non-negative.")
         if isinstance(self.batch_size, bool) or int(self.batch_size) <= 0:
             raise ValueError("matching.batch_size must be a positive integer.")
-        if float(self.intensity_weight) <= 0 and float(self.gradient_weight) <= 0:
+        if not math.isfinite(float(self.distance_weight)) or float(self.distance_weight) < 0:
+            raise ValueError("matching.distance_weight must be finite and non-negative.")
+        if float(self.intensity_weight) <= 0 and float(self.gradient_weight) <= 0 and float(self.distance_weight) <= 0:
             raise ValueError("At least one matching weight must be positive.")

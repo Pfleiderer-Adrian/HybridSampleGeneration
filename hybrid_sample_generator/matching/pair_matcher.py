@@ -48,11 +48,13 @@ class MatchingStats:
 
 
 def matcher_signature(config: MatchingConfiguration) -> str:
+    distance_signature = ("distance", float(config.distance_weight)) if float(config.distance_weight) > 0 else ()
     return stable_id(
         "matcher",
         MATCHER_ALGORITHM_VERSION,
         float(config.intensity_weight),
         float(config.gradient_weight),
+        *distance_signature,
     )
 
 
@@ -86,7 +88,8 @@ class PairMatcher:
             self.roi_shapes[record.id] = tuple(int(size) for size in prepared.intensity.shape)
             self.stats.preparation_seconds += perf_counter() - started
             started = perf_counter()
-            score, center = template_matching_prepared(prepared, self.control_prepared, self.config)
+            kwargs = {"source_position": record.source_position} if float(self.config.distance_weight) > 0 else {}
+            score, center = template_matching_prepared(prepared, self.control_prepared, self.config, **kwargs)
             self.stats.matching_seconds += perf_counter() - started
             self.stats.computed_pairs += 1
             valid = center is not None and np.isfinite(score) and -1 <= score <= 1
