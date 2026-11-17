@@ -8,7 +8,7 @@ deleted.
 ```python
 config.postprocessing.enabled = True
 generator.materialize_hybrid_samples()
-summary = generator.postprocess_hybrid_samples()
+summary = generator.postprocess()
 ```
 
 A call with `config.postprocessing.enabled = False` is a no-op.
@@ -105,7 +105,7 @@ computed:
 
 Rematerialization clears all current decisions before fusion starts, and
 replacing a plan deletes the decisions of its hybrids. In both cases, run
-`postprocess_hybrid_samples()` again.
+`postprocess()` again.
 
 ## Limitations
 

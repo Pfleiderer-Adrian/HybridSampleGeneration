@@ -80,7 +80,7 @@ def main() -> None:
     generator.generate_synthetic_anomalies()
     generator.plan_hybrid_samples()
     generator.materialize_hybrid_samples()
-    generator.postprocess_hybrid_samples()
+    generator.postprocess()
     config.save_config_file()
 
     run_folder = train_downstream(config, manifest, create_downstream_configuration())
