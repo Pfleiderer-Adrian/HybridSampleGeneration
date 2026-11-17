@@ -1,9 +1,11 @@
 """MVTec split and DRAEM integration tests."""
 import json
+import csv
 import tempfile
 import unittest
 from collections import Counter
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import torch
@@ -144,6 +146,60 @@ class DownstreamTests(unittest.TestCase):
                 verify_repository(repo, bad)
             with self.assertRaisesRegex(ValueError, "modified"):
                 evaluate_downstream(output, bad)
+
+    def test_checkpoint_selection_maximizes_validation_aupro(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            create_images(root)
+            manifest = create_manifest(root / "can", SplitConfiguration())
+            generator = generator_config(root / "study")
+            seed_hybrid(generator, manifest)
+            config = self.config()
+            config.training.epochs = 3
+            # Loss improves every epoch, while PRO peaks at epoch 2.
+            validation = [{"segmentation_loss": loss, "pixel_aupro_0.05": pro}
+                          for loss, pro in ((.3, .2), (.2, .8), (.1, .8))]
+            with patch("examples.mvtec_ad2.downstream.training.evaluate", side_effect=validation):
+                output = train_downstream(generator, manifest, config)
+            best = torch.load(output / "checkpoints/best.pt", weights_only=True)
+            last = torch.load(output / "checkpoints/last.pt", weights_only=True)
+            self.assertEqual(best["epoch"], 2)
+            self.assertEqual(last["epoch"], 3)
+            self.assertEqual(best["selection_metric"], "pixel_aupro_0.05")
+            self.assertEqual(best["selection_mode"], "max")
+            self.assertEqual(best["selection_score"], .8)
+            self.assertNotIn("selection_loss", best)
+            with patch("examples.mvtec_ad2.downstream.training.evaluate",
+                       return_value={"segmentation_loss": .1, "pixel_aupro_0.05": None}):
+                with self.assertRaisesRegex(ValueError, "requires validation defect regions"):
+                    train_downstream(generator, manifest, config)
+
+    def test_validation_interval_and_final_epoch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            create_images(root)
+            manifest = create_manifest(root / "can", SplitConfiguration())
+            generator = generator_config(root / "study")
+            seed_hybrid(generator, manifest)
+            config = self.config()
+            config.training.epochs = 5
+            config.training.validation_interval = 2
+            values = [{"segmentation_loss": .1, "pixel_aupro_0.05": pro}
+                      for pro in (.3, .8, .4)]
+            with patch("examples.mvtec_ad2.downstream.training.evaluate", side_effect=values) as evaluate:
+                output = train_downstream(generator, manifest, config)
+            self.assertEqual(evaluate.call_count, 3)
+            best = torch.load(output / "checkpoints/best.pt", weights_only=True)
+            last = torch.load(output / "checkpoints/last.pt", weights_only=True)
+            self.assertEqual(best["epoch"], 4)
+            self.assertEqual(last["epoch"], 5)
+            with (output / "training_history.csv").open() as file:
+                history = list(csv.DictReader(file))
+            self.assertEqual([row["epoch"] for row in history if row["selection_score"]], ["2", "4", "5"])
+            for invalid in (0, -1, True, 1.5):
+                config.training.validation_interval = invalid
+                with self.assertRaisesRegex(ValueError, "validation_interval"):
+                    config.validate()
 
     def test_perlin_source_is_deterministic_and_has_anomaly(self):
         with tempfile.TemporaryDirectory() as temporary:
