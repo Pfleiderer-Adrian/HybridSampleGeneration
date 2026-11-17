@@ -280,7 +280,7 @@ def _render() -> dict[Path, str]:
             )
         if slug == "postprocessing":
             extra = (
-                "\nRun with `generator.postprocess()` after materialization; "
+                "\nRun with `generator.postprocess_hybrid_samples()` after materialization; "
                 "see the postprocessing guide. Configuration files without this section "
                 "load with postprocessing disabled.\n\n"
                 "Any failed rule marks the entire hybrid as failed quality checking. "
