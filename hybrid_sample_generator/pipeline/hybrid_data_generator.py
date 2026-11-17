@@ -125,3 +125,11 @@ class HybridDataGenerator:
         """Fuse all planned placements and update their artifact records."""
         self._log_step("Materializing planned hybrid samples.")
         return self._fusion_service.materialize(raise_on_error=raise_on_error)
+
+    def postprocess_hybrid_samples(self):
+        """Evaluate optional quality rules without deleting generated images."""
+        from hybrid_sample_generator.postprocessing import PostprocessingService
+        self._log_step("Postprocessing materialized hybrid samples.")
+        return PostprocessingService(
+            self.repository, self.artifact_store, self.config.postprocessing
+        ).run()

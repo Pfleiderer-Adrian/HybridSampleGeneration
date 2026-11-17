@@ -10,6 +10,7 @@ from pathlib import Path
 class DataConfiguration:
     # Explicit quotas override legacy fractions and appended real examples.
     source_quotas: dict[str, int] | None = None
+    source_quota_rotation: list[str] | None = None
     include_real_defects: bool = False
     hybrid_fraction: float = 0.5
     normal_fraction: float = 0.5
@@ -87,6 +88,11 @@ class DownstreamConfiguration:
                 raise ValueError("Real/CutMix quotas require include_real_defects.")
             if self.data.hard_normal_fraction:
                 raise ValueError("Explicit source quotas currently exclude hard-normal sampling.")
+        rotation = self.data.source_quota_rotation
+        if rotation is not None:
+            if (not quotas or len(rotation) < 2 or len(set(rotation)) != len(rotation)
+                    or any(s not in {"hybrid", "draem", "cutmix"} or not quotas.get(s) for s in rotation)):
+                raise ValueError("source_quota_rotation requires distinct positive synthetic source quotas.")
         if type(self.dinov3.pair_healthy_samples) is not bool:
             raise ValueError("pair_healthy_samples must be boolean.")
         if self.training.selection_metric not in ("auto", "pixel_aupro_0.05"):

@@ -42,6 +42,15 @@ class FixedQuotaDataset(Dataset):
 
     def set_epoch(self, epoch):
         self.epoch = epoch
+        self.quotas = dict(self.config.data.source_quotas)
+        rotation = self.config.data.source_quota_rotation
+        if rotation:
+            total = sum(self.quotas[s] for s in rotation)
+            base, remainder = divmod(total, len(rotation))
+            for source in rotation:
+                self.quotas[source] = base
+            for offset in range(remainder):
+                self.quotas[rotation[(epoch + offset) % len(rotation)]] += 1
         entries = [(source, rank) for source in self.SOURCES
                    for rank in range(self.quotas.get(source, 0))]
         rng = np.random.default_rng(np.random.SeedSequence([self.config.seed, epoch, 711]))

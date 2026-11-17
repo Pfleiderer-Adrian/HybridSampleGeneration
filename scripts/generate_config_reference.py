@@ -61,6 +61,22 @@ DESCRIPTIONS = {
     "matching.intensity_weight": "Weight of intensity similarity during matching.",
     "matching.gradient_weight": "Weight of gradient similarity during matching.",
     "matching.distance_weight": "Weight of proximity to the original anomaly's normalized source position; finite and non-negative. Zero preserves intensity/gradient-only matching.",
+    "postprocessing.enabled": "Require and run quality checks when explicitly called.",
+    "postprocessing.action": "`report` records failures; `exclude` also omits failures in the MVTec downstream loader. Neither deletes artifacts.",
+    "postprocessing.save_previews": "Write 2D original overlays with foreground in blue and anomalies in red.",
+    "postprocessing.foreground.method": "Object-mask estimator; currently only `threshold`.",
+    "postprocessing.foreground.channel_reduction": "Minimum channel value (`minimum`) or RGB luminance (`grayscale`).",
+    "postprocessing.foreground.comparison": "Threshold direction: `below` or `above`, strict comparison.",
+    "postprocessing.foreground.threshold": "Threshold in original image units, range [0, 255]; no per-image normalization.",
+    "postprocessing.foreground.components": "Keep the largest component (`largest`) or `all`.",
+    "postprocessing.foreground.min_component_area": "Minimum connected-component pixel/voxel count, before hole filling; positive.",
+    "postprocessing.foreground.fill_holes": "Fill enclosed holes after component selection.",
+    "postprocessing.rules.minimum_object_overlap.enabled": "Measure anomaly coverage by the estimated object mask.",
+    "postprocessing.rules.minimum_object_overlap.threshold": "Minimum fraction of anomaly pixels inside the object; inclusive bound in [0, 1].",
+    "postprocessing.rules.mask_area_fraction.enabled": "Enable whole-image anomaly area bounds.",
+    "postprocessing.rules.mask_area_fraction.minimum": "Inclusive lower bound in [0, 1].",
+    "postprocessing.rules.mask_area_fraction.maximum": "Inclusive upper bound in [0, 1].",
+    "postprocessing.rules.reject_empty_mask": "Mark empty materialized anomaly masks as failed.",
     "training.num_trials": "Number of Optuna trials; positive.",
     "training.trial_selection": "Trial to use: 'best', 'last', or a non-negative trial ID.",
     "training.validation_ratio": "Fraction of data reserved for validation; range [0, 1).",
@@ -205,6 +221,7 @@ def _render() -> dict[Path, str]:
         "augmentation": ("Augmentation", config.augmentation),
         "generation": ("Generation", config.generation),
         "matching": ("Matching", config.matching),
+        "postprocessing": ("Postprocessing", config.postprocessing),
         "training": ("Training", config.training),
         "evaluation": ("Evaluation", config.evaluation),
     }
@@ -260,6 +277,19 @@ def _render() -> dict[Path, str]:
                 "`config.training.lr_scheduler` contains `patience`, `factor` "
                 "(learning rate multiplier), and `threshold` (minimum improvement). "
                 "Their defaults are shown in the table above.\n"
+            )
+        if slug == "postprocessing":
+            extra = (
+                "\nRun with `generator.postprocess_hybrid_samples()` after materialization; "
+                "see the postprocessing guide. Configuration files without this section "
+                "load with postprocessing disabled.\n\n"
+                "Any failed rule marks the entire hybrid as failed quality checking. "
+                "Measurements refer to the union of the final materialized anomaly masks, "
+                "not individual ROIs. Empty estimated object masks stop evaluation rather "
+                "than silently rejecting all samples. Object overlap requires a healthy "
+                "original partner. Threshold masks are heuristics, not semantic ground truth. "
+                "Multiple defect types are not classified automatically; type-specific rules "
+                "are not yet supported.\n"
             )
         if slug == "evaluation":
             extra = "\n## Defaults\n\n`outlier_thresholds` contains `min: None` and `max: None` for Contrast, Homogeneity, Energy, Correlation, their four `roi_` variants, Volume, D-center, H-center, and W-center.\n"

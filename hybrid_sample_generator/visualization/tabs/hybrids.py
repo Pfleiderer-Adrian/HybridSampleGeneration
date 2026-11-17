@@ -351,7 +351,13 @@ class HybridsTab(EntityBrowserTab):
             }
             for value in context.placements
         ]
+        with self.model.repository.connection() as connection:
+            decision = connection.execute(
+                "SELECT * FROM postprocessing_decisions WHERE hybrid_sample_id=?",
+                (context.hybrid.id,),
+            ).fetchone()
         self.set_details(
+            ("Saved postprocessing decision (may require reevaluation)", dict(decision) if decision else None),
             ("OriginalSample", context.original),
             ("HybridSample", context.hybrid),
             ("Placements", placement_rows),
