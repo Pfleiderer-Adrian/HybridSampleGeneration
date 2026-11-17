@@ -126,7 +126,7 @@ class HybridDataGenerator:
         self._log_step("Materializing planned hybrid samples.")
         return self._fusion_service.materialize(raise_on_error=raise_on_error)
 
-    def postprocess(self):
+    def postprocess_hybrid_samples(self):
         """Evaluate optional quality rules without deleting generated images."""
         from hybrid_sample_generator.postprocessing import PostprocessingService
         self._log_step("Postprocessing materialized hybrid samples.")

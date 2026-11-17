@@ -25,7 +25,7 @@ def decision_for(repository,store,hybrid,original,config):
         row=db.execute('select * from postprocessing_decisions where hybrid_sample_id=?',(hybrid.id,)).fetchone()
     if (row is None or row['config_fingerprint']!=config_fingerprint(config)
             or row['artifact_signature']!=artifact_signature(hybrid,original,store)):
-        raise ValueError('Postprocessing decisions missing or stale. Run postprocess() again.')
+        raise ValueError('Postprocessing decisions missing or stale. Run postprocess_hybrid_samples() again.')
     return dict(row)
 
 class PostprocessingService:

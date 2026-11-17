@@ -19,7 +19,7 @@
 | `config.postprocessing.rules.mask_area_fraction.maximum` | `float` | `1.0` | Inclusive upper bound in [0, 1]. |
 | `config.postprocessing.rules.reject_empty_mask` | `bool` | `True` | Mark empty materialized anomaly masks as failed. |
 
-Run with `generator.postprocess()` after materialization; see the postprocessing guide. Configuration files without this section load with postprocessing disabled.
+Run with `generator.postprocess_hybrid_samples()` after materialization; see the postprocessing guide. Configuration files without this section load with postprocessing disabled.
 
 Any failed rule marks the entire hybrid as failed quality checking. Measurements refer to the union of the final materialized anomaly masks, not individual ROIs. Empty estimated object masks stop evaluation rather than silently rejecting all samples. Object overlap requires a healthy original partner. Threshold masks are heuristics, not semantic ground truth. Multiple defect types are not classified automatically; type-specific rules are not yet supported.
 
