@@ -85,11 +85,11 @@ resolved consistently:
 ```bash
 python -m examples.image_2d.main
 python -m examples.nifti_3d.main
-python -m examples.mvtec_ad2.categories.can
+python -m examples.mvtec_ad2.run --category can
 ```
 
-The [MVTec AD 2 guide](examples/mvtec_ad2/README.md) describes the category recipes,
-persisted data splits, hybrid generation, and downstream DRAEM evaluation.
+The [MVTec AD 2 guide](examples/mvtec_ad2/README.md) describes the benchmark pipeline:
+grouped data splits, hybrid and other synthetic anomaly sources, and DINOv3 downstream evaluation.
 
 ## [Configuration](https://pfleiderer-adrian.github.io/HybridSampleGeneration/configuration/)
 

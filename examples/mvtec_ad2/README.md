@@ -1,103 +1,122 @@
 # MVTec AD 2 example
 
-The MVTec AD 2 example builds a deterministic train/validation/test split,
-generates hybrid samples from the training partition, trains DRAEM with healthy
-and hybrid samples, and evaluates the selected checkpoint on the held-out
-partitions.
+This example reproduces the V3 MVTec AD 2 benchmark pipeline: a grouped
+train/validation split, synthetic anomalies from several sources, and a
+DINOv3 segmentation model trained on a fixed mixture of healthy, real and
+synthetic examples. The split, generator and downstream settings correspond
+to the submitted V3 runs.
 
-Set the dataset, study, and optional DTD texture locations in `settings.py` or
-through the `MVTECAD2_ROOT`, `MVTECAD2_OUTPUT`, and `MVTECAD2_TEXTURES`
-environment variables. The dataset root must contain one directory per MVTec
-AD 2 category.
+This is a custom anomaly-supervised protocol, not the official unsupervised
+MVTec benchmark.
 
-## Complete Python example for `can`
+## Setup
 
-The following code is the complete workflow used by
-`categories/can.py`:
+Set the dataset, output and optional DTD texture locations in `settings.py` or
+through `MVTECAD2_ROOT`, `MVTECAD2_OUTPUT` and `MVTECAD2_TEXTURES`. The dataset
+root contains one directory per category. The DINOv3 models need the optional
+dependencies:
 
-```python
-from examples.mvtec_ad2.common import (
-    create_downstream_configuration,
-    create_generator_configuration,
-)
-from examples.mvtec_ad2.dataset import MVTecAD2Dataloader
-from examples.mvtec_ad2.downstream.runner import (
-    evaluate_downstream,
-    train_downstream,
-)
-from examples.mvtec_ad2.settings import category_root, study_folder
-from examples.mvtec_ad2.splits import (
-    SplitConfiguration,
-    load_or_create_manifest,
-    manifest_samples,
-)
-from hybrid_sample_generator import HybridDataGenerator
-
-
-category = "can"
-config = create_generator_configuration(category, anomaly_size=(3, 64, 64))
-
-# Settings specific to the can category. Shared MVTec defaults, including the
-# cVAE_ConvNeXt_2D model and its search space, are applied by the factory above.
-config.generation.variation_strength = 1.5
-config.fusion.parameters.max_alpha = 0.9
-config.fusion.parameters.sobel_threshold = 0.05
-config.extraction.roi.min_size = (256, 256)
-
-manifest = load_or_create_manifest(
-    study_folder(category) / "split_manifest.json",
-    category_root(category),
-    SplitConfiguration(
-        test_fraction=0.2,
-        validation_fraction=0.2,
-        seed=42,
-    ),
-)
-
-training_samples = manifest_samples(manifest, "train")
-generator = HybridDataGenerator(config)
-generator.ingest_dataset(MVTecAD2Dataloader(training_samples))
-generator.extract_anomalies()
-generator.train_generator()
-generator.generate_synthetic_anomalies()
-generator.plan_hybrid_samples()
-generator.materialize_hybrid_samples()
-config.save_config_file()
-
-downstream_config = create_downstream_configuration()
-run_folder = train_downstream(config, manifest, downstream_config)
-metrics = evaluate_downstream(run_folder, manifest)
-print(metrics)
+```bash
+pip install -e ".[examples,dinov3]"
 ```
 
-`create_generator_configuration()` selects `cVAE_ConvNeXt_2D`, applies the
-shared MVTec model parameters and `SearchSpace`, and configures extraction,
-generation, matching, fusion, and training defaults. The concrete `can`
-settings above override only the values that differ for this category.
+## Running a category
 
-The manifest is persisted beside the study and reused on later executions. Its
-dataset root and split settings must still match. Set `test_fraction=0` to keep
-only a validation holdout. Only the training partition is ingested into the
-hybrid-generation study; validation and test samples are reserved for the
-downstream evaluation.
+Run from the repository root:
 
-The supporting modules have these responsibilities:
+```bash
+python -m examples.mvtec_ad2.run --category can
+python -m examples.mvtec_ad2.run --category can --mixture real_draem
+```
 
-- `dataset.py` discovers MVTec files and adapts them to `InputSample` records.
-- `splits.py` creates, persists, and validates the reproducible split.
-- `common.py` contains defaults shared by all category examples.
-- `categories/` contains the small category-specific configurations.
-- `downstream/` contains DRAEM training, checkpoints, and evaluation.
+`run.py` creates or reuses the split, generates hybrids when the mixture draws
+hybrids, trains the downstream model and evaluates it on the validation
+partition. `--skip-generation` reuses an existing hybrid study.
 
-Each downstream run stores its configuration, split snapshot, checkpoint,
-predictions, and metrics below:
+| Mixture (`--mixture`) | Draws per epoch |
+| --- | --- |
+| `real_only` | 500 healthy + 500 real |
+| `real_draem` | 500 healthy + 100 real + 400 DRAEM |
+| `real_cutmix` | 500 healthy + 100 real + 400 CutMix |
+| `real_hybrid` | 500 healthy + 100 real + 400 hybrid |
+| `real_draem_hybrid` (default) | 500 healthy + 100 real + 200 hybrid + 200 DRAEM |
+| `real_anomalydiffusion` | 500 healthy + 100 real + 400 AnomalyDiffusion |
+| `real_anomalydiffusion_hybrid` | … + 200 AnomalyDiffusion + 200 hybrid |
+| `real_anomalydiffusion_draem` | … + 200 AnomalyDiffusion + 200 DRAEM |
+| `real_anomalydiffusion_draem_hybrid` | … + 400 synthetic, rotated equally across the three sources |
+
+AnomalyDiffusion mixtures need generated pairs; pass their manifest with
+`--anomalydiffusion-manifest` (see below).
+
+## Layout
 
 ```text
-<study>/downstream/draem/<timestamp>_<id>/
+examples/mvtec_ad2/
+├── run.py                       end-to-end entry point per category
+├── settings.py                  dataset and output locations
+├── data/                        dataset discovery, splits, transforms, patches
+├── synthetic_data_generation/   one package per synthetic source
+│   ├── hybrid/                  HybridSampleGenerator
+│   │   ├── configuration.py     defaults shared by all categories
+│   │   ├── categories/          one configuration per category
+│   │   ├── pipeline.py          ingestion → … → materialization → postprocessing
+│   │   └── pairs.py             hybrid/healthy pairs for training
+│   ├── draem/                   Perlin-mask texture synthesis, DTD textures
+│   ├── cutmix/                  defect-aware CutMix from real training defects
+│   └── anomalydiffusion/        AnomalyDiffusion generation (own runtime) and loader
+└── downstream/                  DINOv3 downstream model and pipeline
+    ├── presets.py               submitted configuration and mixtures
+    ├── configuration.py         DownstreamConfiguration
+    ├── runner.py                train_downstream / evaluate_downstream
+    ├── training.py, evaluation.py
+    ├── data/                    training mixtures, sampling, hard normals
+    └── models/                  DINOv3 ViT/ConvNeXt, decoders, SuperADD, DRAEM baseline
 ```
 
-This is a custom anomaly-supervised experiment protocol and not the official
-unsupervised MVTec benchmark.
+## Split
+
+`run.py` uses a grouped split: 60 % train and 40 % validation per label, seed
+42, without a test partition. All acquisition variants of a capture
+(`regular`, `overexposed`, `underexposed`, `shift_1`–`shift_3`) stay in the same
+partition. The manifest is saved as `<study>/split_manifest.json` and reused;
+its dataset root, settings and grouping mode must match. Only the training
+partition is ingested into the hybrid study.
+
+## Synthetic sources
+
+**Hybrid.** `categories/<category>.py` contains only the generator
+configuration; `create_generator_configuration()` applies the shared defaults
+(`cVAE_ConvNeXt_2D` and its search space, extraction, matching, fusion and
+training). `can` and `wallplugs` enable postprocessing with action `exclude`
+to drop hybrids whose anomaly lies outside the object; `wallplugs` exempts the
+captures `test_public_bad_010` and `test_public_bad_012`, whose defects extend
+beyond the plug outline (`capture_variants()` expands a capture to its six
+variants).
+
+**DRAEM** draws Perlin masks filled with DTD textures on healthy training
+patches. Without `MVTECAD2_TEXTURES` the textures are downloaded into the study.
+
+**CutMix** copies rectangles around real training defects onto healthy
+training patches.
+
+**AnomalyDiffusion** runs in its own Python environment and reuses the hybrid
+masks; see
+[`synthetic_data_generation/anomalydiffusion/README.md`](synthetic_data_generation/anomalydiffusion/README.md).
+
+## Downstream
+
+`downstream/presets.py` returns the submitted configuration: frozen
+DINOv3 ViT-S/16 (pinned revision) with a CNN decoder, native 256×256 patches,
+batch size 8, 100 epochs, validation every 5 epochs and checkpoint selection by
+validation pixel AUPRO@0.05. Each run stores its configuration, split snapshot
+with hybrid provenance, checkpoints, history, predictions and metrics below:
+
+```text
+<study>/downstream/dinov3_paired/<timestamp>_<id>/
+```
+
+To change settings, start from `create_downstream_configuration(mixture)` and
+call `train_downstream()` and `evaluate_downstream()` directly.
 
 ### Adding real training defects to DINOv3
 
@@ -129,7 +148,7 @@ is retained.
 ### Fixed source quotas for downstream comparisons
 
 `config.data.source_quotas` can specify exact per-epoch counts for `normal`,
-`real`, `draem`, `cutmix`, and `hybrid`. Counts must sum to
+`real`, `draem`, `cutmix`, `hybrid` and `anomalydiffusion`. Counts must sum to
 `config.data.samples_per_epoch`. When set, these quotas replace the legacy
 fraction-based plan and the additional once-per-image real-defect entries.
 Every real training image is sampled before repeats within each epoch; the real
@@ -147,3 +166,14 @@ the rectangle center, Beta(1,1) sets its area, image pixels and ground-truth lab
 are copied together, and the healthy receiver is retained as the partner. The
 rectangle itself is **not** the defect label. Donors and receivers must come
 from the training partition. This mode needs no hybrid-generation study.
+
+`config.data.source_quota_rotation` lists synthetic sources whose combined
+quota is split equally per epoch; the rounding remainder rotates across them.
+Healthy and real quotas stay fixed.
+
+### Fixed hybrids and separate output folders
+
+`train_downstream(..., hybrid_ids=[...])` trains on exactly the listed hybrids
+in the given order, for example the `hybrid_provenance` of an earlier run.
+This selection replaces the postprocessing filter. `output_root=...` writes
+the run below another folder while still loading hybrids from the study.
