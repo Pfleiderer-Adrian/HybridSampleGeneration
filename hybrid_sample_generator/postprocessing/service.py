@@ -40,7 +40,7 @@ def overlap_mask(repository,store,hybrid,final_mask,exempt_names):
             exempt+=1;continue
         path=store.relative_path('placements',placement.id,'full_segmentation')
         if not store.resolve(path).exists():
-            raise ValueError('Source exemptions require per-placement masks, which older studies lack. Rematerialize this study.')
+            raise ValueError('Source exemptions require per-placement masks saved during materialization. Rematerialize this study.')
         value=store.load_array(path,mmap_mode='r')
         if value.shape!=final_mask.shape:raise ValueError('Placement mask shape mismatch.')
         result |= value>0

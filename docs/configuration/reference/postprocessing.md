@@ -14,7 +14,7 @@
 | `config.postprocessing.foreground.fill_holes` | `bool` | `True` | Fill enclosed holes after component selection. |
 | `config.postprocessing.rules.minimum_object_overlap.enabled` | `bool` | `False` | Measure anomaly coverage by the estimated object mask. |
 | `config.postprocessing.rules.minimum_object_overlap.threshold` | `float` | `1.0` | Minimum fraction of anomaly pixels inside the object; inclusive bound in [0, 1]. |
-| `config.postprocessing.rules.minimum_object_overlap.exempt_source_names` | `list[str]` | `[]` | Exact `source_name`s of donor originals whose placements are not overlap-checked. Unknown names produce a warning. |
+| `config.postprocessing.rules.minimum_object_overlap.exempt_source_names` | `list[str]` | `[]` | Exact `source_name`s of donor originals whose placements are not overlap-checked; set before materialization. Unknown names produce a warning. |
 | `config.postprocessing.rules.mask_area_fraction.enabled` | `bool` | `False` | Enable whole-image anomaly area bounds. |
 | `config.postprocessing.rules.mask_area_fraction.minimum` | `float` | `0.0` | Inclusive lower bound in [0, 1]. |
 | `config.postprocessing.rules.mask_area_fraction.maximum` | `float` | `1.0` | Inclusive upper bound in [0, 1]. |

@@ -83,10 +83,10 @@ skipped; all other placements of the same hybrid are still checked. If every
 placement of a hybrid is exempt, the overlap rule passes. The empty-mask and
 mask-area rules always use the complete hybrid mask.
 
-The check uses the individual mask of every placement, which fusion always
-saves (see [study storage](../concepts/study-storage.md)). Exemptions can
-therefore be changed after materialization; only studies materialized with
-older versions lack these masks and must be rematerialized. Names that match
+The check needs the individual mask of every placement. Fusion saves these
+masks only when exemptions are configured, so set them **before**
+`materialize_hybrid_samples()`; otherwise postprocessing stops and asks for
+rematerialization. The masks require additional disk space. Names that match
 no ingested original produce a warning and are listed as
 `unknown_exempt_source_names` in `summary.json`.
 
