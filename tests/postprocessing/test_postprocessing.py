@@ -44,9 +44,9 @@ class PostprocessingTests(unittest.TestCase):
             result=PostprocessingService(repo,store,cfg).run();self.assertEqual(result['excluded'],1)
             bad=repo.get_hybrid_sample('bad');good=repo.get_hybrid_sample('good')
             self.assertFalse(decision_for(repo,store,bad,original,cfg)['accepted'])
-            from examples.mvtec_ad2.downstream.datasets import HybridPairs
+            from examples.mvtec_ad2.synthetic_data_generation.hybrid.pairs import HybridPairs
             from examples.mvtec_ad2.downstream.configuration import DataConfiguration
-            with patch('examples.mvtec_ad2.downstream.datasets.verify_repository'), \
+            with patch('examples.mvtec_ad2.synthetic_data_generation.hybrid.pairs.verify_repository'), \
                  patch.object(repo,'list_placements',return_value=[SimpleNamespace(synthetic_anomaly_id='s',id='p')]), \
                  patch.object(repo,'get_synthetic_anomaly',return_value=SimpleNamespace(real_anomaly_id='r')), \
                  patch.object(repo,'get_real_anomaly',return_value=SimpleNamespace(original_sample_id='o')):

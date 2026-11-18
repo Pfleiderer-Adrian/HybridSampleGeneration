@@ -10,9 +10,9 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from .models import build_model
-from .draem.losses import training_loss
-from .evaluation import evaluate, evaluation_loader
+from examples.mvtec_ad2.downstream.models import build_model
+from examples.mvtec_ad2.downstream.models.losses import training_loss
+from examples.mvtec_ad2.downstream.evaluation import evaluate, evaluation_loader
 
 
 @torch.no_grad()

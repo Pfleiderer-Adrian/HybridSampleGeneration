@@ -7,18 +7,19 @@ from uuid import uuid4
 
 import torch
 
-from examples.mvtec_ad2.splits import manifest_samples
+from examples.mvtec_ad2.data.splits import manifest_samples
 from hybrid_sample_generator.persistence.artifact_store import ArtifactStore
 from hybrid_sample_generator.persistence.study_repository import StudyRepository
 
-from .configuration import DownstreamConfiguration
-from .datasets import HybridPairs, MixedTrainingDataset, RealImageDataset, FixedPairedValidation
-from .quota_dataset import FixedQuotaDataset
-from .anomalydiffusion_pairs import AnomalyDiffusionPairs
-from .models import build_model
-from .evaluation import evaluate, evaluation_loader
-from .textures import prepare_textures
-from .training import train
+from examples.mvtec_ad2.downstream.configuration import DownstreamConfiguration
+from examples.mvtec_ad2.downstream.data.datasets import MixedTrainingDataset, RealImageDataset, FixedPairedValidation
+from examples.mvtec_ad2.synthetic_data_generation.hybrid.pairs import HybridPairs
+from examples.mvtec_ad2.downstream.data.quota_dataset import FixedQuotaDataset
+from examples.mvtec_ad2.synthetic_data_generation.anomalydiffusion.pairs import AnomalyDiffusionPairs
+from examples.mvtec_ad2.downstream.models import build_model
+from examples.mvtec_ad2.downstream.evaluation import evaluate, evaluation_loader
+from examples.mvtec_ad2.synthetic_data_generation.draem.textures import prepare_textures
+from examples.mvtec_ad2.downstream.training import train
 
 
 def train_downstream(generator_config, manifest, config: DownstreamConfiguration, *, output_root=None,

@@ -9,8 +9,8 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from examples.common.image_io import save_image
 
-from .draem.losses import focal_loss
-from .patches import tiled_logits
+from examples.mvtec_ad2.downstream.models.losses import focal_loss
+from examples.mvtec_ad2.data.patches import tiled_logits
 
 
 def evaluation_loader(dataset, settings):
