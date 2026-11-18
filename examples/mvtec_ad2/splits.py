@@ -69,6 +69,20 @@ def capture_group(sample):
     return sample.split, sample.label, int(match.group(1))
 
 
+CAPTURE_VARIANTS = ("regular", "overexposed", "underexposed", "shift_1", "shift_2", "shift_3")
+
+
+def capture_variants(capture_ids, suffix=".png"):
+    """Source names of all acquisition variants of the given captures.
+
+    MVTec AD 2 records every capture in six variants, e.g. capture
+    ``test_public_bad_010`` as ``test_public_bad_010_regular.png`` and so on.
+    """
+    if isinstance(capture_ids, str):
+        raise TypeError("capture_ids must be a collection of capture IDs.")
+    return [f"{capture}_{variant}{suffix}" for capture in capture_ids for variant in CAPTURE_VARIANTS]
+
+
 def create_grouped_manifest(category_root, config: SplitConfiguration | None = None):
     """Stratified train/validation split with disjoint acquisition groups.
 

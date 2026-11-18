@@ -8,6 +8,7 @@ from examples.mvtec_ad2.downstream.runner import evaluate_downstream, train_down
 from examples.mvtec_ad2.settings import category_root, study_folder
 from examples.mvtec_ad2.splits import (
     SplitConfiguration,
+    capture_variants,
     load_or_create_manifest,
     manifest_samples,
 )
@@ -71,6 +72,10 @@ def create_configuration():
     post.foreground.fill_holes = False
     post.rules.minimum_object_overlap.enabled = True
     post.rules.minimum_object_overlap.threshold = 0.95
+    # Defects 010 and 012 legitimately extend beyond the plug outline.
+    post.rules.minimum_object_overlap.exempt_source_names = capture_variants(
+        ["test_public_bad_010", "test_public_bad_012"]
+    )
 
     return config
 

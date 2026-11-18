@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 from examples.mvtec_ad2.dataset import MVTecAD2Sample
-from examples.mvtec_ad2.splits import create_grouped_manifest, capture_group
+from examples.mvtec_ad2.splits import create_grouped_manifest, capture_group, capture_variants
 
 
 class GroupedSplitTests(unittest.TestCase):
@@ -42,4 +42,12 @@ class GroupedSplitTests(unittest.TestCase):
         self.assertNotEqual(capture_group(sample), capture_group(other))
         bad = MVTecAD2Sample(Path('/tmp/unknown.png'), None, 'unknown', 'train', 'good')
         with self.assertRaises(ValueError): capture_group(bad)
+
+    def test_capture_variants_cover_every_acquisition_condition(self):
+        names = capture_variants(["test_public_bad_010", "test_public_bad_012"])
+        self.assertEqual(len(names), 12)
+        self.assertIn("test_public_bad_010_shift_3.png", names)
+        self.assertIn("test_public_bad_012_underexposed.png", names)
+        with self.assertRaises(TypeError):
+            capture_variants("test_public_bad_010")
 
