@@ -14,16 +14,21 @@ from .transforms import aligned_flips, image_tensor, mask_tensor, read_image
 
 
 class HybridPairs:
-    def __init__(self, repository, store, manifest, data, postprocessing=None):
+    def __init__(self, repository, store, manifest, data, postprocessing=None, *, included_ids=None):
         verify_repository(repository, manifest)
         self.store, self.data = store, data
         self.pairs = []
         self.provenance = []
+        selected = None if included_ids is None else set(included_ids)
+        if selected is not None and (not selected or len(selected) != len(included_ids)):
+            raise ValueError("Frozen hybrid IDs must be nonempty and unique.")
         for hybrid in repository.list_hybrid_samples(status="generated"):
+            if selected is not None and hybrid.id not in selected:
+                continue
             original = repository.get_original_sample(hybrid.original_sample_id)
             if original.has_anomaly:
                 continue
-            if postprocessing is not None and postprocessing.enabled:
+            if selected is None and postprocessing is not None and postprocessing.enabled:
                 from hybrid_sample_generator.postprocessing.service import decision_for
                 decision = decision_for(repository, store, hybrid, original, postprocessing)
                 if postprocessing.action == "exclude" and not decision["accepted"]:
@@ -44,6 +49,13 @@ class HybridPairs:
             self.provenance.append({"hybrid_id": hybrid.id, "original_id": original.id,
                                     "donor_original_ids": sorted(set(donors)),
                                     "placement_ids": [p.id for p in placements]})
+        if selected is not None:
+            by_id = {pair[0].id: (pair, source) for pair, source in zip(self.pairs, self.provenance)}
+            if set(by_id) != selected:
+                raise ValueError("Frozen hybrid selection contains missing or ineligible samples.")
+            # Preserve the historical order as well as membership for seeded draws.
+            self.pairs = [by_id[key][0] for key in included_ids]
+            self.provenance = [by_id[key][1] for key in included_ids]
         if not self.pairs:
             raise ValueError("No materialized hybrids on healthy training originals available.")
 

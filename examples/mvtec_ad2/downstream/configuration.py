@@ -11,6 +11,7 @@ class DataConfiguration:
     # Explicit quotas override legacy fractions and appended real examples.
     source_quotas: dict[str, int] | None = None
     source_quota_rotation: list[str] | None = None
+    anomalydiffusion_manifest: str | None = None
     include_real_defects: bool = False
     hybrid_fraction: float = 0.5
     normal_fraction: float = 0.5
@@ -42,6 +43,7 @@ class TrainingConfiguration:
 @dataclass
 class DINOv3Configuration:
     pair_healthy_samples: bool = True
+    backbone_type: str = "vit"
     backbone: str = "facebook/dinov3-vits16-pretrain-lvd1689m"
     revision: str = "main"
     decoder_width: int = 64
@@ -78,7 +80,7 @@ class DownstreamConfiguration:
         quotas = self.data.source_quotas
         if quotas is not None:
             if (not isinstance(quotas, dict) or not quotas
-                    or set(quotas) - {"normal", "real", "draem", "cutmix", "hybrid"}
+                    or set(quotas) - {"normal", "real", "draem", "cutmix", "hybrid", "anomalydiffusion"}
                     or any(type(n) is not int or n < 0 for n in quotas.values())
                     or sum(quotas.values()) != self.data.samples_per_epoch):
                 raise ValueError("source_quotas must contain nonnegative source counts summing to samples_per_epoch.")
@@ -88,10 +90,12 @@ class DownstreamConfiguration:
                 raise ValueError("Real/CutMix quotas require include_real_defects.")
             if self.data.hard_normal_fraction:
                 raise ValueError("Explicit source quotas currently exclude hard-normal sampling.")
+            if quotas.get("anomalydiffusion", 0) and not self.data.anomalydiffusion_manifest:
+                raise ValueError("AnomalyDiffusion quota requires a generated pair manifest.")
         rotation = self.data.source_quota_rotation
         if rotation is not None:
             if (not quotas or len(rotation) < 2 or len(set(rotation)) != len(rotation)
-                    or any(s not in {"hybrid", "draem", "cutmix"} or not quotas.get(s) for s in rotation)):
+                    or any(s not in {"hybrid", "draem", "cutmix", "anomalydiffusion"} or not quotas.get(s) for s in rotation)):
                 raise ValueError("source_quota_rotation requires distinct positive synthetic source quotas.")
         if type(self.dinov3.pair_healthy_samples) is not bool:
             raise ValueError("pair_healthy_samples must be boolean.")
@@ -115,8 +119,12 @@ class DownstreamConfiguration:
             raise ValueError("DINOv3 backbone and revision must be nonempty.")
         if type(self.dinov3.decoder_width) is not int or self.dinov3.decoder_width <= 0:
             raise ValueError("DINOv3 decoder_width must be a positive integer.")
-        if self.dinov3.decoder not in ("cnn", "dpt", "residual_fpn", "convnext_fpn", "cnn_residual", "cnn_multilayer"):
+        if self.dinov3.backbone_type not in ("vit", "convnext"):
+            raise ValueError("DINOv3 backbone_type must be vit or convnext.")
+        if self.dinov3.decoder not in ("cnn", "dpt", "residual_fpn", "convnext_fpn", "cnn_residual", "cnn_multilayer", "native_fpn"):
             raise ValueError("Unknown DINOv3 decoder.")
+        if (self.dinov3.backbone_type == "convnext") != (self.dinov3.decoder == "native_fpn"):
+            raise ValueError("The ConvNeXt backbone requires the native_fpn decoder, and vice versa.")
         if type(self.dinov3.decoder_blocks) is not int or self.dinov3.decoder_blocks < 1:
             raise ValueError("DINOv3 decoder_blocks must be a positive integer.")
         if type(self.dinov3.validation_samples) is not int or self.dinov3.validation_samples <= 0:

@@ -10,6 +10,10 @@ def build_model(config, *, backbone_config=None):
     if config.model == "draem":
         return DRAEM(config.training.reconstruction_width, config.training.segmentation_width)
     if config.model in ("dinov3_paired", "dinov3_segmentation"):
+        if config.dinov3.backbone_type == "convnext":
+            from .dinov3_convnext import DINOv3ConvNeXtPaired, DINOv3ConvNeXtSegmentation
+            model = DINOv3ConvNeXtPaired if config.model == "dinov3_paired" else DINOv3ConvNeXtSegmentation
+            return model(config.dinov3, backbone_config=backbone_config)
         from .dinov3 import DINOv3Paired, DINOv3Segmentation
         model = DINOv3Paired if config.model == "dinov3_paired" else DINOv3Segmentation
         return model(config.dinov3, backbone_config=backbone_config)

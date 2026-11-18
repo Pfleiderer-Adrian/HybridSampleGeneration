@@ -12,11 +12,12 @@ from .transforms import aligned_flips, image_tensor, mask_tensor, read_image
 
 
 class FixedQuotaDataset(Dataset):
-    SOURCES = ("normal", "real", "draem", "cutmix", "hybrid")
+    SOURCES = ("normal", "real", "draem", "cutmix", "hybrid", "anomalydiffusion")
 
-    def __init__(self, healthy_samples, real_samples, hybrids, config):
+    def __init__(self, healthy_samples, real_samples, hybrids, config, anomalydiffusion=None):
         config.validate()
         self.config, self.hybrids = config, hybrids
+        self.anomalydiffusion = anomalydiffusion
         self.healthy_samples, self.real_samples = list(healthy_samples), list(real_samples)
         self.quotas = dict(config.data.source_quotas)
         self.hard_pool = None
@@ -29,6 +30,8 @@ class FixedQuotaDataset(Dataset):
             raise ValueError("Real quota must cover every real training image per epoch.")
         if self.quotas.get("hybrid", 0) and (hybrids is None or not len(hybrids)):
             raise ValueError("Hybrid quota requires materialized training hybrids.")
+        if self.quotas.get("anomalydiffusion", 0) and (anomalydiffusion is None or not len(anomalydiffusion)):
+            raise ValueError("AnomalyDiffusion quota requires validated generated pairs.")
         self.synthesis = (TextureSynthesizer(config.data.texture_root)
                           if self.quotas.get("draem", 0) else None)
         self.set_epoch(0)
@@ -99,6 +102,8 @@ class FixedQuotaDataset(Dataset):
             target = image.clone()  # Placeholder: real examples never enter the paired branch.
         elif source == "hybrid":
             image, target, mask = self.hybrids.sample(int(rng.integers(len(self.hybrids))), rng)
+        elif source == "anomalydiffusion":
+            image, target, mask = self.anomalydiffusion.sample(int(rng.integers(len(self.anomalydiffusion))), rng)
         else:
             target = self._healthy(rng)
             if source == "normal":
