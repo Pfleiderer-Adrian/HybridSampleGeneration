@@ -64,6 +64,32 @@ outline can fail the overlap rule. Start with `action = "report"` and
 rejecting every hybrid. The overlap rule requires healthy originals as
 placement targets.
 
+### Exempting source originals
+
+Some real defects legitimately extend beyond the outline of a healthy object,
+for example missing or protruding material. Placements derived from such
+defects always fail the overlap rule. List the donor originals by their exact
+`source_name` to exclude their placements from the overlap check:
+
+```python
+post.rules.minimum_object_overlap.exempt_source_names = [
+    "defect_010.png",
+    "defect_012.png",
+]
+```
+
+Only placements whose synthetic anomaly comes from a listed original are
+skipped; all other placements of the same hybrid are still checked. If every
+placement of a hybrid is exempt, the overlap rule passes. The empty-mask and
+mask-area rules always use the complete hybrid mask.
+
+The check needs the individual mask of every placement. Fusion saves these
+masks only when exemptions are configured, so set them **before**
+`materialize_hybrid_samples()`; otherwise postprocessing stops and asks for
+rematerialization. The masks require additional disk space. Names that match
+no ingested original produce a warning and are listed as
+`unknown_exempt_source_names` in `summary.json`.
+
 ## Actions and outputs
 
 - `report`: record decisions only.

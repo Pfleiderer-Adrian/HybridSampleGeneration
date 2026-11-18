@@ -44,9 +44,9 @@ class PostprocessingTests(unittest.TestCase):
             result=PostprocessingService(repo,store,cfg).run();self.assertEqual(result['excluded'],1)
             bad=repo.get_hybrid_sample('bad');good=repo.get_hybrid_sample('good')
             self.assertFalse(decision_for(repo,store,bad,original,cfg)['accepted'])
-            from examples.mvtec_ad2.downstream.datasets import HybridPairs
+            from examples.mvtec_ad2.synthetic_data_generation.hybrid.pairs import HybridPairs
             from examples.mvtec_ad2.downstream.configuration import DataConfiguration
-            with patch('examples.mvtec_ad2.downstream.datasets.verify_repository'), \
+            with patch('examples.mvtec_ad2.synthetic_data_generation.hybrid.pairs.verify_repository'), \
                  patch.object(repo,'list_placements',return_value=[SimpleNamespace(synthetic_anomaly_id='s',id='p')]), \
                  patch.object(repo,'get_synthetic_anomaly',return_value=SimpleNamespace(real_anomaly_id='r')), \
                  patch.object(repo,'get_real_anomaly',return_value=SimpleNamespace(original_sample_id='o')):
@@ -65,6 +65,48 @@ class PostprocessingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'stale'):decision_for(repo,store,good,original,cfg)
             repo.replace_hybrid_plan([],[])
             with repo.connection() as db:self.assertEqual(db.execute('select count(*) from postprocessing_decisions').fetchone()[0],0)
+
+    def test_exempt_sources_do_not_bypass_other_placements(self):
+        from unittest.mock import Mock
+        from hybrid_sample_generator.postprocessing.service import overlap_mask
+        with tempfile.TemporaryDirectory() as tmp:
+            store=ArtifactStore(tmp);repo=Mock()
+            repo.list_placements.return_value=[SimpleNamespace(id='exempt',synthetic_anomaly_id='s1'),
+                                               SimpleNamespace(id='checked',synthetic_anomaly_id='s2')]
+            repo.get_synthetic_anomaly.side_effect=lambda sid:SimpleNamespace(real_anomaly_id=sid)
+            repo.get_real_anomaly.side_effect=lambda rid:SimpleNamespace(original_sample_id=rid)
+            repo.get_original_sample.side_effect=lambda oid:SimpleNamespace(source_name='defect_010.png' if oid=='s1' else 'defect_001.png')
+            m=np.zeros((1,5,5),dtype='uint8');m[0,0,0]=1
+            store.save_entity_array('placements','checked','full_segmentation',m)
+            final=np.ones((1,5,5),dtype='uint8')
+            checked,n=overlap_mask(repo,store,SimpleNamespace(id='h'),final,{'defect_010.png'})
+            self.assertEqual(n,1);self.assertEqual(checked.sum(),1);self.assertTrue(checked[0,0,0])
+            # Exact names only: no implicit grouping of related file names.
+            e=np.zeros((1,5,5),dtype='uint8');e[0,4,4]=1
+            store.save_entity_array('placements','exempt','full_segmentation',e)
+            checked,n=overlap_mask(repo,store,SimpleNamespace(id='h'),final,{'defect_010'})
+            self.assertEqual(n,0);self.assertEqual(checked.sum(),2)
+            store.resolve(store.relative_path('placements','checked','full_segmentation')).unlink()
+            with self.assertRaisesRegex(ValueError,'Rematerialize'):
+                overlap_mask(repo,store,SimpleNamespace(id='h'),final,{'defect_010.png'})
+
+    def test_unknown_exempt_source_names_warn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store=ArtifactStore(tmp);repo=StudyRepository(Path(tmp)/'artifacts.sqlite')
+            a=np.full((3,20,20),255,dtype='uint8');a[:,5:15,5:15]=100
+            path=store.save_entity_array('original_samples','o','image',a)
+            repo.replace_original_samples([OriginalSample('o','known.png',path,None,2,False,False,0)])
+            mask=np.zeros((1,20,20));mask[0,10,10]=1
+            repo.upsert_hybrid_sample(HybridSample('h','o',0,store.save_entity_array('hybrid_samples','h','image',a),
+                                                   store.save_entity_array('hybrid_samples','h','segmentation',mask),'generated'))
+            cfg=PostprocessingConfiguration(enabled=True)
+            cfg.rules.minimum_object_overlap.enabled=True
+            cfg.rules.minimum_object_overlap.exempt_source_names=['known.png','typo.png']
+            with self.assertWarnsRegex(UserWarning,'typo.png'):
+                summary=PostprocessingService(repo,store,cfg).run()
+            self.assertEqual(summary['unknown_exempt_source_names'],['typo.png'])
+            cfg.rules.minimum_object_overlap.exempt_source_names=['dup.png','dup.png']
+            with self.assertRaisesRegex(ValueError,'exempt_source_names'):cfg.validate()
 
     def test_rules_and_empty_foreground_fail_safely(self):
         from hybrid_sample_generator.postprocessing.measurements import measure
