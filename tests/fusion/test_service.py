@@ -134,8 +134,12 @@ class FusionServiceTests(unittest.TestCase):
         self.repository.upsert_hybrid_sample.assert_called_once_with(result)
         self.assertEqual(
             [item.args[2] for item in self.artifact_store.save_entity_array.call_args_list],
-            ["roi_image", "roi_segmentation", "image", "segmentation"],
+            ["full_segmentation", "roi_image", "roi_segmentation", "image", "segmentation"],
         )
+        # The full-size mask of each placement is always stored, independent of postprocessing.
+        entity, entity_id, role, mask = self.artifact_store.save_entity_array.call_args_list[0].args
+        self.assertEqual((entity, entity_id, role), ("placements", placement.id, "full_segmentation"))
+        self.assertEqual(mask.dtype, np.uint8)
 
     def test_placement_randomness_is_repeatable(self):
         hybrid = self._hybrid()

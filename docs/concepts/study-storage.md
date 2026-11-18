@@ -43,11 +43,13 @@ study/
     real_anomalies/<id>/{image,segmentation,roi_image,roi_segmentation}.npy
     synthetic_anomalies/<id>/{image,segmentation}.npy
     hybrid_samples/<id>/{image,segmentation}.npy
-    placements/<id>/{roi_image,roi_segmentation}.npy
+    placements/<id>/{full_segmentation,roi_image,roi_segmentation}.npy
   evaluation_results/
 ```
 
 Files appear as their pipeline phases run. Unannotated originals have no
 segmentation artifact; hybrid images and masks are written during materialization.
-Placement ROI images and masks are optional backend outputs. Loading a trained
+Each placement also stores `full_segmentation`, its own mask at full image size
+(uint8); the hybrid mask is the union of these masks. Placement ROI images and
+masks are optional backend outputs. Loading a trained
 generator requires its Optuna database and the referenced model checkpoint.

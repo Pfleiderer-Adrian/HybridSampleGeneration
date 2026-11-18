@@ -73,7 +73,7 @@ DESCRIPTIONS = {
     "postprocessing.foreground.fill_holes": "Fill enclosed holes after component selection.",
     "postprocessing.rules.minimum_object_overlap.enabled": "Measure anomaly coverage by the estimated object mask.",
     "postprocessing.rules.minimum_object_overlap.threshold": "Minimum fraction of anomaly pixels inside the object; inclusive bound in [0, 1].",
-    "postprocessing.rules.minimum_object_overlap.exempt_source_names": "Exact `source_name`s of donor originals whose placements are not overlap-checked; set before materialization. Unknown names produce a warning.",
+    "postprocessing.rules.minimum_object_overlap.exempt_source_names": "Exact `source_name`s of donor originals whose placements are not overlap-checked. Unknown names produce a warning.",
     "postprocessing.rules.mask_area_fraction.enabled": "Enable whole-image anomaly area bounds.",
     "postprocessing.rules.mask_area_fraction.minimum": "Inclusive lower bound in [0, 1].",
     "postprocessing.rules.mask_area_fraction.maximum": "Inclusive upper bound in [0, 1].",
