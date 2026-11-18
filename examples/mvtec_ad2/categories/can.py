@@ -1,6 +1,4 @@
 """Complete MVTec AD 2 workflow for the can category."""
-from networkx import config
-
 from examples.mvtec_ad2.common import (
     create_downstream_configuration,
     create_generator_configuration,
@@ -28,7 +26,7 @@ def create_configuration():
     config.matching.hybrids_per_original = 2
     config.generation.variants_per_real_anomaly = 10
     config.matching.reuse_synthetic_across_hybrids = True
-    config.matching.max_anomalies_per_hybrid_deviation = 2
+    config.matching.max_anomalies_per_hybrid_deviation = 0
 
     # Fusion settings
     config.fusion.set_backend("classical")
