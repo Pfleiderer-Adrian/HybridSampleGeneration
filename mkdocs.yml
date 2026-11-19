@@ -60,4 +60,5 @@ nav:
       - Tests: development/testing.md
       - Project structure: development/project-structure.md
       - Releases: development/releases.md
+  - LLM usage statement: llm-usage.md
   - Citation and license: about.md
