@@ -16,8 +16,7 @@ The stable registry contains 2D and 3D entries for `VAE_ResNet`,
 share one dimension-independent model implementation per architecture while
 selecting dimension-specific defaults. Use registered names such as
 `VAE_ResNet_2D`, `VAE_ConvNeXt_3D` or `cVAE_ConvNeXt_2D` with
-`config.model.set_model(name)`. Diffusion models are experimental and are not
-available through the stable registry.
+`config.model.set_model(name)`.
 
 `Configuration(study_name, save_path=None, *, study_folder=None)` only accepts
 study identity and storage location. New configurations default to

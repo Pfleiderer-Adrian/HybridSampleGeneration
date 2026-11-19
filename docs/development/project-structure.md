@@ -1,6 +1,6 @@
 # Project structure
 
-- `pyproject.toml` — package metadata, stable dependencies and experimental extras
+- `pyproject.toml` — package metadata, stable dependencies and optional extras
 - `hybrid_sample_generator/configuration/` — validated, section-based configuration
 - `hybrid_sample_generator/domain/` — input and persisted study records
 - `hybrid_sample_generator/persistence/` — repository, study paths and artifacts
@@ -17,4 +17,3 @@
 - `hybrid_sample_generator/visualization/` — study browser and maintenance UI
 - `examples/` — shared example helpers plus 2D image, 3D NIfTI and MVTec AD 2 workflows
 - `tests/` — tests grouped by the same feature boundaries
-- `experiments/` — unsupported prototypes, optional dependencies and isolated tests

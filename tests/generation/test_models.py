@@ -158,10 +158,6 @@ class ModelCompatibilityTests(unittest.TestCase):
                 self.assertEqual(posterior.shape, shape)
                 self.assertEqual(prior.shape, shape)
 
-    def test_experimental_diffusion_model_is_not_registered(self):
-        self.assertNotIn("LatentDiffusionLoRA_2D", MODEL_REGISTRY)
-
-
     def test_conditional_models_reuse_base_convnext_layers(self):
         for name, params, input_shape, conditional in MODEL_CASES:
             if not conditional:
