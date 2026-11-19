@@ -607,11 +607,11 @@ materialization, FK-based evaluation and cached full-image `local` matching.
 
 ## [LLM usage statement](https://pfleiderer-adrian.github.io/HybridSampleGeneration/llm-usage/)
 
-Large language models have become everyday tools for writing code, text, and
-analyses, in research as much as in industry. We find them useful for this
-project as long as a human checks every generated result, and we think their
-use should be disclosed openly. The list below therefore states which tools
-were involved and what they were used for:
+LLM-assisted coding, writing, and analysis are becoming standard in both industry
+and research. While these tools entail risks, we believe that, combined with
+careful verification of all generated content, they can accelerate scientific
+progress. This, however, requires uncompromising transparency about which tools
+contributed to the results and to what extent:
 
 - **Implementation and documentation:** Claude (Anthropic) and Codex (OpenAI)
   were used as assistants for implementing, refactoring, and debugging parts of
