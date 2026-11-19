@@ -1,10 +1,13 @@
 # [Hybrid Sample Generation](https://pfleiderer-adrian.github.io/HybridSampleGeneration/)
-![Python](https://img.shields.io/badge/Python-14354C?style=flat&logo=python&logoColor=green) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![Tests](https://github.com/Pfleiderer-Adrian/HybridSampleGeneration/actions/workflows/tests.yml/badge.svg)](https://github.com/Pfleiderer-Adrian/HybridSampleGeneration/actions/workflows/tests.yml) [![DOI:AMLDS63918.2025.11159383](http://img.shields.io/badge/DOI-AMLDS63918.2025.11159383-B31B1B.svg)](https://doi.org/10.1109/AMLDS63918.2025.11159383)
+![Python](https://img.shields.io/badge/Python-14354C?style=flat&logo=python&logoColor=green) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![Tests](https://github.com/Pfleiderer-Adrian/HybridSampleGeneration/actions/workflows/tests.yml/badge.svg)](https://github.com/Pfleiderer-Adrian/HybridSampleGeneration/actions/workflows/tests.yml) [![DOI:AMLDS63918.2025.11159383](http://img.shields.io/badge/DOI-AMLDS63918.2025.11159383-B31B1B.svg)](https://doi.org/10.1109/AMLDS63918.2025.11159383) [![DOI:AMLDS63918.2025.11159383](http://img.shields.io/badge/DOI-AMLDS69611.2026.11723773-B31B1B.svg)](https://doi.org/10.1109/AMLDS69611.2026.11723773)
 
 This project extracts real anomalies from labelled 2D images or 3D volumes,
 trains a generative model, creates multiple synthetic variants and places them
-into original control samples. It is based on the IEEE paper
-[AMLDS63918.2025.11159383](https://doi.org/10.1109/AMLDS63918.2025.11159383).
+into original control samples. It is based on the IEEE papers
+[AMLDS63918.2025.11159383](https://doi.org/10.1109/AMLDS63918.2025.11159383) and [AMLDS63918.2025.11159383](https://doi.org/10.1109/AMLDS69611.2026.11723773).
+
+Documentation, guides, and wiki: https://pfleiderer-adrian.github.io/HybridSampleGeneration/ \
+<br />
 
 ![High-level overview of hybrid sample generation](high_level.png)
 
