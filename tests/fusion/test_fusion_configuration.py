@@ -72,12 +72,6 @@ class FusionConfigurationTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             get_fusion_backend_spec('poisson').build(ClassicalConfig())
 
-    def test_experimental_backend_is_not_registered(self):
-        with self.assertRaises(ValueError):
-            get_fusion_backend_spec("learned_residual_alpha")
-        with self.assertRaises(ValueError):
-            FusionSettings.for_backend("learned_residual_alpha")
-
     def test_service_rebuilds_backend_after_settings_change(self):
         with tempfile.TemporaryDirectory() as root:
             config = Configuration('cache-test', save_path=root)

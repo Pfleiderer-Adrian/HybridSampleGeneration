@@ -262,8 +262,7 @@ The stable registry contains 2D and 3D entries for `VAE_ResNet`,
 share one dimension-independent model implementation per architecture while
 selecting dimension-specific defaults. Use registered names such as
 `VAE_ResNet_2D`, `VAE_ConvNeXt_3D` or `cVAE_ConvNeXt_2D` with
-`config.model.set_model(name)`. Diffusion models are experimental and are not
-available through the stable registry.
+`config.model.set_model(name)`.
 
 `Configuration(study_name, save_path=None, *, study_folder=None)` only accepts
 study identity and storage location. New configurations default to
@@ -572,22 +571,6 @@ The visualizer can also be started for an existing study folder:
 python -m hybrid_sample_generator.visualization /path/to/study --channel auto
 ```
 
-## [Experimental prototypes](https://pfleiderer-adrian.github.io/HybridSampleGeneration/development/experiments/)
-
-Unsupported diffusion and learned residual-alpha fusion prototypes are isolated
-under `experiments/`. They are excluded from the stable package API and
-registries and require the optional dependencies in
-`experiments/requirements.txt`. Their APIs, configuration formats and
-checkpoints may change without notice; see `experiments/README.md` for their
-current status.
-
-Install and test them separately only when working on the prototypes:
-
-```bash
-python -m pip install -e ".[experiments]"
-python -m unittest discover -s experiments/tests -v
-```
-
 ## [Tests](https://pfleiderer-adrian.github.io/HybridSampleGeneration/development/testing/)
 
 ```bash
@@ -601,7 +584,7 @@ materialization, FK-based evaluation and cached full-image `local` matching.
 
 ## [Project structure](https://pfleiderer-adrian.github.io/HybridSampleGeneration/development/project-structure/)
 
-- `pyproject.toml` — package metadata, stable dependencies and experimental extras
+- `pyproject.toml` — package metadata, stable dependencies and optional extras
 - `hybrid_sample_generator/configuration/` — validated, section-based configuration
 - `hybrid_sample_generator/domain/` — input and persisted study records
 - `hybrid_sample_generator/persistence/` — repository, study paths and artifacts
@@ -618,7 +601,6 @@ materialization, FK-based evaluation and cached full-image `local` matching.
 - `hybrid_sample_generator/visualization/` — study browser and maintenance UI
 - `examples/` — shared example helpers plus 2D image, 3D NIfTI and MVTec AD 2 workflows
 - `tests/` — tests grouped by the same feature boundaries
-- `experiments/` — unsupported prototypes, optional dependencies and isolated tests
 
 ## [Cite this work](https://pfleiderer-adrian.github.io/HybridSampleGeneration/about/#cite-this-work)
 

@@ -59,6 +59,5 @@ nav:
   - Development:
       - Tests: development/testing.md
       - Project structure: development/project-structure.md
-      - Experimental prototypes: development/experiments.md
       - Releases: development/releases.md
   - Citation and license: about.md
