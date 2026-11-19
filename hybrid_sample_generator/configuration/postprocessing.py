@@ -1,65 +1,104 @@
 """Optional, non-destructive quality checks for materialized hybrids."""
-from dataclasses import dataclass, field, asdict
-import math
+from dataclasses import asdict, dataclass
+
+from hybrid_sample_generator.configuration.parameters import param, validate_parameters
+
 
 @dataclass
 class ForegroundConfiguration:
-    method: str = "threshold"
-    channel_reduction: str = "minimum"
-    comparison: str = "below"
-    threshold: float = 240.0
-    components: str = "largest"
-    min_component_area: int = 1
-    fill_holes: bool = True
+    method: str = param(
+        "threshold", choices=("threshold",), doc="Object-mask estimator.",
+    )
+    channel_reduction: str = param(
+        "minimum",
+        choices=("minimum", "grayscale"),
+        doc="Minimum channel value (`minimum`) or RGB luminance (`grayscale`).",
+    )
+    comparison: str = param(
+        "below", choices=("below", "above"), doc="Threshold direction, strict comparison.",
+    )
+    threshold: float = param(
+        240.0,
+        ge=0.0,
+        le=255.0,
+        doc="Threshold in original image units; no per-image normalization.",
+    )
+    components: str = param(
+        "largest",
+        choices=("largest", "all"),
+        doc="Keep the largest component (`largest`) or `all`.",
+    )
+    min_component_area: int = param(
+        1,
+        ge=1,
+        doc="Minimum connected-component pixel/voxel count, before hole filling.",
+    )
+    fill_holes: bool = param(True, doc="Fill enclosed holes after component selection.")
+
 
 @dataclass
 class OverlapRule:
-    enabled: bool = False
-    threshold: float = 1.0
-    exempt_source_names: list[str] = field(default_factory=list)
+    enabled: bool = param(
+        False, doc="Measure anomaly coverage by the estimated object mask.",
+    )
+    threshold: float = param(
+        1.0,
+        ge=0.0,
+        le=1.0,
+        doc="Minimum fraction of anomaly pixels inside the object; inclusive bound.",
+    )
+    exempt_source_names: list[str] = param(
+        default_factory=list,
+        doc="Exact `source_name`s of donor originals whose placements are not overlap-checked; set before materialization. Unknown names produce a warning.",
+    )
+
 
 @dataclass
 class AreaRule:
-    enabled: bool = False
-    minimum: float = 0.0
-    maximum: float = 1.0
+    enabled: bool = param(False, doc="Enable whole-image anomaly area bounds.")
+    minimum: float = param(0.0, ge=0.0, le=1.0, doc="Inclusive lower bound.")
+    maximum: float = param(1.0, ge=0.0, le=1.0, doc="Inclusive upper bound.")
+
 
 @dataclass
 class RulesConfiguration:
-    minimum_object_overlap: OverlapRule = field(default_factory=OverlapRule)
-    mask_area_fraction: AreaRule = field(default_factory=AreaRule)
-    reject_empty_mask: bool = True
+    minimum_object_overlap: OverlapRule = param(default_factory=OverlapRule)
+    mask_area_fraction: AreaRule = param(default_factory=AreaRule)
+    reject_empty_mask: bool = param(
+        True, doc="Mark empty materialized anomaly masks as failed.",
+    )
+
 
 @dataclass
 class PostprocessingConfiguration:
-    enabled: bool = False
-    action: str = "report"
-    save_previews: bool = False
-    foreground: ForegroundConfiguration = field(default_factory=ForegroundConfiguration)
-    rules: RulesConfiguration = field(default_factory=RulesConfiguration)
+    enabled: bool = param(
+        False, doc="Require and run quality checks when explicitly called.",
+    )
+    action: str = param(
+        "report",
+        choices=("report", "exclude"),
+        doc="`report` records decisions; `exclude` additionally signals downstream consumers to omit failed hybrids. Neither deletes artifacts.",
+    )
+    save_previews: bool = param(
+        False,
+        doc="Write 2D original overlays with foreground in blue and anomalies in red.",
+    )
+    foreground: ForegroundConfiguration = param(default_factory=ForegroundConfiguration)
+    rules: RulesConfiguration = param(default_factory=RulesConfiguration)
 
     def validate(self):
-        flags=[self.enabled,self.save_previews,self.foreground.fill_holes,
-               self.rules.reject_empty_mask,self.rules.minimum_object_overlap.enabled,
-               self.rules.mask_area_fraction.enabled]
-        if any(type(v) is not bool for v in flags):
-            raise ValueError("Postprocessing enabled flags must be boolean.")
-        if self.action not in {"report", "exclude"}:
-            raise ValueError("postprocessing.action must be report or exclude.")
-        f=self.foreground
-        if (f.method!="threshold" or f.channel_reduction not in {"minimum","grayscale"}
-                or f.comparison not in {"below","above"} or f.components not in {"largest","all"}):
-            raise ValueError("Unsupported postprocessing foreground settings.")
-        if not math.isfinite(f.threshold) or not 0<=f.threshold<=255:
-            raise ValueError("Foreground threshold must be finite and in [0,255].")
-        if type(f.min_component_area) is not int or f.min_component_area<1:
-            raise ValueError("min_component_area must be a positive pixel/voxel count.")
-        names=self.rules.minimum_object_overlap.exempt_source_names
-        if not isinstance(names,list) or any(not isinstance(n,str) or not n for n in names) or len(set(names))!=len(names):
-            raise ValueError("exempt_source_names must be distinct nonempty original source names.")
-        a=self.rules.mask_area_fraction;o=self.rules.minimum_object_overlap
-        if any(not math.isfinite(v) or not 0<=v<=1 for v in [a.minimum,a.maximum,o.threshold]) or a.minimum>a.maximum:
-            raise ValueError("Postprocessing fraction thresholds must satisfy 0 <= minimum <= maximum <= 1.")
+        validate_parameters(self, "postprocessing")
+        names = self.rules.minimum_object_overlap.exempt_source_names
+        if any(not name for name in names) or len(set(names)) != len(names):
+            raise ValueError(
+                "postprocessing.rules.minimum_object_overlap.exempt_source_names "
+                "must be distinct nonempty original source names."
+            )
+        area = self.rules.mask_area_fraction
+        if area.minimum > area.maximum:
+            raise ValueError(
+                "postprocessing.rules.mask_area_fraction.minimum must not exceed maximum."
+            )
 
     def to_dict(self):
         self.validate()

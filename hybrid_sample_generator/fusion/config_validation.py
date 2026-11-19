@@ -1,39 +1,44 @@
-"""Validation shared by the concrete fusion parameter dataclasses."""
+"""Parameter declarations and validation shared by the fusion backends."""
 
-import math
-from dataclasses import fields
-from numbers import Integral, Real
-from types import UnionType
-from typing import get_args, get_origin, get_type_hints
+from hybrid_sample_generator.configuration.parameters import param, validate_parameters
 
 
-def validate_parameters(config, *, positive=(), nonnegative=(), unit_interval=()):
-    hints = get_type_hints(type(config))
-    for field in fields(config):
-        value = getattr(config, field.name)
-        annotation = hints[field.name]
-        types = get_args(annotation) if get_origin(annotation) is UnionType else (annotation,)
-        valid = any(
-            (expected is type(None) and value is None)
-            or (expected is bool and isinstance(value, bool))
-            or (expected is int and isinstance(value, Integral) and not isinstance(value, bool))
-            or (expected is float and isinstance(value, Real) and not isinstance(value, bool))
-            or (expected is str and isinstance(value, str))
-            for expected in types
-        )
-        if not valid:
-            raise ValueError(f"fusion.parameters.{field.name} must be {annotation}, got {value!r}.")
-        if isinstance(value, Real) and not math.isfinite(value):
-            raise ValueError(f"fusion.parameters.{field.name} must be finite.")
-    for names, predicate, description in (
-        (positive, lambda value: value > 0, "positive"),
-        (nonnegative, lambda value: value >= 0, "non-negative"),
-        (unit_interval, lambda value: 0 <= value <= 1, "in [0, 1]"),
-    ):
-        for name in names:
-            value = getattr(config, name)
-            if value is not None and not predicate(value):
-                raise ValueError(f"fusion.parameters.{name} must be {description}.")
-    border = config.fusion_normalization_border_width
-    if border is not None and border < -1:
-        raise ValueError("fusion.parameters.fusion_normalization_border_width must be None, -1 or non-negative.")
+# Constraints and descriptions of parameters that every backend exposes.
+# Backends pick their own default: ``param(2, **COMMON["..."])``.
+COMMON = {
+    "fusion_normalization_border_width": dict(
+        ge=-1,
+        doc="Context border width for intensity normalization: None disables normalization, -1 uses the whole image, 0 uses the fallback context directly.",
+    ),
+    "fusion_restore_anomaly_bg_relation": dict(
+        doc="Restore the intensity relationship between anomaly and background.",
+    ),
+    "fusion_relation_mode": dict(
+        choices=("delta", "ratio"),
+        doc="Intensity relationship method; use 'ratio' only if intensities are not close to 0 and have matching signs.",
+    ),
+    "fusion_relation_norm_classes_separately": dict(
+        doc="Normalize the intensity relationship separately for each anomaly class.",
+    ),
+    "fusion_relation_min_context_size": dict(
+        ge=1, doc="Minimum number of context pixels for the intensity relationship.",
+    ),
+    "fusion_keep_bg": dict(doc="Keep the synthetic anomaly background."),
+    "fusion_bg_value": dict(
+        doc="Explicit background value; None uses automatic detection.",
+    ),
+    "fusion_relative_bg_threshold": dict(
+        ge=0.0, doc="Relative threshold for detecting background pixels.",
+    ),
+    "fusion_bg_exterior_only": dict(
+        doc="Consider only background pixels connected to the exterior.",
+    ),
+}
+
+
+def validate_fusion_parameters(config) -> None:
+    """Check declared types and ranges of a backend parameter object."""
+    validate_parameters(config, "fusion.parameters")
+
+
+__all__ = ["COMMON", "param", "validate_fusion_parameters"]

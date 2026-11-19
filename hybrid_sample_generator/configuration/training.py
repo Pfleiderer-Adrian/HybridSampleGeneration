@@ -2,59 +2,76 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import torch
 
+from hybrid_sample_generator.configuration.parameters import param, validate_parameters
+
 
 TrialSelection = Literal["best", "last"] | int
+
+# Offered by the configuration schema; any torch dtype name is accepted when loading.
+TRAINING_DTYPES = ("float16", "bfloat16", "float32", "float64")
 
 
 @dataclass
 class TrainingConfiguration:
     """Model-independent optimization and stopping settings."""
 
-    num_trials: int = 10
-    trial_selection: TrialSelection = "best"
-    validation_ratio: float = 0.2
-    batch_size: int = 64
-    epochs: int = 1000
-    learning_rate: float = 1e-3
-    dtype: torch.dtype | None = None
-    gradient_clip_norm: float | None = None
-    monitor_metric: str | None = "selection"
-    early_stopping_enabled: bool = True
-    early_stopping: dict[str, Any] = field(
-        default_factory=lambda: {"patience": 100, "delta": 0.0001}
+    num_trials: int = param(10, ge=1, doc="Number of Optuna trials.")
+    trial_selection: TrialSelection = param(
+        "best", ge=0, doc="Trial to use: 'best', 'last', or a non-negative trial ID.",
     )
-    lr_scheduler_enabled: bool = True
-    lr_scheduler: dict[str, Any] = field(
-        default_factory=lambda: {"patience": 30, "factor": 0.1, "threshold": 1e-5}
+    validation_ratio: float = param(
+        0.2, ge=0.0, lt=1.0, doc="Fraction of data reserved for validation.",
+    )
+    batch_size: int = param(64, ge=1, doc="Training batch size.")
+    epochs: int = param(1000, ge=1, doc="Maximum number of training epochs.")
+    learning_rate: float = param(1e-3, gt=0.0, doc="Initial learning rate.")
+    dtype: torch.dtype | None = param(
+        None,
+        schema={"type": "choice", "choices": list(TRAINING_DTYPES), "nullable": True},
+        validated=False,
+        doc="PyTorch dtype for training; None uses the model default.",
+    )
+    gradient_clip_norm: float | None = param(
+        None, gt=0.0, doc="Optional upper bound for the gradient norm.",
+    )
+    monitor_metric: str | None = param(
+        "selection", doc="Metric used for model selection and early stopping.",
+    )
+    early_stopping_enabled: bool = param(True, doc="Enable early stopping.")
+    early_stopping: dict[str, Any] = param(
+        default_factory=lambda: {"patience": 100, "delta": 0.0001},
+        schema={
+            "type": "map",
+            "values": {"type": "any"},
+            "keys": {
+                "patience": {"type": "int", "min": 0, "doc": "Epochs without improvement before stopping."},
+                "delta": {"type": "float", "min": 0.0, "doc": "Minimum improvement that resets the patience counter."},
+            },
+        },
+        doc="Early stopping settings.",
+    )
+    lr_scheduler_enabled: bool = param(True, doc="Enable the learning rate scheduler.")
+    lr_scheduler: dict[str, Any] = param(
+        default_factory=lambda: {"patience": 30, "factor": 0.1, "threshold": 1e-5},
+        schema={
+            "type": "map",
+            "values": {"type": "any"},
+            "keys": {
+                "patience": {"type": "int", "min": 0, "doc": "Epochs without improvement before the learning rate is reduced."},
+                "factor": {"type": "float", "min": 0.0, "min_exclusive": True, "max": 1.0, "max_exclusive": True, "doc": "Learning rate multiplier."},
+                "threshold": {"type": "float", "min": 0.0, "doc": "Minimum improvement that counts as progress."},
+            },
+        },
+        doc="Learning rate scheduler settings passed to ReduceLROnPlateau; additional keyword arguments are allowed.",
     )
 
     def validate(self) -> None:
-        if isinstance(self.num_trials, bool) or not isinstance(self.num_trials, int):
-            raise ValueError("training.num_trials must be an integer.")
-        if self.num_trials <= 0:
-            raise ValueError("training.num_trials must be positive.")
-        if isinstance(self.trial_selection, bool) or not (
-            self.trial_selection in ("best", "last")
-            or (
-                isinstance(self.trial_selection, int)
-                and self.trial_selection >= 0
-            )
-        ):
-            raise ValueError(
-                "training.trial_selection must be 'best', 'last', or a "
-                "non-negative trial ID."
-            )
-        if not 0.0 <= float(self.validation_ratio) < 1.0:
-            raise ValueError("training.validation_ratio must be in [0, 1).")
-        if int(self.batch_size) <= 0 or int(self.epochs) <= 0:
-            raise ValueError("training.batch_size and training.epochs must be positive.")
-        if float(self.learning_rate) <= 0:
-            raise ValueError("training.learning_rate must be positive.")
+        validate_parameters(self, "training")
 
     def to_dict(self) -> dict[str, Any]:
         values = dict(self.__dict__)

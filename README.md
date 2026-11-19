@@ -102,6 +102,9 @@ source lives in this repository and is published through GitHub Pages.
 
 `Configuration` contains requested behavior only. Generated entities, matching
 results and extraction metadata live in the study repository.
+`Configuration.schema()` returns the type, default, allowed range and
+description of every parameter as JSON-compatible data, for example to build
+forms in a graphical front end.
 
 ```text
 config.study        identity, location, reproducibility seed

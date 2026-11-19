@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any
+
+from hybrid_sample_generator.configuration.parameters import param, validate_parameters
 
 
 GLOBAL_MASK_TRANSFORMS = frozenset({"zoom", "elastic", "stretch", "rotate"})
@@ -16,14 +18,24 @@ LOCAL_MASK_TRANSFORMS = frozenset(
 class MaskTransformConfiguration:
     """Configuration for generation-time target-mask transformations."""
 
-    use_mask_transform: bool = True
-    mask_transform_probs: dict[int | str, Any] = field(default_factory=dict)
-    mask_transform_params: dict[int | str, dict[str, Any]] = field(
-        default_factory=dict
+    use_mask_transform: bool = param(
+        True,
+        doc="Master switch for all mask transformations. When disabled, configured probabilities and parameters are retained but no mask transformation is applied.",
     )
-    priorities: list[int] | tuple[int, ...] | None = None
-    local_as_global: bool = False
-    padding_factor: int = 2
+    mask_transform_probs: dict[int | str, Any] = param(
+        default_factory=dict,
+        doc="Probabilities for global, local, and class-specific transforms.",
+    )
+    mask_transform_params: dict[int | str, dict[str, Any]] = param(
+        default_factory=dict, doc="Parameter ranges for individual transforms.",
+    )
+    priorities: list[int] | tuple[int, ...] | None = param(
+        None, doc="Class priority when transformed masks overlap.",
+    )
+    local_as_global: bool = param(
+        False, doc="Apply local transforms jointly to all anomaly classes.",
+    )
+    padding_factor: int = param(2, doc="Scale factor for the temporary transform canvas.")
 
     def setGlobalParam(self, transform_name: str, probability=None, **params):
         if transform_name not in GLOBAL_MASK_TRANSFORMS:
@@ -74,18 +86,23 @@ class MaskTransformConfiguration:
 class AugmentationConfiguration:
     """Training offsets and target-mask transformations."""
 
-    mask_transforms: MaskTransformConfiguration = field(
-        default_factory=MaskTransformConfiguration
+    # custom=True: the nested, class-specific layout needs a dedicated editor;
+    # generic schema consumers skip it and it is not checked field by field.
+    mask_transforms: MaskTransformConfiguration = param(
+        default_factory=MaskTransformConfiguration, custom=True,
     )
-    random_offset_enabled: bool = True
-    random_offset_max_fraction: float = 1.0
-    random_offset_foreground_threshold: float = 0.001
+    random_offset_enabled: bool = param(
+        True, doc="Enable random offsets during training.",
+    )
+    random_offset_max_fraction: float = param(
+        1.0, ge=0.0, le=1.0, doc="Maximum offset as a fraction of available space.",
+    )
+    random_offset_foreground_threshold: float = param(
+        0.001, ge=0.0, doc="Foreground threshold used for training offsets.",
+    )
 
     def validate(self) -> None:
-        if not 0.0 <= float(self.random_offset_max_fraction) <= 1.0:
-            raise ValueError("augmentation.random_offset_max_fraction must be in [0, 1].")
-        if float(self.random_offset_foreground_threshold) < 0:
-            raise ValueError("augmentation.random_offset_foreground_threshold must be non-negative.")
+        validate_parameters(self, "augmentation")
 
     def to_dict(self) -> dict[str, Any]:
         return {

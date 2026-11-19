@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from hybrid_sample_generator.configuration.parameters import param
 from hybrid_sample_generator.persistence.study_paths import StudyPaths
 
 
@@ -12,9 +13,15 @@ from hybrid_sample_generator.persistence.study_paths import StudyPaths
 class StudyConfiguration:
     """Identity, storage location and reproducibility settings for one study."""
 
-    name: str
-    folder: str
-    seed: int = 42
+    name: str = param(
+        required=True,
+        doc="Study name supplied when creating Configuration.",
+    )
+    folder: str = param(
+        default_label="results/<study name>",
+        doc="Directory for the database, models, and generated artifacts; defaults to results/<study name> in the working directory.",
+    )
+    seed: int = param(42, doc="Seed for reproducible random decisions.")
 
     def __post_init__(self) -> None:
         if not self.name or not self.name.strip():

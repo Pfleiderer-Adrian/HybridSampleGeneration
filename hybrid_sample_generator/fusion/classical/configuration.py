@@ -2,7 +2,11 @@
 
 from dataclasses import dataclass
 
-from hybrid_sample_generator.fusion.config_validation import validate_parameters
+from hybrid_sample_generator.fusion.config_validation import (
+    COMMON,
+    param,
+    validate_fusion_parameters,
+)
 
 
 CONFIDENCE_LEVELS = {
@@ -16,54 +20,76 @@ CONFIDENCE_LEVELS = {
 
 @dataclass(slots=True)
 class Config:
-    max_alpha: float = 0.8
-    segmentation_min_alpha: float = 0.0
-    image_harmonization: str | None = None
-    sq: float = 2
-    steepness_factor: float = 3
-    upsampling_factor: int = 2
-    sobel_threshold: float = 0.05
-    dilation_size: int = 2
-    shave_pixels: int = 1
-    fusion_use_sobel_for_alpha_mask: bool = False
-    fusion_variation: bool = True
-    alpha_variation: float = 0.05
-    sq_variation: float = 0.1
-    steepness_variation: float = 0.1
-    selected_confidence: str = "90%"
+    max_alpha: float = param(
+        0.8, ge=0.0, le=1.0, doc="Maximum anomaly mixing weight.",
+    )
+    segmentation_min_alpha: float = param(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        doc="Minimum anomaly mixing weight required for a pixel to remain in the output segmentation mask; must not exceed max_alpha.",
+    )
+    image_harmonization: str | None = param(
+        None,
+        choices=("PCTNet", "LBM"),
+        doc="Optional final 2D harmonization step. Requires a separately installed libcom dependency and one or three image channels.",
+    )
+    sq: float = param(2, gt=0.0, doc="Shape parameter for the spatial alpha mask.")
+    steepness_factor: float = param(
+        3, gt=0.0, doc="Steepness of the transition at the anomaly boundary.",
+    )
+    upsampling_factor: int = param(
+        2, ge=1, doc="Factor for finer alpha mask computation.",
+    )
+    sobel_threshold: float = param(
+        0.05, ge=0.0, doc="Threshold for Sobel edge detection.",
+    )
+    dilation_size: int = param(2, ge=0, doc="Width of mask dilation.")
+    shave_pixels: int = param(1, ge=0, doc="Number of boundary pixels removed.")
+    fusion_use_sobel_for_alpha_mask: bool = param(
+        False, doc="Use Sobel edges for the alpha mask.",
+    )
+    fusion_variation: bool = param(
+        True, doc="Enable random variation of fusion parameters.",
+    )
+    alpha_variation: float = param(
+        0.05, ge=0.0, doc="Variation strength for max_alpha.",
+    )
+    sq_variation: float = param(0.1, ge=0.0, doc="Variation strength for sq.")
+    steepness_variation: float = param(
+        0.1, ge=0.0, doc="Variation strength for steepness_factor.",
+    )
+    selected_confidence: str = param(
+        "90%", choices=tuple(CONFIDENCE_LEVELS), doc="Confidence level.",
+    )
     # Border pixels used to normalize anomaly intensity to surrounding context:
     # None skips normalization, -1 uses the entire image, >0 uses a local
     # dilation ring; 0 uses the fallback context directly. If the ring is too
     # small, normalization falls back to
     # all target-mask-outside context pixels in the local insertion patch.
-    fusion_normalization_border_width: int | None = 2
-    fusion_restore_anomaly_bg_relation: bool = True
-    fusion_relation_mode: str = "delta"  # alternatively "ratio" if intensities are not too close to 0 and have matching signs
-    fusion_relation_norm_classes_separately: bool = False
-    fusion_relation_min_context_size: int = 8
-    fusion_keep_bg: bool = False
-    fusion_bg_value: float | None = None
-    fusion_relative_bg_threshold: float | None = 0.01
-    fusion_bg_exterior_only: bool = True
+    fusion_normalization_border_width: int | None = param(
+        2, **COMMON["fusion_normalization_border_width"],
+    )
+    fusion_restore_anomaly_bg_relation: bool = param(
+        True, **COMMON["fusion_restore_anomaly_bg_relation"],
+    )
+    fusion_relation_mode: str = param("delta", **COMMON["fusion_relation_mode"])
+    fusion_relation_norm_classes_separately: bool = param(
+        False, **COMMON["fusion_relation_norm_classes_separately"],
+    )
+    fusion_relation_min_context_size: int = param(
+        8, **COMMON["fusion_relation_min_context_size"],
+    )
+    fusion_keep_bg: bool = param(False, **COMMON["fusion_keep_bg"])
+    fusion_bg_value: float | None = param(None, **COMMON["fusion_bg_value"])
+    fusion_relative_bg_threshold: float | None = param(
+        0.01, **COMMON["fusion_relative_bg_threshold"],
+    )
+    fusion_bg_exterior_only: bool = param(True, **COMMON["fusion_bg_exterior_only"])
 
     def validate(self) -> None:
-        validate_parameters(
-            self,
-            positive=("sq", "steepness_factor", "upsampling_factor", "fusion_relation_min_context_size"),
-            nonnegative=("sobel_threshold", "dilation_size", "shave_pixels", "alpha_variation",
-                         "sq_variation", "steepness_variation", "fusion_relative_bg_threshold"),
-            unit_interval=("max_alpha", "segmentation_min_alpha"),
-        )
+        validate_fusion_parameters(self)
         if self.segmentation_min_alpha > self.max_alpha:
             raise ValueError(
                 "segmentation_min_alpha must not exceed max_alpha."
             )
-        if self.selected_confidence not in CONFIDENCE_LEVELS:
-            raise ValueError(f"Unknown fusion confidence level {self.selected_confidence!r}.")
-        if self.image_harmonization not in {None, "PCTNet", "LBM"}:
-            raise ValueError(
-                "fusion.parameters.image_harmonization must be None, "
-                "'PCTNet', or 'LBM'."
-            )
-        if self.fusion_relation_mode not in {"delta", "ratio"}:
-            raise ValueError("fusion.parameters.fusion_relation_mode must be 'delta' or 'ratio'.")

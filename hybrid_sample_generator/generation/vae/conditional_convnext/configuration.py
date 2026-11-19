@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional
 
+from hybrid_sample_generator.generation.vae.shared_parameters import SHARED, param
 from hybrid_sample_generator.generation.model_settings import Choice, IntRange, SearchSpace
 
 
@@ -12,32 +13,31 @@ from hybrid_sample_generator.generation.model_settings import Choice, IntRange, 
 class Config:
     """Concrete parameters for the conditional ConvNeXt VAE."""
 
-    n_res_blocks: int = 8
-    n_spade_blocks: int = 2
-    n_levels: int = 4
-    z_channels: int = 250
-    bottleneck_dim: int = 250
-    recon_weight: float = 100.0
-    beta_kl_start: float = 0.0
-    beta_kl_max: float = 0.03
-    beta_kl_warmup_start: int = 20
-    beta_kl_warmup_epochs: int = 30
-    free_bits: float = 0.0
-    latent_recon_weight: float = 0.0
-    latent_recon_noise_scale: float = 1.0
-    latent_recon_image_noise_std: float = 0.03
-    recon_loss: str = "smoothl1"
-    recon_smoothl1_beta: float = 1.0
-    use_transpose_conv: bool = True
-    foreground_weight: float = 0.8
-    background_weight: float = 0.2
-    drop_path_rate: float = 0.1
-    dropout: float = 0.05
-    skip_dropout_p: float = 0.0
-    skip_dropout_ps: Optional[List[float]] = None
-    skip_alpha: float = 1.0
-    # Encoder order: highest resolution to deepest. Overrides skip_alpha.
-    skip_alphas: Optional[List[float]] = None
+    n_res_blocks: int = param(8, **SHARED["n_res_blocks"])
+    n_spade_blocks: int = param(2, **SHARED["n_spade_blocks"])
+    n_levels: int = param(4, **SHARED["n_levels"])
+    z_channels: int = param(250, **SHARED["z_channels"])
+    bottleneck_dim: int = param(250, **SHARED["bottleneck_dim"])
+    recon_weight: float = param(100.0, **SHARED["recon_weight"])
+    beta_kl_start: float = param(0.0, **SHARED["beta_kl_start"])
+    beta_kl_max: float = param(0.03, **SHARED["beta_kl_max"])
+    beta_kl_warmup_start: int = param(20, **SHARED["beta_kl_warmup_start"])
+    beta_kl_warmup_epochs: int = param(30, **SHARED["beta_kl_warmup_epochs"])
+    free_bits: float = param(0.0, **SHARED["free_bits"])
+    latent_recon_weight: float = param(0.0, **SHARED["latent_recon_weight"])
+    latent_recon_noise_scale: float = param(1.0, **SHARED["latent_recon_noise_scale"])
+    latent_recon_image_noise_std: float = param(0.03, **SHARED["latent_recon_image_noise_std"])
+    recon_loss: str = param("smoothl1", **SHARED["recon_loss"])
+    recon_smoothl1_beta: float = param(1.0, **SHARED["recon_smoothl1_beta"])
+    use_transpose_conv: bool = param(True, **SHARED["use_transpose_conv"])
+    foreground_weight: float = param(0.8, **SHARED["foreground_weight"])
+    background_weight: float = param(0.2, **SHARED["background_weight"])
+    drop_path_rate: float = param(0.1, **SHARED["drop_path_rate"])
+    dropout: float = param(0.05, **SHARED["dropout"])
+    skip_dropout_p: float = param(0.0, **SHARED["skip_dropout_p"])
+    skip_dropout_ps: Optional[List[float]] = param(None, **SHARED["skip_dropout_ps"])
+    skip_alpha: float = param(1.0, **SHARED["skip_alpha"])
+    skip_alphas: Optional[List[float]] = param(None, **SHARED["skip_alphas"])
 
 
 def get_convnext_cvae_configuration(spatial_dims: int) -> Config:

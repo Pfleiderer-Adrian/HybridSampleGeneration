@@ -1,24 +1,24 @@
 # Postprocessing
 
-| Parameter | Type | Default | Meaning / values |
-| --- | --- | --- | --- |
-| `config.postprocessing.enabled` | `bool` | `False` | Require and run quality checks when explicitly called. |
-| `config.postprocessing.action` | `str` | `'report'` | `report` records decisions; `exclude` additionally signals downstream consumers to omit failed hybrids. Neither deletes artifacts. |
-| `config.postprocessing.save_previews` | `bool` | `False` | Write 2D original overlays with foreground in blue and anomalies in red. |
-| `config.postprocessing.foreground.method` | `str` | `'threshold'` | Object-mask estimator; currently only `threshold`. |
-| `config.postprocessing.foreground.channel_reduction` | `str` | `'minimum'` | Minimum channel value (`minimum`) or RGB luminance (`grayscale`). |
-| `config.postprocessing.foreground.comparison` | `str` | `'below'` | Threshold direction: `below` or `above`, strict comparison. |
-| `config.postprocessing.foreground.threshold` | `float` | `240.0` | Threshold in original image units, range [0, 255]; no per-image normalization. |
-| `config.postprocessing.foreground.components` | `str` | `'largest'` | Keep the largest component (`largest`) or `all`. |
-| `config.postprocessing.foreground.min_component_area` | `int` | `1` | Minimum connected-component pixel/voxel count, before hole filling; positive. |
-| `config.postprocessing.foreground.fill_holes` | `bool` | `True` | Fill enclosed holes after component selection. |
-| `config.postprocessing.rules.minimum_object_overlap.enabled` | `bool` | `False` | Measure anomaly coverage by the estimated object mask. |
-| `config.postprocessing.rules.minimum_object_overlap.threshold` | `float` | `1.0` | Minimum fraction of anomaly pixels inside the object; inclusive bound in [0, 1]. |
-| `config.postprocessing.rules.minimum_object_overlap.exempt_source_names` | `list[str]` | `[]` | Exact `source_name`s of donor originals whose placements are not overlap-checked; set before materialization. Unknown names produce a warning. |
-| `config.postprocessing.rules.mask_area_fraction.enabled` | `bool` | `False` | Enable whole-image anomaly area bounds. |
-| `config.postprocessing.rules.mask_area_fraction.minimum` | `float` | `0.0` | Inclusive lower bound in [0, 1]. |
-| `config.postprocessing.rules.mask_area_fraction.maximum` | `float` | `1.0` | Inclusive upper bound in [0, 1]. |
-| `config.postprocessing.rules.reject_empty_mask` | `bool` | `True` | Mark empty materialized anomaly masks as failed. |
+| Parameter | Type | Default | Allowed values | Meaning |
+| --- | --- | --- | --- | --- |
+| `config.postprocessing.enabled` | `bool` | `False` | — | Require and run quality checks when explicitly called. |
+| `config.postprocessing.action` | `str` | `'report'` | `'report'`, `'exclude'` | `report` records decisions; `exclude` additionally signals downstream consumers to omit failed hybrids. Neither deletes artifacts. |
+| `config.postprocessing.save_previews` | `bool` | `False` | — | Write 2D original overlays with foreground in blue and anomalies in red. |
+| `config.postprocessing.foreground.method` | `str` | `'threshold'` | `'threshold'` | Object-mask estimator. |
+| `config.postprocessing.foreground.channel_reduction` | `str` | `'minimum'` | `'minimum'`, `'grayscale'` | Minimum channel value (`minimum`) or RGB luminance (`grayscale`). |
+| `config.postprocessing.foreground.comparison` | `str` | `'below'` | `'below'`, `'above'` | Threshold direction, strict comparison. |
+| `config.postprocessing.foreground.threshold` | `float` | `240.0` | `[0.0, 255.0]` | Threshold in original image units; no per-image normalization. |
+| `config.postprocessing.foreground.components` | `str` | `'largest'` | `'largest'`, `'all'` | Keep the largest component (`largest`) or `all`. |
+| `config.postprocessing.foreground.min_component_area` | `int` | `1` | `>= 1` | Minimum connected-component pixel/voxel count, before hole filling. |
+| `config.postprocessing.foreground.fill_holes` | `bool` | `True` | — | Fill enclosed holes after component selection. |
+| `config.postprocessing.rules.minimum_object_overlap.enabled` | `bool` | `False` | — | Measure anomaly coverage by the estimated object mask. |
+| `config.postprocessing.rules.minimum_object_overlap.threshold` | `float` | `1.0` | `[0.0, 1.0]` | Minimum fraction of anomaly pixels inside the object; inclusive bound. |
+| `config.postprocessing.rules.minimum_object_overlap.exempt_source_names` | `list[str]` | `[]` | — | Exact `source_name`s of donor originals whose placements are not overlap-checked; set before materialization. Unknown names produce a warning. |
+| `config.postprocessing.rules.mask_area_fraction.enabled` | `bool` | `False` | — | Enable whole-image anomaly area bounds. |
+| `config.postprocessing.rules.mask_area_fraction.minimum` | `float` | `0.0` | `[0.0, 1.0]` | Inclusive lower bound. |
+| `config.postprocessing.rules.mask_area_fraction.maximum` | `float` | `1.0` | `[0.0, 1.0]` | Inclusive upper bound. |
+| `config.postprocessing.rules.reject_empty_mask` | `bool` | `True` | — | Mark empty materialized anomaly masks as failed. |
 
 Run with `generator.postprocess_hybrid_samples()` after materialization; see the postprocessing guide. Configuration files without this section load with postprocessing disabled.
 
