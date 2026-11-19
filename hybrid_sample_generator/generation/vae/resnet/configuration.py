@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from hybrid_sample_generator.generation.vae.shared_parameters import SHARED, param
 from hybrid_sample_generator.generation.model_settings import (
     Choice,
     IntRange,
@@ -15,22 +16,22 @@ from hybrid_sample_generator.generation.model_settings import (
 class Config:
     """Concrete parameters for the ResNet VAE."""
 
-    n_res_blocks: int = 8
-    n_levels: int = 4
-    z_channels: int = 250
-    bottleneck_dim: int = 250
-    use_multires_skips: bool = True
-    recon_weight: float = 100.0
-    beta_kl_start: float = 0.0
-    beta_kl_max: float = 0.03
-    beta_kl_warmup_start: int = 20
-    beta_kl_warmup_epochs: int = 30
-    free_bits: float = 0.0
-    recon_loss: str = "smoothl1"
-    recon_smoothl1_beta: float = 1.0
-    use_transpose_conv: bool = True
-    foreground_weight: float = 0.8
-    background_weight: float = 0.2
+    n_res_blocks: int = param(8, **SHARED["n_res_blocks"])
+    n_levels: int = param(4, **SHARED["n_levels"])
+    z_channels: int = param(250, **SHARED["z_channels"])
+    bottleneck_dim: int = param(250, **SHARED["bottleneck_dim"])
+    use_multires_skips: bool = param(True, **SHARED["use_multires_skips"])
+    recon_weight: float = param(100.0, **SHARED["recon_weight"])
+    beta_kl_start: float = param(0.0, **SHARED["beta_kl_start"])
+    beta_kl_max: float = param(0.03, **SHARED["beta_kl_max"])
+    beta_kl_warmup_start: int = param(20, **SHARED["beta_kl_warmup_start"])
+    beta_kl_warmup_epochs: int = param(30, **SHARED["beta_kl_warmup_epochs"])
+    free_bits: float = param(0.0, **SHARED["free_bits"])
+    recon_loss: str = param("smoothl1", **SHARED["recon_loss"])
+    recon_smoothl1_beta: float = param(1.0, **SHARED["recon_smoothl1_beta"])
+    use_transpose_conv: bool = param(True, **SHARED["use_transpose_conv"])
+    foreground_weight: float = param(0.8, **SHARED["foreground_weight"])
+    background_weight: float = param(0.2, **SHARED["background_weight"])
 
 
 def get_resnet_vae_configuration(spatial_dims: int) -> Config:

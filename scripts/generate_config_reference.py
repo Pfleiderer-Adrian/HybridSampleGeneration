@@ -1,13 +1,17 @@
-"""Generate and verify the searchable configuration reference from runtime defaults."""
+"""Generate and verify the searchable configuration reference.
+
+Types, defaults, allowed values and explanations all come from
+``Configuration.schema()``, i.e. from the ``param(...)`` declarations on the
+configuration dataclasses. This script only adds page-level prose.
+"""
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import fields, is_dataclass
 from pathlib import Path
 
+from hybrid_sample_generator.configuration.parameters import iter_parameters, range_text
 from hybrid_sample_generator.configuration.root import Configuration
-from hybrid_sample_generator.fusion.registry import FUSION_BACKEND_REGISTRY
 from hybrid_sample_generator.generation.registry import MODEL_REGISTRY
 from hybrid_sample_generator.imaging.masks.transform_generator import TransformGenerator
 
@@ -15,190 +19,98 @@ from hybrid_sample_generator.imaging.masks.transform_generator import TransformG
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "docs" / "configuration" / "reference"
 
-# Explanations are reviewed prose. Field names, types and defaults come from code.
-DESCRIPTIONS = {
-    "study.name": "Study name supplied when creating Configuration.",
-    "study.folder": "Directory for the database, models, and generated artifacts; defaults to results/<study name> in the working directory.",
-    "study.seed": "Seed for reproducible random decisions.",
-    "extraction.anomaly_size": "Target anomaly crop shape (C,H,W) or (C,D,H,W); must match the model dimensions.",
-    "extraction.separate_components": "Extract each connected anomaly component separately.",
-    "extraction.min_coverage_ratio": "Minimum mask coverage within a crop; range [0, 1].",
-    "extraction.add_background_noise": "Add a small amount of noise to otherwise constant backgrounds.",
-    "extraction.preserve_aspect_ratio": "Use one spatial scale for every axis and center-pad the remaining area; False stretches axes independently.",
-    "extraction.normalization": "Intensity normalization method; defaults to z-score.",
-    "extraction.normalization_eps": "Positive lower bound for numerically stable normalization.",
-    "extraction.roi.fixed_size": "Fixed spatial ROI size; None selects dynamic sizing.",
-    "extraction.roi.min_size": "Minimum dynamic ROI size, either scalar or per axis.",
-    "extraction.roi.min_padding": "Minimum ROI padding around the anomaly on each axis.",
-    "extraction.roi.padding_ratio": "Additional ROI padding relative to anomaly size on each axis.",
-    "extraction.roi.preserve_aspect_ratio": "Expand dynamic ROIs to match the spatial aspect ratio of the full image sample.",
-    "augmentation.mask_transforms.use_mask_transform": "Master switch for all mask transformations. When disabled, configured probabilities and parameters are retained but no mask transformation is applied.",
-    "augmentation.mask_transforms.mask_transform_probs": "Probabilities for global, local, and class-specific transforms.",
-    "augmentation.mask_transforms.mask_transform_params": "Parameter ranges for individual transforms.",
-    "augmentation.mask_transforms.priorities": "Class priority when transformed masks overlap.",
-    "augmentation.mask_transforms.local_as_global": "Apply local transforms jointly to all anomaly classes.",
-    "augmentation.mask_transforms.padding_factor": "Scale factor for the temporary transform canvas.",
-    "augmentation.random_offset_enabled": "Enable random offsets during training.",
-    "augmentation.random_offset_max_fraction": "Maximum offset as a fraction of available space; range [0, 1].",
-    "augmentation.random_offset_foreground_threshold": "Foreground threshold used for training offsets.",
-    "generation.sampling_mode": "Latent sampling source: 'posterior' or 'prior'.",
-    "generation.posterior_skip_source": "Encoder skip source for models supporting transformed posterior skips: 'original' uses the input image; 'transformed' uses an image paired with the generated target mask. Ignored by other models and in prior mode.",
-    "generation.variation_strength": "Strength of random variation during generation; non-negative.",
-    "generation.clamp_output": "Clamp generated image values to [0, 1].",
-    "generation.background_threshold": "Relative threshold for deriving a mask from generated images.",
-    "generation.variants_per_real_anomaly": "Number of synthetic variants per real anomaly; positive.",
-    "generation.feedback.enabled": "Enable image similarity feedback and repeated generation attempts.",
-    "generation.feedback.similarity_threshold": "Minimum similarity for accepting a variant; range [0, 1].",
-    "generation.feedback.threshold_relaxation_factor": "Factor for relaxing the threshold; range (0, 1].",
-    "generation.feedback.max_attempts": "Maximum number of generation attempts; positive.",
-    "matching.routine": "Candidate selection and placement method; see the matching guide.",
-    "matching.hybrids_per_original": "Number of hybrid images per eligible original; positive.",
-    "matching.anomalies_per_hybrid": "Target number of placed anomalies per hybrid; positive.",
-    "matching.max_anomalies_per_hybrid_deviation": "Allowed random deviation from the target placement count; non-negative.",
-    "matching.reuse_synthetic_across_hybrids": "Allow a synthetic variant to appear in multiple hybrids.",
-    "matching.allow_sibling_variants_in_same_hybrid": "Allow variants of one real anomaly in the same hybrid.",
-    "matching.batch_size": "Batch size for candidate scoring; positive.",
-    "matching.intensity_weight": "Weight of intensity similarity during matching.",
-    "matching.gradient_weight": "Weight of gradient similarity during matching.",
-    "matching.distance_weight": "Weight of proximity to the original anomaly's normalized source position; finite and non-negative. Zero preserves intensity/gradient-only matching.",
-    "postprocessing.enabled": "Require and run quality checks when explicitly called.",
-    "postprocessing.action": "`report` records decisions; `exclude` additionally signals downstream consumers to omit failed hybrids. Neither deletes artifacts.",
-    "postprocessing.save_previews": "Write 2D original overlays with foreground in blue and anomalies in red.",
-    "postprocessing.foreground.method": "Object-mask estimator; currently only `threshold`.",
-    "postprocessing.foreground.channel_reduction": "Minimum channel value (`minimum`) or RGB luminance (`grayscale`).",
-    "postprocessing.foreground.comparison": "Threshold direction: `below` or `above`, strict comparison.",
-    "postprocessing.foreground.threshold": "Threshold in original image units, range [0, 255]; no per-image normalization.",
-    "postprocessing.foreground.components": "Keep the largest component (`largest`) or `all`.",
-    "postprocessing.foreground.min_component_area": "Minimum connected-component pixel/voxel count, before hole filling; positive.",
-    "postprocessing.foreground.fill_holes": "Fill enclosed holes after component selection.",
-    "postprocessing.rules.minimum_object_overlap.enabled": "Measure anomaly coverage by the estimated object mask.",
-    "postprocessing.rules.minimum_object_overlap.threshold": "Minimum fraction of anomaly pixels inside the object; inclusive bound in [0, 1].",
-    "postprocessing.rules.minimum_object_overlap.exempt_source_names": "Exact `source_name`s of donor originals whose placements are not overlap-checked; set before materialization. Unknown names produce a warning.",
-    "postprocessing.rules.mask_area_fraction.enabled": "Enable whole-image anomaly area bounds.",
-    "postprocessing.rules.mask_area_fraction.minimum": "Inclusive lower bound in [0, 1].",
-    "postprocessing.rules.mask_area_fraction.maximum": "Inclusive upper bound in [0, 1].",
-    "postprocessing.rules.reject_empty_mask": "Mark empty materialized anomaly masks as failed.",
-    "training.num_trials": "Number of Optuna trials; positive.",
-    "training.trial_selection": "Trial to use: 'best', 'last', or a non-negative trial ID.",
-    "training.validation_ratio": "Fraction of data reserved for validation; range [0, 1).",
-    "training.batch_size": "Training batch size; positive.",
-    "training.epochs": "Maximum number of training epochs; positive.",
-    "training.learning_rate": "Initial learning rate; positive.",
-    "training.dtype": "PyTorch dtype for training; None uses the model default.",
-    "training.gradient_clip_norm": "Optional upper bound for the gradient norm.",
-    "training.monitor_metric": "Metric used for model selection and early stopping.",
-    "training.early_stopping_enabled": "Enable early stopping.",
-    "training.early_stopping": "Early stopping settings, including patience and delta.",
-    "training.lr_scheduler_enabled": "Enable the learning rate scheduler.",
-    "training.lr_scheduler": "Learning rate scheduler settings, including patience and factor.",
-    "evaluation.foreground_threshold": "Foreground threshold used during evaluation; None disables it.",
-    "evaluation.outlier_thresholds": "Minimum and maximum limits per evaluation metric; None leaves a limit open.",
+TITLES = {
+    "study": "Study",
+    "extraction": "Extraction",
+    "augmentation": "Augmentation",
+    "generation": "Generation",
+    "matching": "Matching",
+    "postprocessing": "Postprocessing",
+    "training": "Training",
+    "evaluation": "Evaluation",
 }
-
-MODEL_DESCRIPTIONS = {
-    "n_res_blocks": "Number of residual blocks per level.",
-    "n_spade_blocks": "Number of mask-conditioned SPADE blocks.",
-    "n_levels": "Number of encoder and decoder levels.",
-    "z_channels": "Channel count in the spatial bottleneck.",
-    "bottleneck_dim": "Dimension of the latent vector.",
-    "use_multires_skips": "Use encoder features from multiple resolutions as skip connections.",
-    "recon_weight": "Weight of the reconstruction loss.",
-    "latent_recon_weight": "Weight of the latent reconstruction Smooth L1 loss; 0 disables the loss.",
-    "latent_recon_noise_scale": "Scale of Gaussian noise added to the detached latent mean for the reconstruction cycle; positive.",
-    "latent_recon_image_noise_std": "Standard deviation of Gaussian noise added to the cycle image before re-encoding during training; non-negative.",
-    "beta_kl_start": "Initial weight of the KL loss.",
-    "beta_kl_max": "Maximum weight of the KL loss.",
-    "beta_kl_warmup_start": "Epoch at which the KL weight begins to increase.",
-    "beta_kl_warmup_epochs": "Number of epochs needed to reach beta_kl_max.",
-    "free_bits": "KL free-bits allowance for latent dimensions.",
-    "recon_loss": "Reconstruction loss, such as 'mse' or 'smoothl1'.",
-    "recon_smoothl1_beta": "Transition point of the Smooth L1 loss.",
-    "use_transpose_conv": "Use transposed convolutions for upsampling.",
-    "foreground_weight": "Relative weight of the mask foreground mean in the reconstruction loss; non-negative.",
-    "background_weight": "Relative weight of the mask background mean in the reconstruction loss; non-negative.",
-    "drop_path_rate": "Stochastic depth rate in ConvNeXt blocks.",
-    "dropout": "Dropout probability within the model.",
-    "skip_dropout_p": "Shared dropout probability for skip connections.",
-    "skip_dropout_ps": "Dropout per skip level; overrides skip_dropout_p and requires n_levels values.",
-    "skip_alpha": "Shared skip connection scale; range [0, 1].",
-    "skip_alphas": "Scale per skip level; overrides skip_alpha and requires n_levels values.",
-    "identity_pair_probability": (
-        "Probability of using an unchanged source/target pair during paired "
-        "source-to-target training; range [0, 1]."
-    ),
-}
-
-FUSION_DESCRIPTIONS = {
-    "max_alpha": "Maximum anomaly mixing weight; range [0, 1].",
-    "segmentation_min_alpha": "Minimum anomaly mixing weight required for a pixel to remain in the output segmentation mask; range [0, max_alpha].",
-    "image_harmonization": "Optional final 2D harmonization step: None, 'PCTNet', or 'LBM'. Requires a separately installed libcom dependency and one or three image channels.",
-    "sq": "Shape parameter for the spatial alpha mask.",
-    "steepness_factor": "Steepness of the transition at the anomaly boundary.",
-    "upsampling_factor": "Factor for finer alpha mask computation.",
-    "sobel_threshold": "Threshold for Sobel edge detection.",
-    "dilation_size": "Width of mask dilation.",
-    "shave_pixels": "Number of boundary pixels removed.",
-    "fusion_use_sobel_for_alpha_mask": "Use Sobel edges for the alpha mask.",
-    "fusion_variation": "Enable random variation of fusion parameters.",
-    "alpha_variation": "Variation strength for max_alpha.",
-    "sq_variation": "Variation strength for sq.",
-    "steepness_variation": "Variation strength for steepness_factor.",
-    "selected_confidence": "Confidence level: 68%, 80%, 90%, 95%, or 99%.",
-    "fusion_normalization_border_width": "Context border width: None disables normalization; -1 uses the whole image.",
-    "fusion_restore_anomaly_bg_relation": "Restore the intensity relationship between anomaly and background.",
-    "fusion_relation_mode": "Intensity relationship method: 'delta' or 'ratio'.",
-    "fusion_relation_norm_classes_separately": "Normalize the intensity relationship separately for each anomaly class.",
-    "fusion_relation_min_context_size": "Minimum number of context pixels for the intensity relationship.",
-    "fusion_keep_bg": "Keep the synthetic anomaly background.",
-    "fusion_bg_value": "Explicit background value; None uses automatic detection.",
-    "fusion_relative_bg_threshold": "Relative threshold for detecting background pixels.",
-    "fusion_bg_exterior_only": "Consider only background pixels connected to the exterior.",
-    "guidance_mode": "Gradient guidance: 'source' preserves anomaly gradients; 'mixed' selects the stronger source or target gradient.",
-    "solver_rtol": "Relative convergence tolerance for the conjugate-gradient solver.",
-    "solver_atol": "Absolute convergence tolerance for the conjugate-gradient solver.",
-    "solver_max_iterations": "Maximum conjugate-gradient iterations per image channel.",
-    "clip_output": "Clip results to recognized control-image ranges such as [0, 1] or [0, 255].",
-}
-
-
-# study.name is required; study.folder has a derived default.
-REQUIRED = {"study.name"}
 
 
 def _display(value) -> str:
     if isinstance(value, dict) and len(value) > 5:
         return f"{len(value)} metrics with min=None and max=None"
-    return repr(value).replace("|", "\\|").replace("\n", " ")
+    return repr(value)
 
 
-def _rows(instance, prefix: str, descriptions: dict[str, str], *, required=frozenset()):
+def _cell(text: str) -> str:
+    return text.replace("|", "\\|").replace("\n", " ")
+
+
+def _type_text(entry) -> str:
+    kind = entry["type"]
+    if kind == "choice":
+        names = sorted({type(choice).__name__ for choice in entry["choices"]})
+        text = " | ".join(names)
+    elif kind == "list":
+        text = f"list[{_type_text(entry['items'])}]"
+    elif kind == "map":
+        text = "dict"
+    elif kind == "any_of":
+        text = " | ".join(_type_text(option) for option in entry["options"])
+    elif kind == "any":
+        text = "Any"
+    else:
+        text = kind
+    return f"{text} | None" if entry.get("nullable") else text
+
+
+def _allowed_text(entry) -> str:
+    kind = entry["type"]
+    if kind == "choice":
+        values = [repr(choice) for choice in entry["choices"]]
+        if entry.get("nullable"):
+            values.append("None")
+        return ", ".join(f"`{_cell(value)}`" for value in values)
+    if kind in ("int", "float"):
+        limits = range_text(entry)
+        return f"`{limits}`" if limits else ""
+    if kind == "list":
+        parts = []
+        low, high = entry.get("min_length"), entry.get("max_length")
+        if low is not None or high is not None:
+            parts.append(f"{low} elements" if low == high else f"{low} to {high} elements")
+        items = _allowed_text(entry["items"])
+        if items:
+            parts.append(f"each {items}")
+        return ", ".join(parts)
+    if kind == "any_of":
+        return " or ".join(text for text in map(_allowed_text, entry["options"]) if text)
+    return ""
+
+
+def _rows(group, prefix: str):
     rows = []
-    for item in fields(instance):
-        path = f"{prefix}.{item.name}"
-        value = getattr(instance, item.name)
-        if is_dataclass(value) and not isinstance(value, type):
-            rows.extend(_rows(value, path, descriptions, required=required))
-            continue
-        if path not in descriptions:
+    for path, entry in iter_parameters(group, prefix):
+        if "doc" not in entry:
             raise ValueError(f"Missing configuration description: {path}")
-        if path in required:
+        if entry.get("required"):
             default = "required at construction"
-        elif path == "study.folder":
-            default = "results/<study name>"
+        elif "default_label" in entry:
+            default = entry["default_label"]
         else:
-            default = _display(value)
-        kind = item.type.__name__ if isinstance(item.type, type) else str(item.type)
-        rows.append((path, kind.replace("|", "\\|"), default, descriptions[path]))
+            default = _display(entry["default"])
+        rows.append((path, _type_text(entry), default, _allowed_text(entry), entry["doc"]))
     return rows
 
 
 def _table(rows, *, search=None):
-    headers = ["Parameter", "Type", "Default", "Meaning / values"]
+    headers = ["Parameter", "Type", "Default", "Allowed values", "Meaning"]
     if search is not None:
         headers.append("Default search")
     lines = ["| " + " | ".join(headers) + " |", "| " + " | ".join("---" for _ in headers) + " |"]
-    for path, kind, default, description in rows:
-        cells = [f"`config.{path}`", f"`{kind}`", f"`{default}`", description]
+    for path, kind, default, allowed, description in rows:
+        cells = [
+            f"`config.{path}`",
+            f"`{_cell(kind)}`",
+            f"`{_cell(default)}`",
+            allowed or "—",
+            description,
+        ]
         if search is not None:
             name = path.rsplit(".", 1)[1]
             distribution = getattr(search, "_distributions", {}).get(name)
@@ -207,38 +119,20 @@ def _table(rows, *, search=None):
     return "\n".join(lines)
 
 
-def _validate_descriptions(used: set[str], descriptions: dict[str, str], label: str):
-    unused = set(descriptions) - used
-    if unused:
-        raise ValueError(f"Unused {label} descriptions: {sorted(unused)}")
-
-
 def _render() -> dict[Path, str]:
     config = Configuration("example", study_folder="results/example")
+    schema = Configuration.schema()["sections"]
     pages = {}
-    sections = {
-        "study": ("Study", config.study),
-        "extraction": ("Extraction", config.extraction),
-        "augmentation": ("Augmentation", config.augmentation),
-        "generation": ("Generation", config.generation),
-        "matching": ("Matching", config.matching),
-        "postprocessing": ("Postprocessing", config.postprocessing),
-        "training": ("Training", config.training),
-        "evaluation": ("Evaluation", config.evaluation),
-    }
-    root_sections = set(vars(config)) - {"schema_version", "model", "fusion"}
-    if set(sections) != root_sections:
+    general = [name for name in schema if name not in ("model", "fusion")]
+    if set(general) != set(TITLES):
         raise ValueError(
-            f"Undocumented root sections: {sorted(root_sections - set(sections))}; "
-            f"obsolete sections: {sorted(set(sections) - root_sections)}"
+            f"Sections without a page title: {sorted(set(general) - set(TITLES))}; "
+            f"obsolete titles: {sorted(set(TITLES) - set(general))}"
         )
-    used = set()
-    for slug, (title, instance) in sections.items():
-        rows = _rows(instance, slug, DESCRIPTIONS, required=REQUIRED)
-        used.update(row[0] for row in rows)
+    for slug in general:
+        title = TITLES[slug]
+        rows = _rows(schema[slug], slug)
         extra = ""
-        if slug == "matching":
-            extra = "\nAllowed `matching.routine` values: `local`, `global`, `batchwise`, `fixed_from_extraction_anomaly_fusion`, and `fixed_from_extraction_control_fusion`.\n"
         if slug == "augmentation":
             generator = TransformGenerator.from_config(
                 config.augmentation.mask_transforms,
@@ -273,11 +167,13 @@ def _render() -> dict[Path, str]:
         if slug == "training":
             extra = (
                 "\n## Nested training settings\n\n"
-                "`config.training.early_stopping` contains `patience` (epochs without "
-                "improvement) and `delta` (minimum improvement). "
-                "`config.training.lr_scheduler` contains `patience`, `factor` "
-                "(learning rate multiplier), and `threshold` (minimum improvement). "
-                "Their defaults are shown in the table above.\n"
+                + "\n".join(
+                    f"- `config.training.{name}[{key!r}]`: {item['doc']}"
+                    + (f" Allowed: {_allowed_text(item)}." if _allowed_text(item) else "")
+                    for name in ("early_stopping", "lr_scheduler")
+                    for key, item in schema["training"]["fields"][name]["keys"].items()
+                )
+                + "\n\nTheir defaults are shown in the table above.\n"
             )
         if slug == "postprocessing":
             extra = (
@@ -295,17 +191,11 @@ def _render() -> dict[Path, str]:
         if slug == "evaluation":
             extra = "\n## Defaults\n\n`outlier_thresholds` contains `min: None` and `max: None` for Contrast, Homogeneity, Energy, Correlation, their four `roi_` variants, Volume, D-center, H-center, and W-center.\n"
         pages[OUTPUT / f"{slug}.md"] = f"# {title}\n\n{_table(rows)}\n{extra}\n"
-    _validate_descriptions(used, DESCRIPTIONS, "general")
-
-    used_model = set()
-    for name, spec in sorted(MODEL_REGISTRY.items()):
-        parameters = spec.build_configuration()
-        rows = _rows(parameters, "model.parameters", {
-            f"model.parameters.{key}": value for key, value in MODEL_DESCRIPTIONS.items()
-        })
-        used_model.update(row[0].rsplit(".", 1)[1] for row in rows)
-        search = spec.build_search_space(parameters)
-        page = (
+    for name, variant in sorted(schema["model"]["variants"].items()):
+        spec = MODEL_REGISTRY[name]
+        rows = _rows(variant["parameters"], "model.parameters")
+        search = spec.build_search_space(spec.build_configuration())
+        pages[OUTPUT / f"model-{name}.md"] = (
             f"# {name}\n\n"
             f"Select with `config.model.set_model({name!r})`. The table shows the "
             "actual defaults for this model variant. A dash in Default search means "
@@ -313,21 +203,14 @@ def _render() -> dict[Path, str]:
             "through `config.model.search`.\n\n"
             f"{_table(rows, search=search)}\n"
         )
-        pages[OUTPUT / f"model-{name}.md"] = page
-    _validate_descriptions(used_model, MODEL_DESCRIPTIONS, "model")
 
-    used_fusion = set()
-    for name, spec in sorted(FUSION_BACKEND_REGISTRY.items()):
-        rows = _rows(spec.build_configuration(), "fusion.parameters", {
-            f"fusion.parameters.{key}": value for key, value in FUSION_DESCRIPTIONS.items()
-        })
-        used_fusion.update(row[0].rsplit(".", 1)[1] for row in rows)
+    for name, variant in sorted(schema["fusion"]["variants"].items()):
+        rows = _rows(variant["parameters"], "fusion.parameters")
         pages[OUTPUT / f"fusion-{name}.md"] = (
             f"# Fusion: {name}\n\n"
             f"Select with `config.fusion.set_backend({name!r})`.\n\n"
             f"{_table(rows)}\n"
         )
-    _validate_descriptions(used_fusion, FUSION_DESCRIPTIONS, "fusion")
     return pages
 
 

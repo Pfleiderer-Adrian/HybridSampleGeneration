@@ -2,29 +2,37 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
+
+from hybrid_sample_generator.configuration.parameters import param, validate_parameters
 
 
 @dataclass
 class RoiConfiguration:
     """Rules for constructing inspection ROIs around an anomaly."""
 
-    fixed_size: tuple[int, ...] | None = None
-    min_size: tuple[int, ...] | int = 0
-    min_padding: tuple[int, ...] = (10, 10, 10)
-    padding_ratio: tuple[float, ...] = (0.5, 0.5, 0.5)
-    preserve_aspect_ratio: bool = False
+    fixed_size: tuple[int, ...] | None = param(
+        None, ge=1, doc="Fixed spatial ROI size; None selects dynamic sizing.",
+    )
+    min_size: tuple[int, ...] | int = param(
+        0, ge=0, doc="Minimum dynamic ROI size, either scalar or per axis.",
+    )
+    min_padding: tuple[int, ...] = param(
+        (10, 10, 10), ge=0, doc="Minimum ROI padding around the anomaly on each axis.",
+    )
+    padding_ratio: tuple[float, ...] = param(
+        (0.5, 0.5, 0.5),
+        ge=0.0,
+        doc="Additional ROI padding relative to anomaly size on each axis.",
+    )
+    preserve_aspect_ratio: bool = param(
+        False,
+        doc="Expand dynamic ROIs to match the spatial aspect ratio of the full image sample.",
+    )
 
     def validate(self) -> None:
-        if self.fixed_size is not None and any(int(value) <= 0 for value in self.fixed_size):
-            raise ValueError("extraction.roi.fixed_size values must be positive.")
-        if any(int(value) < 0 for value in self.min_padding):
-            raise ValueError("extraction.roi.min_padding values must be non-negative.")
-        if any(float(value) < 0 for value in self.padding_ratio):
-            raise ValueError("extraction.roi.padding_ratio values must be non-negative.")
-        if not isinstance(self.preserve_aspect_ratio, bool):
-            raise TypeError("extraction.roi.preserve_aspect_ratio must be a boolean.")
+        validate_parameters(self, "extraction.roi")
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> "RoiConfiguration":
@@ -41,30 +49,42 @@ class RoiConfiguration:
 class ExtractionConfiguration:
     """Settings used only while extracting real anomaly artifacts."""
 
-    anomaly_size: tuple[int, ...] = (3, 64, 64)
-    separate_components: bool = True
-    min_coverage_ratio: float = 0.01
-    add_background_noise: bool = True
-    preserve_aspect_ratio: bool = True
-    normalization: str = "z-score"
-    normalization_eps: float = 1e-6
-    roi: RoiConfiguration = field(default_factory=RoiConfiguration)
+    anomaly_size: tuple[int, ...] = param(
+        (3, 64, 64),
+        ge=1,
+        min_length=3,
+        max_length=4,
+        doc="Target anomaly crop shape (C,H,W) or (C,D,H,W); must match the model dimensions.",
+    )
+    separate_components: bool = param(
+        True, doc="Extract each connected anomaly component separately.",
+    )
+    min_coverage_ratio: float = param(
+        0.01, ge=0.0, le=1.0, doc="Minimum mask coverage within a crop.",
+    )
+    add_background_noise: bool = param(
+        True, doc="Add a small amount of noise to otherwise constant backgrounds.",
+    )
+    preserve_aspect_ratio: bool = param(
+        True,
+        doc="Use one spatial scale for every axis and center-pad the remaining area; False stretches axes independently.",
+    )
+    normalization: str | None = param(
+        "z-score",
+        schema={"type": "choice", "choices": ["z-score", "zscore_median"], "nullable": True},
+        validated=False,
+        doc="Intensity normalization method; None disables normalization. Spelling variants of the listed names are accepted.",
+    )
+    normalization_eps: float = param(
+        1e-6, gt=0.0, doc="Lower bound for numerically stable normalization.",
+    )
+    roi: RoiConfiguration = param(default_factory=RoiConfiguration)
 
     def __post_init__(self) -> None:
         self.anomaly_size = tuple(int(value) for value in self.anomaly_size)
 
     def validate(self) -> None:
-        if len(self.anomaly_size) not in (3, 4) or any(value <= 0 for value in self.anomaly_size):
-            raise ValueError(
-                "extraction.anomaly_size must be positive and have shape (C,H,W) or (C,D,H,W)."
-            )
-        if not 0.0 <= float(self.min_coverage_ratio) <= 1.0:
-            raise ValueError("extraction.min_coverage_ratio must be in [0, 1].")
-        if not isinstance(self.preserve_aspect_ratio, bool):
-            raise TypeError("extraction.preserve_aspect_ratio must be a boolean.")
-        if float(self.normalization_eps) <= 0:
-            raise ValueError("extraction.normalization_eps must be positive.")
-        self.roi.validate()
+        validate_parameters(self, "extraction")
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> "ExtractionConfiguration":

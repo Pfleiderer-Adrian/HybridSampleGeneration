@@ -2,52 +2,55 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
+
+from hybrid_sample_generator.configuration.parameters import param, validate_parameters
 
 
 @dataclass
 class FeedbackConfiguration:
-    enabled: bool = False
-    similarity_threshold: float = 0.8
-    threshold_relaxation_factor: float = 0.9
-    max_attempts: int = 100
+    enabled: bool = param(
+        False, doc="Enable image similarity feedback and repeated generation attempts.",
+    )
+    similarity_threshold: float = param(
+        0.8, ge=0.0, le=1.0, doc="Minimum similarity for accepting a variant.",
+    )
+    threshold_relaxation_factor: float = param(
+        0.9, gt=0.0, le=1.0, doc="Factor for relaxing the threshold.",
+    )
+    max_attempts: int = param(100, ge=1, doc="Maximum number of generation attempts.")
 
     def validate(self) -> None:
-        if not 0.0 <= float(self.similarity_threshold) <= 1.0:
-            raise ValueError("generation.feedback.similarity_threshold must be in [0, 1].")
-        if not 0.0 < float(self.threshold_relaxation_factor) <= 1.0:
-            raise ValueError("generation.feedback.threshold_relaxation_factor must be in (0, 1].")
-        if isinstance(self.max_attempts, bool) or int(self.max_attempts) <= 0:
-            raise ValueError("generation.feedback.max_attempts must be a positive integer.")
+        validate_parameters(self, "generation.feedback")
 
 
 @dataclass
 class GenerationConfiguration:
     """Settings for producing synthetic anomaly variants."""
 
-    sampling_mode: str = "posterior"
-    posterior_skip_source: str = "transformed"
-    variation_strength: float = 0.5
-    clamp_output: bool = False
-    background_threshold: float = 0.01
-    variants_per_real_anomaly: int = 3
-    feedback: FeedbackConfiguration = field(default_factory=FeedbackConfiguration)
+    sampling_mode: str = param(
+        "posterior", choices=("posterior", "prior"), doc="Latent sampling source.",
+    )
+    posterior_skip_source: str = param(
+        "transformed",
+        choices=("original", "transformed"),
+        doc="Encoder skip source for models supporting transformed posterior skips: 'original' uses the input image; 'transformed' uses an image paired with the generated target mask. Ignored by other models and in prior mode.",
+    )
+    variation_strength: float = param(
+        0.5, ge=0.0, doc="Strength of random variation during generation.",
+    )
+    clamp_output: bool = param(False, doc="Clamp generated image values to [0, 1].")
+    background_threshold: float = param(
+        0.01, ge=0.0, doc="Relative threshold for deriving a mask from generated images.",
+    )
+    variants_per_real_anomaly: int = param(
+        3, ge=1, doc="Number of synthetic variants per real anomaly.",
+    )
+    feedback: FeedbackConfiguration = param(default_factory=FeedbackConfiguration)
 
     def validate(self) -> None:
-        if self.sampling_mode not in {"prior", "posterior"}:
-            raise ValueError("generation.sampling_mode must be 'prior' or 'posterior'.")
-        if self.posterior_skip_source not in {"original", "transformed"}:
-            raise ValueError(
-                "generation.posterior_skip_source must be 'original' or 'transformed'."
-            )
-        if float(self.variation_strength) < 0:
-            raise ValueError("generation.variation_strength must be non-negative.")
-        if float(self.background_threshold) < 0:
-            raise ValueError("generation.background_threshold must be non-negative.")
-        if isinstance(self.variants_per_real_anomaly, bool) or int(self.variants_per_real_anomaly) <= 0:
-            raise ValueError("generation.variants_per_real_anomaly must be a positive integer.")
-        self.feedback.validate()
+        validate_parameters(self, "generation")
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> "GenerationConfiguration":

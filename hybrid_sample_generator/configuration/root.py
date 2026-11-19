@@ -83,6 +83,16 @@ class Configuration:
         self.evaluation.validate()
         self.fusion.validate()
 
+    @staticmethod
+    def schema() -> dict[str, Any]:
+        """Return type, default, range and description of every parameter.
+
+        See ``hybrid_sample_generator.configuration.schema`` for the layout.
+        """
+        from hybrid_sample_generator.configuration.schema import configuration_schema
+
+        return configuration_schema()
+
     def to_dict(self) -> dict[str, Any]:
         self.validate()
         return _json_compatible(

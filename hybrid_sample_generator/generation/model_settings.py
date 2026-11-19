@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass, fields, is_dataclass
 from numbers import Real
 from typing import Any, Iterator
 
+from hybrid_sample_generator.configuration.parameters import validate_parameters
+
 
 @dataclass(frozen=True)
 class IntRange:
@@ -212,6 +214,7 @@ class GeneratorModelSettings:
             raise TypeError(
                 f"Parameters for {self.name!r} must be {spec.config_cls.__name__}."
             )
+        validate_parameters(self.parameters, "model.parameters")
         self.search.validate()
 
     def to_dict(self) -> dict[str, Any]:

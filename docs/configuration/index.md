@@ -54,9 +54,47 @@ config.study.seed = 123
 
 `Configuration` provides defaults, but some settings depend on each other. Run `config.validate()` after changing the model, image size, or backend. `config.schema_version` identifies the file format and is set by the code; do not change it manually.
 
+## Parameter schema
+
+Every parameter is declared once, on its configuration dataclass, together with its allowed range and description:
+
+```python
+batch_size: int = param(32, ge=1, doc="Batch size for candidate scoring.")
+```
+
+`param()` accepts `ge`/`gt`/`le`/`lt` for numeric bounds (applied to each element of a sequence), `choices` for a fixed set of values, `min_length`/`max_length` for sequences, and `doc`. Validation, the reference pages, and the schema below all read these declarations. Rules that relate several parameters, such as "at least one matching weight must be positive", stay in the `validate()` methods.
+
+`Configuration.schema()` returns the declarations as JSON-compatible data. Graphical front ends build their forms from it, so new parameters, generator models, and fusion backends appear without changes to the front end:
+
+```python
+from hybrid_sample_generator.configuration import Configuration
+
+schema = Configuration.schema()
+schema["sections"]["matching"]["fields"]["batch_size"]
+# {"type": "int", "min": 1, "doc": "Batch size for candidate scoring.", "default": 32}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `type` | `bool`, `int`, `float`, `str`, `choice`, `list`, `map`, `any_of`, `any`, or `group` for a nested section |
+| `default` | Default value in its JSON form; absent for `required` parameters and those with a `default_label` |
+| `min`, `max` | Inclusive bounds unless `min_exclusive` or `max_exclusive` is true |
+| `choices` | Allowed values of a `choice` |
+| `items`, `min_length`, `max_length` | Element descriptor and length bounds of a `list` |
+| `values`, `keys` | Value descriptor of a `map` and descriptors of its known keys |
+| `options` | Alternatives of an `any_of`, for example a fixed name or a trial ID |
+| `nullable` | `None` is allowed |
+| `validated` | `false` when `choices` lists recommended values and other spellings are also accepted |
+| `custom` | The group needs a dedicated editor; generic forms should skip it. Currently set for `augmentation.mask_transforms` |
+| `doc` | Explanation shown in the reference |
+
+`schema["sections"]["model"]` and `schema["sections"]["fusion"]` have the type `variant`. Their `variants` hold one parameter group per registered model or backend, with the defaults of that variant; `selector` names the key that chooses between them (`name` or `backend`). Each model variant also lists its default Optuna search space and, per parameter, the distribution types that `config.model.search` accepts.
+
+The schema describes single parameters. To check a complete set of values, including rules across parameters, call `Configuration.from_dict(values)`; errors name the parameter path.
+
 ## Updating the reference
 
-The pages in `configuration/reference/` are generated. When parameters or explanations change, update the configuration classes and `scripts/generate_config_reference.py`:
+The pages in `configuration/reference/` are generated from `Configuration.schema()`. When parameters, ranges, or explanations change, update the `param(...)` declarations on the configuration classes and regenerate:
 
 ```bash
 python scripts/generate_config_reference.py

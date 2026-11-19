@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
+
+from hybrid_sample_generator.configuration.parameters import param, validate_parameters
 
 
 MATCHING_ROUTINES = {
@@ -19,31 +20,40 @@ MATCHING_ROUTINES = {
 class MatchingConfiguration:
     """Candidate selection and placement settings for matching."""
 
-    routine: str = "batchwise"
-    hybrids_per_original: int = 1
-    anomalies_per_hybrid: int = 1
-    max_anomalies_per_hybrid_deviation: int = 0
-    reuse_synthetic_across_hybrids: bool = True
-    allow_sibling_variants_in_same_hybrid: bool = False
-    batch_size: int = 32
-    intensity_weight: float = 1.0
-    gradient_weight: float = 2.0
-    distance_weight: float = 0.0
+    routine: str = param(
+        "batchwise",
+        choices=MATCHING_ROUTINES,
+        doc="Candidate selection and placement method; see the matching guide.",
+    )
+    hybrids_per_original: int = param(
+        1, ge=1, doc="Number of hybrid images per eligible original.",
+    )
+    anomalies_per_hybrid: int = param(
+        1, ge=1, doc="Target number of placed anomalies per hybrid.",
+    )
+    max_anomalies_per_hybrid_deviation: int = param(
+        0, ge=0, doc="Allowed random deviation from the target placement count.",
+    )
+    reuse_synthetic_across_hybrids: bool = param(
+        True, doc="Allow a synthetic variant to appear in multiple hybrids.",
+    )
+    allow_sibling_variants_in_same_hybrid: bool = param(
+        False, doc="Allow variants of one real anomaly in the same hybrid.",
+    )
+    batch_size: int = param(32, ge=1, doc="Batch size for candidate scoring.")
+    intensity_weight: float = param(
+        1.0, doc="Weight of intensity similarity during matching.",
+    )
+    gradient_weight: float = param(
+        2.0, doc="Weight of gradient similarity during matching.",
+    )
+    distance_weight: float = param(
+        0.0,
+        ge=0.0,
+        doc="Weight of proximity to the original anomaly's normalized source position. Zero preserves intensity/gradient-only matching.",
+    )
 
     def validate(self) -> None:
-        if self.routine not in MATCHING_ROUTINES:
-            raise ValueError(
-                f"Unknown matching routine {self.routine!r}. Expected one of {sorted(MATCHING_ROUTINES)}."
-            )
-        if isinstance(self.hybrids_per_original, bool) or int(self.hybrids_per_original) <= 0:
-            raise ValueError("matching.hybrids_per_original must be a positive integer.")
-        if isinstance(self.anomalies_per_hybrid, bool) or int(self.anomalies_per_hybrid) <= 0:
-            raise ValueError("matching.anomalies_per_hybrid must be a positive integer.")
-        if int(self.max_anomalies_per_hybrid_deviation) < 0:
-            raise ValueError("matching.max_anomalies_per_hybrid_deviation must be non-negative.")
-        if isinstance(self.batch_size, bool) or int(self.batch_size) <= 0:
-            raise ValueError("matching.batch_size must be a positive integer.")
-        if not math.isfinite(float(self.distance_weight)) or float(self.distance_weight) < 0:
-            raise ValueError("matching.distance_weight must be finite and non-negative.")
-        if float(self.intensity_weight) <= 0 and float(self.gradient_weight) <= 0 and float(self.distance_weight) <= 0:
+        validate_parameters(self, "matching")
+        if self.intensity_weight <= 0 and self.gradient_weight <= 0 and self.distance_weight <= 0:
             raise ValueError("At least one matching weight must be positive.")
