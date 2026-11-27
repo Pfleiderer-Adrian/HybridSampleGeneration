@@ -91,7 +91,7 @@ python -m examples.nifti_3d.main
 python -m examples.mvtec_ad2.run --category can
 ```
 
-The [MVTec AD 2 guide](examples/mvtec_ad2/README.md) describes the benchmark pipeline:
+The [MVTec AD 2 benchmark guide](https://pfleiderer-adrian.github.io/HybridSampleGeneration/mvtec-ad2/) describes the benchmark pipeline:
 grouped data splits, hybrid and other synthetic anomaly sources, and DINOv3 downstream evaluation.
 
 ## [Configuration](https://pfleiderer-adrian.github.io/HybridSampleGeneration/configuration/)
@@ -109,13 +109,14 @@ config.extraction   cutout, normalization and ROI rules
 config.augmentation target-mask and training augmentation
 config.generation   model sampling, feedback and variant count
 config.matching     hybrid count, placement count and reuse policies
+config.postprocessing quality checks for materialized hybrids
 config.training     optimizer and dataloader behavior
 config.evaluation   metric/outlier settings
 config.model        generator choice and model-specific parameters
 config.fusion       fusion backend and backend-specific parameters
 ```
 
-The current configuration schema is version 9 and the artifact database schema
+The current configuration schema is version 10 and the artifact database schema
 is version 2. Older study databases and filename/CSV layouts are intentionally
 unsupported; recreate the study and run `ingest_dataset()` again.
 

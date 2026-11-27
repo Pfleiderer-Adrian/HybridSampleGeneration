@@ -14,4 +14,5 @@ into original control samples. It is based on the IEEE paper
 - Learn about [input data](guides/input-data.md), [pipeline stages](guides/pipeline.md), and [resuming a study](guides/continuing-studies.md).
 - Browse the [configuration reference](configuration/index.md) or use the search box to find a parameter.
 - Read about [study storage](concepts/study-storage.md), [evaluation](guides/evaluation.md), and [visualization](guides/visualization.md).
+- Reproduce the [MVTec AD 2 benchmark](mvtec-ad2/index.md) with its downstream models.
 - See [citation and license](about.md).

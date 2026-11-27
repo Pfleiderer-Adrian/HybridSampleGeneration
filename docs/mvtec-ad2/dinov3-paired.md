@@ -1,5 +1,8 @@
 # Paired DINOv3 downstream segmentation
 
+Part of the [MVTec AD 2 benchmark](index.md); see [downstream training](downstream-training.md)
+for data mixtures and [downstream evaluation](downstream-evaluation.md) for metrics.
+
 For image/mask-only training, see [DINOv3 segmentation decoder](dinov3-segmentation.md).
 
 The MVTec AD 2 downstream runner supports `draem` (the default, including old

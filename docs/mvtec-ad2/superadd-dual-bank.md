@@ -1,5 +1,8 @@
 # SuperADD-inspired dual memory banks
 
+Part of the [MVTec AD 2 benchmark](index.md); see [downstream training](downstream-training.md)
+for data mixtures and [downstream evaluation](downstream-evaluation.md) for metrics.
+
 `superadd_dual_bank` is an independent implementation inspired by
 [SuperADD](https://github.com/LukasRoom/SuperADD), not a reproduction of its
 published results. It uses the existing Transformers DINOv3 loader, normalized

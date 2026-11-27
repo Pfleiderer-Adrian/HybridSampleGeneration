@@ -22,13 +22,10 @@ nav:
   - Guides:
       - Input data: guides/input-data.md
       - Pipeline stages: guides/pipeline.md
-      - Continuing a study: guides/continuing-studies.md
-      - Evaluation: guides/evaluation.md
-      - Paired DINOv3 downstream: guides/dinov3-downstream.md
-      - DINOv3 segmentation decoder: guides/dinov3-segmentation.md
-      - SuperADD-inspired dual banks: guides/superadd-dual-bank.md
-      - Visualization: guides/visualization.md
       - Postprocessing: guides/postprocessing.md
+      - Evaluation: guides/evaluation.md
+      - Visualization: guides/visualization.md
+      - Continuing a study: guides/continuing-studies.md
   - Concepts:
       - Data model and storage: concepts/study-storage.md
       - Repository datasets: concepts/datasets.md
@@ -56,6 +53,14 @@ nav:
           - Overview: configuration/fusion.md
           - Classical: configuration/reference/fusion-classical.md
           - Poisson: configuration/reference/fusion-poisson.md
+  - MVTec AD 2 benchmark:
+      - Overview: mvtec-ad2/index.md
+      - Downstream training: mvtec-ad2/downstream-training.md
+      - Downstream models:
+          - Paired DINOv3: mvtec-ad2/dinov3-paired.md
+          - DINOv3 segmentation decoder: mvtec-ad2/dinov3-segmentation.md
+          - SuperADD-inspired dual banks: mvtec-ad2/superadd-dual-bank.md
+      - Downstream evaluation: mvtec-ad2/downstream-evaluation.md
   - Development:
       - Tests: development/testing.md
       - Project structure: development/project-structure.md
