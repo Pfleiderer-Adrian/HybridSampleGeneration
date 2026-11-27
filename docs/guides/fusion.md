@@ -27,6 +27,11 @@ processed, a `RuntimeError` lists the failures; pass
 `materialize_hybrid_samples(raise_on_error=False)` to get the successfully
 generated hybrids back without the exception.
 
+An anomaly that is larger than its target image after restoring the extraction
+scale is cropped to its central part, and a `RuntimeWarning` reports the two
+shapes. This usually indicates a target mask that covers far more than the
+anomaly.
+
 ## Classical fusion
 
 ```python

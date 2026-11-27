@@ -75,6 +75,74 @@ class ClassicalFusionBackendTests(unittest.TestCase):
                 self.assertEqual(output.image.shape, control.shape)
                 self.assertGreater(int(output.segmentation.sum()), 0)
 
+    def test_anomaly_larger_than_the_control_is_cropped_to_fit(self):
+        for spatial_ndim in (2, 3):
+            with self.subTest(spatial_ndim=spatial_ndim):
+                sample = self._sample(spatial_ndim)
+                # The cutout was shrunk to a quarter during extraction; restored it is
+                # 8 pixels per axis and exceeds the 6-pixel control.
+                sample["anomaly_meta"] = {"scale_factor": (0.25,) * spatial_ndim}
+                control = np.full((1, *((6,) * spatial_ndim)), 0.2, dtype=np.float32)
+
+                with self.assertWarnsRegex(RuntimeWarning, "cropped to fit"):
+                    output = self.backend.fuse(
+                        sample,
+                        control,
+                        (0.5,) * spatial_ndim,
+                        extraction_config=self._extraction_config(spatial_ndim),
+                    )
+
+                self.assertEqual(output.image.shape, control.shape)
+                self.assertEqual(output.segmentation.shape, control.shape)
+                self.assertTrue(np.all(output.segmentation == 1))
+                self.assertTrue(np.all(output.image > 0.2))
+
+    def test_oversized_anomaly_is_fused_with_intensity_normalization(self):
+        # Intensity normalization indexes the control region with anomaly-sized
+        # masks; an anomaly wider than the control used to raise an IndexError.
+        backend = ClassicalFusionBackend(Config(fusion_variation=False))
+        anomaly = np.zeros((1, 8, 16), dtype=np.float32)
+        mask = np.zeros((1, 8, 16), dtype=np.uint8)
+        mask[0, 1:3, :] = 1      # T shape: its bounding box still contains background
+        mask[0, 3:7, 6:10] = 1
+        anomaly[mask > 0] = 0.8
+        sample = {
+            "synth_anomaly": anomaly,
+            "anomaly_meta": {"scale_factor": (1.0, 0.5)},  # restored to 32 pixels width
+            "tgt_mask": mask,
+            "anomaly_roi": anomaly.copy(),
+            "anomaly_roi_mask": mask.copy(),
+        }
+        control = np.linspace(0.1, 0.3, 24 * 24, dtype=np.float32).reshape(1, 24, 24)
+
+        with self.assertWarnsRegex(RuntimeWarning, "cropped to fit"):
+            output = backend.fuse(
+                sample,
+                control,
+                (0.5, 0.5),
+                extraction_config=ExtractionConfiguration((1, 8, 16)),
+            )
+
+        self.assertEqual(output.image.shape, control.shape)
+        self.assertTrue(np.isfinite(output.image).all())
+        columns = np.where(output.segmentation[0].any(axis=0))[0]
+        self.assertEqual((columns.min(), columns.max()), (0, 23))
+
+    def test_anomaly_larger_than_the_control_along_one_axis_only(self):
+        sample = self._sample(2)
+        sample["anomaly_meta"] = {"scale_factor": (1.0, 0.25)}  # restored to 2 x 8 pixels
+        control = np.full((1, 6, 6), 0.2, dtype=np.float32)
+
+        with self.assertWarnsRegex(RuntimeWarning, "cropped to fit"):
+            output = self.backend.fuse(
+                sample, control, (0.5, 0.5), extraction_config=self._extraction_config(2),
+            )
+
+        rows = np.where(output.segmentation[0].any(axis=1))[0]
+        columns = np.where(output.segmentation[0].any(axis=0))[0]
+        self.assertEqual((rows.min(), rows.max()), (2, 3))
+        self.assertEqual((columns.min(), columns.max()), (0, 5))
+
     def test_segmentation_min_alpha_removes_weakly_blended_pixels(self):
         backend = ClassicalFusionBackend(
             Config(

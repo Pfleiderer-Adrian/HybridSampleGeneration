@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Any
 
@@ -120,6 +121,24 @@ def prepare_spatial_fusion(
     target_mask = zoom(spatial_target_mask, scale, order=0).astype(
         np.uint8, copy=False
     )
+
+    anomaly_spatial = np.asarray(anom.shape[1:], dtype=int)
+    if np.any(anomaly_spatial > ctrl_spatial):
+        # The restored anomaly does not fit into the control. Keep its central part.
+        center_crop = tuple(
+            slice((size - limit) // 2, (size - limit) // 2 + limit)
+            if size > limit
+            else slice(None)
+            for size, limit in zip(anomaly_spatial.tolist(), ctrl_spatial.tolist())
+        )
+        warnings.warn(
+            f"Anomaly of spatial shape {tuple(anomaly_spatial.tolist())} exceeds the "
+            f"control image {tuple(ctrl_spatial.tolist())} and is cropped to fit.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        anom = anom[(slice(None), *center_crop)]
+        target_mask = target_mask[center_crop]
 
     position = validate_position(position, spatial_ndim)
     anomaly_spatial = np.asarray(anom.shape[1:], dtype=int)
