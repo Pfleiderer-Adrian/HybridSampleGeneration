@@ -120,5 +120,29 @@ class MaskTransformTests(unittest.TestCase):
         np.testing.assert_array_equal(first, second)
 
 
+
+class ElasticDefaultTests(unittest.TestCase):
+    def test_default_magnitude_follows_the_shortest_axis(self):
+        from hybrid_sample_generator.imaging.masks.elastic import (
+            default_elastic_params_from_anomaly_size,
+        )
+
+        # Square cutouts: the same displacement on every axis, 20 % of the size.
+        self.assertEqual(
+            default_elastic_params_from_anomaly_size((3, 64, 64)),
+            {"sigma": (13, 13), "magnitude": (13, 13)},
+        )
+        # Elongated cutouts: smoothing follows each axis, displacement the shortest one.
+        self.assertEqual(
+            default_elastic_params_from_anomaly_size((1, 64, 256)),
+            {"sigma": (13, 51), "magnitude": (13, 13)},
+        )
+        self.assertEqual(
+            default_elastic_params_from_anomaly_size((1, 16, 64, 128)),
+            {"sigma": (3, 13, 26), "magnitude": (3, 3, 3)},
+        )
+        self.assertEqual(default_elastic_params_from_anomaly_size(None), {})
+
+
 if __name__ == "__main__":
     unittest.main()

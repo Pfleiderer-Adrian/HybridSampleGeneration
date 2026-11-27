@@ -247,7 +247,7 @@ def match_local_intensity(
     """Match anomaly intensity to local context and preserve ROI relations."""
     binary_mask = valid_mask > 0
     normalization_border_width = getattr(
-        params, "fusion_normalization_border_width", 2
+        params, "fusion_normalization_border_width", 8
     )
     if normalization_border_width is None or not np.any(binary_mask):
         return anom

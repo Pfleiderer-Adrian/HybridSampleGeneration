@@ -72,6 +72,13 @@ class FusionConfigurationTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             get_fusion_backend_spec('poisson').build(ClassicalConfig())
 
+    def test_defaults_keep_thin_anomalies_at_full_contrast(self):
+        classical = ClassicalConfig()
+        self.assertEqual(classical.max_alpha, 1.0)
+        self.assertEqual(classical.steepness_factor, 12)
+        self.assertEqual(classical.fusion_normalization_border_width, 8)
+        self.assertEqual(PoissonConfig().fusion_normalization_border_width, 8)
+
     def test_service_rebuilds_backend_after_settings_change(self):
         with tempfile.TemporaryDirectory() as root:
             config = Configuration('cache-test', save_path=root)
@@ -90,7 +97,7 @@ class FusionConfigurationTests(unittest.TestCase):
             config.fusion.parameters.max_alpha = 0.6
             second = service._ensure_backend()
             self.assertIsNot(first, second)
-            self.assertEqual(first.params.max_alpha, 0.8)
+            self.assertEqual(first.params.max_alpha, 1.0)
             self.assertEqual(second.params.max_alpha, 0.6)
             injected = FusionService(
                 config.fusion,

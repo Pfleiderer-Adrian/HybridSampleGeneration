@@ -12,6 +12,8 @@ class ClassicalNumericalRegressionTests(unittest.TestCase):
     def setUp(self):
         self.backend = ClassicalFusionBackend(
             Config(
+                max_alpha=0.8,
+                steepness_factor=3,
                 fusion_variation=False,
                 fusion_normalization_border_width=None,
                 upsampling_factor=1,
@@ -111,6 +113,8 @@ class ClassicalNumericalRegressionTests(unittest.TestCase):
     def test_exact_background_preservation(self):
         backend = ClassicalFusionBackend(
             Config(
+                max_alpha=0.8,
+                steepness_factor=3,
                 fusion_variation=False,
                 fusion_normalization_border_width=None,
                 upsampling_factor=1,
