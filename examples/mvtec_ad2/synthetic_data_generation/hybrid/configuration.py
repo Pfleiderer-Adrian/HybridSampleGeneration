@@ -28,6 +28,8 @@ def apply_generator_defaults(config: Configuration) -> None:
     config.generation.feedback.enabled = False
     config.generation.feedback.similarity_threshold = 0.01
     config.generation.feedback.threshold_relaxation_factor = 0.9
+    # Pinned to the interval of the submitted runs; the package default is 10.
+    config.generation.feedback.relaxation_interval = 100
     config.generation.feedback.max_attempts = 1000
     config.generation.variation_strength = 1.25
     config.generation.variants_per_real_anomaly = 5

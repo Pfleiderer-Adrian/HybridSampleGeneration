@@ -11,5 +11,6 @@
 | `config.generation.feedback.enabled` | `bool` | `False` | Enable image similarity feedback and repeated generation attempts. |
 | `config.generation.feedback.similarity_threshold` | `float` | `0.8` | Minimum similarity for accepting a variant; range [0, 1]. |
 | `config.generation.feedback.threshold_relaxation_factor` | `float` | `0.9` | Factor for relaxing the threshold; range (0, 1]. |
+| `config.generation.feedback.relaxation_interval` | `int` | `10` | Number of rejected attempts after which the threshold is multiplied by the relaxation factor; positive. |
 | `config.generation.feedback.max_attempts` | `int` | `100` | Maximum number of generation attempts; positive. |
 

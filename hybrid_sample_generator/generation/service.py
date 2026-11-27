@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import optuna
 import numpy as np
 import torch
@@ -22,6 +24,10 @@ from hybrid_sample_generator.persistence.artifact_store import ArtifactStore
 from hybrid_sample_generator.persistence.identifiers import stable_id, stable_seed
 from hybrid_sample_generator.persistence.study_repository import StudyRepository
 from hybrid_sample_generator.randomness import seeded_random
+
+
+# A threshold-derived mask this many times larger than the real anomaly mask is reported.
+OVERSIZED_MASK_FACTOR = 3.0
 
 
 class GenerationService:
@@ -102,6 +108,8 @@ class GenerationService:
         self.repository.clear_synthetic_and_downstream()
         generated: list[SyntheticAnomaly] = []
         generation = self.config.generation
+        derives_masks = not get_model_spec(self.config.model.name).uses_masks
+        mask_growth: list[float] = []
 
         for sample in tqdm(source_dataset):
             real_id = sample["real_anomaly_id"]
@@ -126,6 +134,10 @@ class GenerationService:
                     mask,
                     real_image,
                 )
+                if derives_masks:
+                    real_area = int(np.count_nonzero(_as_numpy(sample["ori_mask"])))
+                    if real_area:
+                        mask_growth.append(np.count_nonzero(mask) / real_area)
                 synthetic_id = stable_id("synthetic", real_id, variant_index)
                 image_path = self.artifact_store.save_entity_array(
                     "synthetic_anomalies",
@@ -150,6 +162,7 @@ class GenerationService:
                 self.repository.upsert_synthetic_anomaly(record)
                 generated.append(record)
 
+        _warn_about_oversized_masks(mask_growth, generation.background_threshold)
         return generated
 
     def _training_dataset(self):
@@ -214,7 +227,7 @@ class GenerationService:
                 best = image, mask
             if score >= threshold:
                 break
-            if (attempt + 1) % 100 == 0:
+            if (attempt + 1) % int(generation.feedback.relaxation_interval) == 0:
                 threshold *= float(
                     generation.feedback.threshold_relaxation_factor
                 )
@@ -222,6 +235,23 @@ class GenerationService:
         if best is None:
             raise RuntimeError("Generator produced no variant.")
         return best
+
+
+def _warn_about_oversized_masks(mask_growth: list[float], background_threshold) -> None:
+    """Report threshold-derived masks that cover far more than the real anomaly."""
+    oversized = [value for value in mask_growth if value > OVERSIZED_MASK_FACTOR]
+    if not oversized:
+        return
+    warnings.warn(
+        f"{len(oversized)} of {len(mask_growth)} synthetic anomalies have a mask more than "
+        f"{OVERSIZED_MASK_FACTOR:g} times as large as the mask of their real anomaly "
+        f"(median factor {float(np.median(mask_growth)):.1f}). This model derives masks from "
+        f"the generated image with generation.background_threshold = {background_threshold}; "
+        "a blurred image or a low threshold marks background as anomaly. Raise the "
+        "threshold, train longer, or use a mask-conditioned model.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
 
 
 def _select_trial(study, selection: TrialSelection):

@@ -31,14 +31,17 @@ def random_global_zoom_transform(
     max_zoom=0.9,
     rng=None,
 ):
-    """Apply isotropic nearest-neighbour zoom around the mask center."""
+    """Apply isotropic nearest-neighbour zoom around the mask center.
+
+    Factors below 1 shrink the mask and factors above 1 enlarge it.
+    """
     validate_channel_first_mask(mask_np)
     min_zoom = float(min_zoom)
     max_zoom = float(max_zoom)
-    if not 0 < min_zoom <= max_zoom <= 1:
+    if not (np.isfinite(min_zoom) and np.isfinite(max_zoom) and 0 < min_zoom <= max_zoom):
         raise ValueError(
-            "min_zoom and max_zoom must satisfy "
-            f"0 < min_zoom <= max_zoom <= 1, got ({min_zoom}, {max_zoom})."
+            "min_zoom and max_zoom must be finite and satisfy "
+            f"0 < min_zoom <= max_zoom, got ({min_zoom}, {max_zoom})."
         )
     zoom_factor = sample_uniform(min_zoom, max_zoom, rng=rng)
     scales = np.full(mask_np[0].ndim, zoom_factor, dtype=float)

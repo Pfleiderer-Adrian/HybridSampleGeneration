@@ -1,8 +1,11 @@
 """Tests for generator workflow ownership and deterministic execution."""
 
+import contextlib
+import io
 import random
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -11,11 +14,14 @@ import numpy as np
 import torch
 
 from hybrid_sample_generator.configuration.root import Configuration
+from hybrid_sample_generator.domain.input_sample import InputSample
 from hybrid_sample_generator.generation.service import (
     GenerationService,
     _select_trial,
     _validate_generated_variant,
+    _warn_about_oversized_masks,
 )
+from hybrid_sample_generator.pipeline.hybrid_data_generator import HybridDataGenerator
 from hybrid_sample_generator.randomness import seeded_random
 
 
@@ -150,6 +156,89 @@ class GenerationServiceTests(unittest.TestCase):
                 config.extraction.anomaly_size,
             )
             self.assertEqual(model.checkpoint, "model.pth")
+
+    def _feedback_service(self, **feedback):
+        config = Configuration("feedback-test", study_folder="/tmp/feedback-test")
+        config.extraction.anomaly_size = (1, 8, 8)
+        config.model.set_model("VAE_ResNet_2D")
+        config.generation.feedback.enabled = True
+        for name, value in feedback.items():
+            setattr(config.generation.feedback, name, value)
+        image = np.zeros((1, 8, 8), dtype=np.float32)
+        model = Mock()
+        model.generate.return_value = (image, np.zeros((1, 8, 8), dtype=np.uint8))
+        return GenerationService(config, Mock(), Mock(), Mock(), model=model), model, image
+
+    def test_feedback_relaxes_threshold_after_each_interval(self):
+        service, model, image = self._feedback_service(
+            similarity_threshold=0.8,
+            threshold_relaxation_factor=0.5,
+            relaxation_interval=2,
+            max_attempts=10,
+        )
+        # Every attempt scores 0.5. The threshold falls from 0.8 to 0.4 after two
+        # rejected attempts, so the third attempt is accepted.
+        with patch("hybrid_sample_generator.generation.service.ssim_01", return_value=0.5):
+            service._generate_variant({"img": image}, image, Mock())
+        self.assertEqual(model.generate.call_count, 3)
+
+    def test_feedback_keeps_threshold_within_an_interval(self):
+        service, model, image = self._feedback_service(
+            similarity_threshold=0.8,
+            threshold_relaxation_factor=0.5,
+            relaxation_interval=20,
+            max_attempts=10,
+        )
+        with patch("hybrid_sample_generator.generation.service.ssim_01", return_value=0.5):
+            service._generate_variant({"img": image}, image, Mock())
+        self.assertEqual(model.generate.call_count, 10)
+
+    def test_default_feedback_relaxes_within_the_default_attempt_limit(self):
+        feedback = Configuration("defaults", study_folder="/tmp/defaults").generation.feedback
+        self.assertLess(feedback.relaxation_interval, feedback.max_attempts)
+        for invalid in (0, -1, True):
+            feedback.relaxation_interval = invalid
+            with self.assertRaisesRegex(ValueError, "relaxation_interval"):
+                feedback.validate()
+
+    def test_oversized_derived_masks_are_reported(self):
+        with self.assertWarnsRegex(RuntimeWarning, "2 of 3 synthetic anomalies.*background_threshold = 0.01"):
+            _warn_about_oversized_masks([1.0, 4.0, 9.0], 0.01)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            _warn_about_oversized_masks([0.8, 1.2, 3.0], 0.01)
+            _warn_about_oversized_masks([], 0.01)
+
+    def test_generation_warns_only_for_models_that_derive_masks(self):
+        image = np.zeros((1, 16, 16), dtype=np.float32)
+        mask = np.zeros((1, 16, 16), dtype=np.uint8)
+        image[:, 6:10, 6:10] = 1.0
+        mask[:, 6:10, 6:10] = 1
+
+        class WholeCutoutMask:
+            def generate(self, sample, **_kwargs):
+                cutout = np.asarray(sample["img"], dtype=np.float32)
+                return cutout, np.ones_like(cutout, dtype=np.uint8)
+
+        for model_name, expect_warning in (("VAE_ResNet_2D", True), ("cVAE_ConvNeXt_2D", False)):
+            with self.subTest(model=model_name), tempfile.TemporaryDirectory() as root:
+                config = Configuration("mask-warning", study_folder=str(Path(root) / "study"))
+                config.extraction.anomaly_size = (1, 8, 8)
+                config.extraction.min_coverage_ratio = 0.0
+                config.extraction.add_background_noise = False
+                config.extraction.normalization = None
+                config.model.set_model(model_name)
+                config.generation.variants_per_real_anomaly = 1
+                generator = HybridDataGenerator(config, generator_model=WholeCutoutMask())
+                silent = io.StringIO()
+                with contextlib.redirect_stdout(silent), contextlib.redirect_stderr(silent):
+                    generator.ingest_dataset([InputSample(image, mask, "anomaly")])
+                    generator.extract_anomalies()
+                    with warnings.catch_warnings(record=True) as caught:
+                        warnings.simplefilter("always")
+                        generator.generate_synthetic_anomalies()
+                reported = [w for w in caught if "synthetic anomalies have a mask" in str(w.message)]
+                self.assertEqual(len(reported), 1 if expect_warning else 0)
 
     def test_trial_selection_supports_best_last_and_explicit_ids(self):
         first = SimpleNamespace(number=1)

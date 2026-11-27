@@ -56,8 +56,10 @@ def sample_warp(name: str, mask: np.ndarray, params: dict, rng: np.random.Genera
         if name == "zoom":
             low = float(params.get("min_zoom", 0.9))
             high = float(params.get("max_zoom", 0.9))
-            if not 0 < low <= high <= 1:
-                raise ValueError("Zoom bounds must satisfy 0 < min_zoom <= max_zoom <= 1.")
+            if not (np.isfinite(low) and np.isfinite(high) and 0 < low <= high):
+                raise ValueError(
+                    "Zoom bounds must be finite and satisfy 0 < min_zoom <= max_zoom."
+                )
             scales = np.full(ndim, sample_uniform(low, high, rng=rng))
         else:
             scales = sample_uniform(

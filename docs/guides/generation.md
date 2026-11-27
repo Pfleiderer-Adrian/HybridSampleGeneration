@@ -41,7 +41,10 @@ How the mask of a variant is obtained depends on the model:
 - **Unconditioned models** (`VAE_ResNet`, `VAE_ConvNeXt`) generate an image
   only. The mask is derived from that image: pixels above
   `config.generation.background_threshold`, relative to the image's intensity
-  range, belong to the anomaly.
+  range, belong to the anomaly. A blurred image or a low threshold marks
+  background as anomaly. Generation warns when masks are more than three times
+  as large as the mask of their real anomaly; raise the threshold, train
+  longer, or use a mask-conditioned model in that case.
 - **Mask-conditioned models** (`cVAE_ConvNeXt`, `paired_cVAE_ConvNeXt`) first
   transform the mask of the real anomaly into a new target mask and then
   generate the image for it. The variant therefore differs from its parent in
@@ -59,6 +62,14 @@ masks.setGlobalParam("elastic", probability=0.0)
 masks.setAllClassParams("local_dilate", probability=0.3, max_iterations=3)
 masks.setClassParam(2, "local_stretch", probability=1.0, max_stretch=1.1)
 ```
+
+`zoom` scales the whole mask by a factor between `min_zoom` and `max_zoom`:
+values below `1` shrink it, values above `1` enlarge it. The default is a fixed
+`0.9`. A transformed mask must still fit into the cutout; one that would exceed
+it is scaled down to fit. A variant can therefore only grow as far as the
+cutout leaves room around its parent. Choose a larger
+`config.extraction.anomaly_size` if variants should become larger than
+anomalies that already fill the cutout.
 
 By default, the largest elastic displacement is 20 % of the shortest cutout
 axis on every axis, so elongated cutouts are not torn apart along their long
@@ -89,8 +100,10 @@ For every variant, generation is repeated until the structural similarity
 (a global SSIM score, clipped to `[0, 1]`) between the generated and the real cutout reaches
 `similarity_threshold` or `max_attempts` is exhausted. If no attempt reaches
 the threshold, the attempt with the highest similarity is kept, so every
-variant is always produced. After every 100 unsuccessful attempts, the
-threshold is multiplied by `threshold_relaxation_factor`.
+variant is always produced. After every `relaxation_interval` rejected attempts
+(default `10`), the threshold is multiplied by `threshold_relaxation_factor`.
+With the defaults, the threshold of `0.8` has fallen to about `0.31` before the
+last of the 100 attempts.
 
 Feedback increases generation time by up to `max_attempts` per variant and
 biases the variants towards their parents. It is most useful with a high
