@@ -26,6 +26,9 @@ theme:
     - search.highlight
     - content.code.copy
     - content.action.edit
+extra:
+  # Hide the "Made with Material for MkDocs" notice in the footer.
+  generator: false
 extra_css:
   - stylesheets/extra.css
 markdown_extensions:
