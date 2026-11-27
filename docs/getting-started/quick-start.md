@@ -57,12 +57,6 @@ summary. The study folder `results/quick-start/` then contains the
 configuration, the database, the trained model and all arrays; see
 [data model and storage](../concepts/study-storage.md).
 
-![Real anomaly cutout with three synthetic variants, and a control with the resulting hybrid, mask and difference](../assets/quick-start-result.png)
-
-*Result of the script: one real anomaly with its three synthetic variants (top)
-and one control with its hybrid, label mask and absolute difference (bottom).
-The variants are blurry because the generator trained for only 20 epochs.*
-
 ## What happened
 
 1. `ingest_dataset()` stored all 40 originals: 20 anomalous ones and 20
