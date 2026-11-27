@@ -36,11 +36,27 @@ def sample_uniform(min_value=None, max_value=None, *, rng=None, size=None, integ
     return sample
 
 
-def stretch_spatial_mask(mask, scales):
-    """Scale a spatial mask around its center while preserving its shape."""
+def foreground_center(mask):
+    """Return the center of the bounding box of all non-zero entries, or None."""
+    coordinates = np.where(np.asarray(mask) != 0)
+    if coordinates[0].size == 0:
+        return None
+    return np.array(
+        [(np.min(axis) + np.max(axis)) / 2.0 for axis in coordinates], dtype=float
+    )
+
+
+def stretch_spatial_mask(mask, scales, center_mask=None):
+    """Scale a spatial mask while preserving its shape.
+
+    The mask is scaled around the center of the array, or around the center
+    of ``center_mask`` when one is given and not empty.
+    """
     inv_scales = 1.0 / np.array(scales)
     matrix = np.diag(inv_scales)
-    center = np.array(mask.shape) / 2.0
+    center = None if center_mask is None else foreground_center(center_mask)
+    if center is None:
+        center = np.array(mask.shape) / 2.0
     offset = center - np.dot(matrix, center)
     return ndi.affine_transform(
         mask,

@@ -7,6 +7,7 @@ import scipy.ndimage as ndi
 
 from hybrid_sample_generator.imaging.masks.geometry import (
     DEFAULT_PADDING_MODE,
+    foreground_center,
     sample_uniform,
     validate_channel_first_mask,
 )
@@ -48,8 +49,20 @@ def _axis_values(value, ndim: int, name: str) -> tuple[float, ...]:
     return values
 
 
-def sample_warp(name: str, mask: np.ndarray, params: dict, rng: np.random.Generator):
-    """Draw one transform and return a callable shared by mask and image."""
+def sample_warp(
+    name: str,
+    mask: np.ndarray,
+    params: dict,
+    rng: np.random.Generator,
+    *,
+    around_foreground: bool = False,
+):
+    """Draw one transform and return a callable shared by mask and image.
+
+    Zoom and stretch scale around the center of the array. With
+    ``around_foreground`` they scale around the center of the mask foreground,
+    which keeps a single class in place.
+    """
     shape = mask.shape
     ndim = mask.ndim
     if name in {"zoom", "stretch"}:
@@ -71,7 +84,9 @@ def sample_warp(name: str, mask: np.ndarray, params: dict, rng: np.random.Genera
         if not np.all(np.isfinite(scales)) or np.any(scales <= 0):
             raise ValueError("Stretch scales must be finite and positive.")
         matrix = np.diag(1.0 / np.asarray(scales))
-        center = np.asarray(shape, dtype=float) / 2.0
+        center = foreground_center(mask) if around_foreground else None
+        if center is None:
+            center = np.asarray(shape, dtype=float) / 2.0
         offset = center - matrix @ center
     elif name == "rotate":
         angle = sample_uniform(max_value=params.get("max_rotation", 5.0), rng=rng)

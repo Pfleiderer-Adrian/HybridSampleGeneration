@@ -220,8 +220,10 @@ class TransformGenerator:
             )
         return mask, transformed_image
 
-    def _warp_pair(self, mask, image, name, params):
-        warp = sample_warp(name, mask[0], params, self.rng)
+    def _warp_pair(self, mask, image, name, params, *, around_foreground=False):
+        warp = sample_warp(
+            name, mask[0], params, self.rng, around_foreground=around_foreground
+        )
         return apply_warp_pair(mask, image, warp)
 
     def _dilate_pair(self, mask, image, class_order, params):
@@ -287,6 +289,7 @@ class TransformGenerator:
                     class_mask, class_image = self._warp_pair(
                         class_mask, class_images[class_id],
                         name.removeprefix("local_"), params,
+                        around_foreground=True,
                     )
                     class_masks[class_id] = class_mask[0] != 0
                     class_images[class_id] = (
