@@ -3,13 +3,13 @@
 ## Cite this work
 
 ```bibtex
-@INPROCEEDINGS{11159383,
+@INPROCEEDINGS{11723773,
   author={Pfleiderer, Adrian and Bauer, Bernhard},
-  booktitle={2025 International Conference on Advanced Machine Learning and Data Science (AMLDS)},
-  title={Fused Hybrid Training Samples through Synthetic Anomaly Generation for Optimized Model Training},
-  year={2025},
-  pages={248-256},
-  doi={10.1109/AMLDS63918.2025.11159383}
+  booktitle={2026 2nd International Conference on Advanced Machine Learning and Data Science (AMLDS)},
+  title={Hybrid Data Generator as a Generalizable Approach for Optimized Training Data Sets},
+  year={2026},
+  pages={72-79},
+  doi={10.1109/AMLDS69611.2026.11723773}
 }
 ```
 

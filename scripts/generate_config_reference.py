@@ -149,7 +149,7 @@ FUSION_DESCRIPTIONS = {
     "fusion_relation_mode": "Intensity relationship method: 'delta' or 'ratio'.",
     "fusion_relation_norm_classes_separately": "Normalize the intensity relationship separately for each anomaly class.",
     "fusion_relation_min_context_size": "Minimum number of context pixels for the intensity relationship.",
-    "fusion_keep_bg": "Keep the synthetic anomaly background.",
+    "fusion_keep_bg": "Leave detected background pixels of the control image unchanged; anomaly pixels placed there are dropped from the image and the mask.",
     "fusion_bg_value": "Explicit background value; None uses automatic detection.",
     "fusion_relative_bg_threshold": "Relative threshold for detecting background pixels.",
     "fusion_bg_exterior_only": "Consider only background pixels connected to the exterior.",

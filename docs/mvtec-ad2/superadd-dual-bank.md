@@ -5,10 +5,10 @@ for data mixtures and [downstream evaluation](downstream-evaluation.md) for metr
 
 `superadd_dual_bank` is an independent implementation inspired by
 [SuperADD](https://github.com/LukasRoom/SuperADD), not a reproduction of its
-published results. It uses the existing Transformers DINOv3 loader, normalized
+published results. It uses the Transformers DINOv3 loader, normalized
 features, bounded priority-reservoir sampling and chunked exact nearest-neighbor
 search. It does not include upstream coreset selection, brightness augmentation
-or morphological postprocessing. DINOv3 weights remain frozen; no decoder or
+or morphological postprocessing. DINOv3 weights stay frozen; no decoder or
 gradient optimizer is used.
 
 ```python
@@ -31,11 +31,11 @@ use the same normal references. Normal-distance scaling is determined from held-
 healthy validation images (up to `calibration_images`, default 16), never test
 images or masks.
 
-The **defect bank** uses one deterministic pass through the existing training
+The **defect bank** uses one deterministic pass through the training
 mixture, with `samples_per_epoch` defining the total sample budget. At 1000 samples,
 the example uses 750 normal / 125 DRAEM / 125 hybrid samples; with
 `hybrid_fraction=0.0` it uses 750 normal / 250 DRAEM. Only non-normal examples
-contribute defect features. Image and mask transformations remain aligned.
+contribute defect features. Image and mask transformations stay aligned.
 8-connected mask regions select any overlapping feature cell via max pooling;
 this avoids dropping tiny defects by mask downsampling, but selected features
 can still contain normal context. Each region supplies at most
