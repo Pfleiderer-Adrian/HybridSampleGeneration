@@ -240,6 +240,82 @@ class GenerationServiceTests(unittest.TestCase):
                 reported = [w for w in caught if "synthetic anomalies have a mask" in str(w.message)]
                 self.assertEqual(len(reported), 1 if expect_warning else 0)
 
+    def _scored_feedback_service(self, scores, **feedback):
+        config = Configuration("feedback-test", study_folder="/tmp/feedback-test")
+        config.extraction.anomaly_size = (1, 8, 8)
+        config.model.set_model("VAE_ResNet_2D")
+        config.generation.feedback.enabled = True
+        for name, value in feedback.items():
+            setattr(config.generation.feedback, name, value)
+        real = np.zeros((1, 8, 8), dtype=np.float32)
+        # Attempt n returns an image filled with n, so the kept attempt is identifiable.
+        outputs = iter(
+            (np.full((1, 8, 8), index, dtype=np.float32), np.ones((1, 8, 8), dtype=np.uint8))
+            for index in range(len(scores))
+        )
+        model = Mock()
+        model.generate.side_effect = lambda *_args, **_kwargs: next(outputs)
+        service = GenerationService(config, Mock(), Mock(), Mock(), model=model)
+        return service, model, real, patch(
+            "hybrid_sample_generator.generation.service.ssim_01", side_effect=list(scores)
+        )
+
+    def test_feedback_stops_at_the_first_variant_above_the_threshold(self):
+        service, model, real, similarity = self._scored_feedback_service(
+            [0.2, 0.5, 0.9, 0.95], similarity_threshold=0.8, max_attempts=4,
+        )
+        with similarity:
+            image, mask = service._generate_variant({"img": real}, real, Mock())
+        self.assertEqual(model.generate.call_count, 3)
+        self.assertEqual(float(image[0, 0, 0]), 2.0)
+        self.assertEqual(mask.shape, (1, 8, 8))
+
+    def test_feedback_keeps_the_most_similar_variant_when_none_passes(self):
+        service, model, real, similarity = self._scored_feedback_service(
+            [0.2, 0.6, 0.4], similarity_threshold=0.8, max_attempts=3,
+        )
+        with similarity:
+            image, _ = service._generate_variant({"img": real}, real, Mock())
+        self.assertEqual(model.generate.call_count, 3)
+        self.assertEqual(float(image[0, 0, 0]), 1.0)
+
+    def test_feedback_rejects_variants_of_another_shape(self):
+        service, model, real, similarity = self._scored_feedback_service(
+            [0.9], similarity_threshold=0.8, max_attempts=1,
+        )
+        model.generate.side_effect = None
+        model.generate.return_value = (np.zeros((1, 4, 4)), np.zeros((1, 4, 4)))
+        with similarity, self.assertRaisesRegex(ValueError, "differs from"):
+            service._generate_variant({"img": real}, real, Mock())
+
+    def test_generation_passes_sampling_settings_to_the_model(self):
+        config = Configuration("kwargs-test", study_folder="/tmp/kwargs-test")
+        config.extraction.anomaly_size = (1, 8, 8)
+        image = np.zeros((1, 8, 8), dtype=np.float32)
+        for model_name, mode, expects_skip_source in (
+            ("cVAE_ConvNeXt_2D", "posterior", True),
+            ("cVAE_ConvNeXt_2D", "prior", False),
+            ("VAE_ResNet_2D", "posterior", False),
+        ):
+            with self.subTest(model=model_name, mode=mode):
+                config.model.set_model(model_name)
+                config.generation.sampling_mode = mode
+                config.generation.variation_strength = 0.7
+                config.generation.clamp_output = True
+                model = Mock()
+                model.generate.return_value = (image, image)
+                service = GenerationService(config, Mock(), Mock(), Mock(), model=model)
+                mask_generator = Mock()
+
+                service._generate_variant({"img": image}, image, mask_generator)
+
+                kwargs = model.generate.call_args.kwargs
+                self.assertEqual(kwargs["mode"], mode)
+                self.assertEqual(kwargs["variation_strength"], 0.7)
+                self.assertTrue(kwargs["clamp_01"])
+                self.assertIs(kwargs["target_mask_generator"], mask_generator)
+                self.assertEqual("posterior_skip_source" in kwargs, expects_skip_source)
+
     def test_trial_selection_supports_best_last_and_explicit_ids(self):
         first = SimpleNamespace(number=1)
         latest = SimpleNamespace(number=4)
