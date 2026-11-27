@@ -12,7 +12,7 @@ into original control samples. It is based on the IEEE papers
 ![High-level overview of hybrid sample generation](high_level.png)
 
 
-## Installation
+## [Installation](https://pfleiderer-adrian.github.io/HybridSampleGeneration/getting-started/installation/)
 
 Python 3.10 or newer is required. Install PyTorch for your CPU/CUDA environment
 first if you need a specific build, then:
@@ -26,7 +26,7 @@ For development or the bundled examples, install from a checkout with
 [installation guide](https://pfleiderer-adrian.github.io/HybridSampleGeneration/getting-started/installation/) covers optional
 dependencies such as image harmonization.
 
-## Usage
+## [Usage](https://pfleiderer-adrian.github.io/HybridSampleGeneration/getting-started/quick-start/)
 
 ```python
 from hybrid_sample_generator.configuration import Configuration
@@ -52,7 +52,7 @@ a positive segmentation mask, controls an empty one. The
 [quick start](https://pfleiderer-adrian.github.io/HybridSampleGeneration/getting-started/quick-start/) contains a complete script that
 runs without data files.
 
-## Documentation
+## [Documentation](https://pfleiderer-adrian.github.io/HybridSampleGeneration/)
 
 | Topic | Pages |
 | --- | --- |
