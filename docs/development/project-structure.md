@@ -12,8 +12,13 @@
   training and supported VAEs
 - `hybrid_sample_generator/fusion/` — fusion service, shared preprocessing and
   the classical alpha-blending and Poisson backends
+- `hybrid_sample_generator/postprocessing/` — quality rules and decisions for
+  materialized hybrids
 - `hybrid_sample_generator/evaluation/` — pairwise metrics, outliers and reports
 - `hybrid_sample_generator/datasets/` — repository-backed training datasets
 - `hybrid_sample_generator/visualization/` — study browser and maintenance UI
 - `examples/` — shared example helpers plus 2D image, 3D NIfTI and MVTec AD 2 workflows
 - `tests/` — tests grouped by the same feature boundaries
+- `docs/`, `mkdocs.yml` — this documentation
+- `scripts/generate_config_reference.py` — generator for the configuration
+  reference pages

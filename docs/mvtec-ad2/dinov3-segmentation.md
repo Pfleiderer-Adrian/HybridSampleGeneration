@@ -4,8 +4,7 @@ Part of the [MVTec AD 2 benchmark](index.md); see [downstream training](downstre
 for data mixtures and [downstream evaluation](downstream-evaluation.md) for metrics.
 
 Select `dinov3_segmentation` for supervised image-to-mask training without a
-healthy-partner loss or pair consistency. DRAEM and `dinov3_paired` remain
-available independently.
+healthy-partner loss or pair consistency.
 
 ```python
 from examples.mvtec_ad2.downstream.configuration import DownstreamConfiguration
@@ -22,9 +21,9 @@ config.dinov3.decoder_blocks = 2
 
 At 1000 samples per epoch this uses 750 normal, 125 DRAEM-synthesized and
 125 hybrid samples. Set `hybrid_fraction = 0.0` for a baseline with 750 normal
-and 250 DRAEM samples. Mixture semantics, aligned cropping, flips and stored
-splits are unchanged. The shared dataset still supplies healthy targets, but
-this model never uses them in its loss.
+and 250 DRAEM samples. Mixtures, aligned cropping, flips and stored splits
+work as for [paired DINOv3](dinov3-paired.md). The shared dataset supplies
+healthy targets, but this model never uses them in its loss.
 
 The frozen DINOv3 backbone, trainable decoder and native-resolution image-detail
 branch are shared with [paired DINOv3](dinov3-paired.md). Install the same
@@ -35,20 +34,18 @@ and `validation_samples` are only relevant to the paired model.
 
 Checkpoint selection minimizes `segmentation_total_loss` (focal + weighted Dice)
 on real validation images and masks. It requires no healthy counterpart or
-synthetic validation pairs. The previous focal-only `segmentation_loss` remains
-reported separately. Both `best.pt` and `last.pt` include backbone configuration
+synthetic validation pairs. The focal-only `segmentation_loss` is reported
+separately. Both `best.pt` and `last.pt` include backbone configuration
 and weights for offline evaluation. Results live in
 `study/downstream/dinov3_segmentation/<run_id>/`.
 
-Inference needs only one image and produces pixel anomaly scores. Existing tiled
-evaluation and Image AUROC/AP, Pixel AUROC/AP and AUC-PRO0.05 are supported.
-Selecting the model does not launch an experiment automatically.
-
+Inference needs only one image and produces pixel anomaly scores. Evaluation
+uses full-image tiling and reports Image AUROC/AP, Pixel AUROC/AP and
+AUC-PRO0.05.
 The optional `dpt` decoder reads four equally spaced transformer layers (3, 6,
 9, 12 for ViT-S). Each layer is normalized, projected and reassembled at a
 separate spatial scale. Four coarse-to-fine fusion stages each have a residual
 skip block and `decoder_blocks` refinement blocks with two 3x3 convolutions per
 block. A deep native-resolution detail branch and residual output head refine the
 prediction. Width and depth are configurable. This is a DPT-style implementation,
-not a pretrained official DPT head. `decoder="cnn"` remains the default to preserve
-old configurations and checkpoint compatibility.
+not a pretrained official DPT head. `decoder="cnn"` is the default.

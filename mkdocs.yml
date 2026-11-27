@@ -2,15 +2,47 @@ site_name: Hybrid Sample Generator
 site_url: https://pfleiderer-adrian.github.io/HybridSampleGeneration/
 repo_url: https://github.com/Pfleiderer-Adrian/HybridSampleGeneration
 repo_name: Pfleiderer-Adrian/HybridSampleGeneration
+edit_uri: edit/main/docs/
 docs_dir: docs
 site_dir: site
 theme:
   name: material
   language: en
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
   features:
+    - navigation.tabs
     - navigation.sections
+    - navigation.top
     - search.suggest
     - search.highlight
+    - content.code.copy
+    - content.action.edit
+markdown_extensions:
+  - admonition
+  - def_list
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+validation:
+  links:
+    anchors: warn
 plugins:
   - search:
       lang: en
@@ -21,7 +53,12 @@ nav:
       - Quick start: getting-started/quick-start.md
   - Guides:
       - Input data: guides/input-data.md
-      - Pipeline stages: guides/pipeline.md
+      - Pipeline overview: guides/pipeline.md
+      - Extraction: guides/extraction.md
+      - Generator training: guides/training.md
+      - Synthetic variants: guides/generation.md
+      - Hybrid planning: guides/matching.md
+      - Fusion: guides/fusion.md
       - Postprocessing: guides/postprocessing.md
       - Evaluation: guides/evaluation.md
       - Visualization: guides/visualization.md
@@ -29,6 +66,7 @@ nav:
   - Concepts:
       - Data model and storage: concepts/study-storage.md
       - Repository datasets: concepts/datasets.md
+      - Glossary: concepts/glossary.md
   - Configuration:
       - Overview: configuration/index.md
       - Study: configuration/reference/study.md
@@ -62,7 +100,9 @@ nav:
           - SuperADD-inspired dual banks: mvtec-ad2/superadd-dual-bank.md
       - Downstream evaluation: mvtec-ad2/downstream-evaluation.md
   - Development:
+      - Contributing: development/contributing.md
       - Tests: development/testing.md
+      - Documentation: development/documentation.md
       - Project structure: development/project-structure.md
       - Releases: development/releases.md
   - LLM usage statement: llm-usage.md

@@ -1,10 +1,10 @@
 # MVTec AD 2 benchmark
 
-This example reproduces the V3 MVTec AD 2 benchmark pipeline: a grouped
-train/validation split, synthetic anomalies from several sources, and a
-DINOv3 segmentation model trained on a fixed mixture of healthy, real and
-synthetic examples. The split, generator and downstream settings correspond
-to the submitted V3 runs.
+This example reproduces the MVTec AD 2 benchmark pipeline of this project: a
+grouped train/validation split, synthetic anomalies from several sources, and
+a DINOv3 segmentation model trained on a fixed mixture of healthy, real and
+synthetic examples. The split, generator and downstream settings are those of
+the submitted benchmark runs, which the code and its presets call *V3*.
 
 This is a custom anomaly-supervised protocol, not the official unsupervised
 MVTec benchmark.

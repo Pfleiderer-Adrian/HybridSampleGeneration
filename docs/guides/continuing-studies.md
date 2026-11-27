@@ -4,7 +4,7 @@ For a study with synthetic variants and a saved hybrid plan, continue directly
 with materialization:
 
 ```python
-from hybrid_sample_generator.configuration.root import load_config_file
+from hybrid_sample_generator.configuration import load_config_file
 from hybrid_sample_generator.pipeline.hybrid_data_generator import HybridDataGenerator
 
 config = load_config_file("results/study-01/configuration.json")
@@ -27,7 +27,9 @@ Repeating a phase has the following effects:
 | `extract_anomalies()` | Replaces real anomalies and removes synthetic anomalies, hybrids, placements and matching-cache entries. |
 | `generate_synthetic_anomalies()` | Replaces synthetic variants and removes hybrids and placements; the real-ROI matching cache remains available. |
 | `plan_hybrid_samples()` | Replaces all hybrid and placement records, including generated statuses and their artifact references; retains and updates the matching cache. |
-| `materialize_hybrid_samples()` | Processes every stored hybrid, including already generated or failed ones, and rewrites its generated outputs. |
+| `train_generator()` | Adds further trials to the existing Optuna study and keeps earlier checkpoints; no records are removed. |
+| `materialize_hybrid_samples()` | Processes every stored hybrid, including already generated or failed ones, rewrites its generated outputs and clears all postprocessing decisions. |
+| `postprocess_hybrid_samples()` | Replaces the current decisions; the reports of earlier runs are kept. |
 
 These resets remove database records; old array files can remain on disk without
 repository references. Repeating a phase is not an incremental append or an

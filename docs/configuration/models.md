@@ -9,18 +9,41 @@
 | Mask-conditioned ConvNeXt VAE | [cVAE_ConvNeXt_2D](reference/model-cVAE_ConvNeXt_2D.md) | [cVAE_ConvNeXt_3D](reference/model-cVAE_ConvNeXt_3D.md) |
 | Paired source-to-target ConvNeXt VAE | [paired_cVAE_ConvNeXt_2D](reference/model-paired_cVAE_ConvNeXt_2D.md) | [paired_cVAE_ConvNeXt_3D](reference/model-paired_cVAE_ConvNeXt_3D.md) |
 
-## Model setup
+## Choosing a model
 
-The stable registry contains 2D and 3D entries for `VAE_ResNet`,
-`VAE_ConvNeXt` and the mask-conditioned `cVAE_ConvNeXt`. The 2D and 3D entries
-share one dimension-independent model implementation per architecture while
-selecting dimension-specific defaults. Use registered names such as
-`VAE_ResNet_2D`, `VAE_ConvNeXt_3D` or `cVAE_ConvNeXt_2D` with
-`config.model.set_model(name)`.
+Every architecture is registered once for 2D and once for 3D data. Both
+entries share one dimension-independent implementation and differ only in
+their defaults and default search space.
+
+| Architecture | Mask conditioning | Trained on | Use it when |
+| --- | --- | --- | --- |
+| `VAE_ResNet` | none | reconstruction | a compact baseline is sufficient |
+| `VAE_ConvNeXt` | none | reconstruction | variants should keep the shape of their parent |
+| `cVAE_ConvNeXt` (default) | SPADE blocks in the decoder | reconstruction | variants should also vary in shape |
+| `paired_cVAE_ConvNeXt` | SPADE blocks in the decoder, no skip connections | source-to-target pairs | the model should learn the change of shape explicitly |
+
+The unconditioned models generate an image and derive its mask from the image.
+The mask-conditioned models generate the image for a given target mask, which
+[generation](../guides/generation.md#target-masks) obtains by transforming the
+mask of the real anomaly.
+
+`cVAE_ConvNeXt` is trained to reconstruct each cutout for its own mask and
+only meets changed masks during generation. `paired_cVAE_ConvNeXt` is trained
+on pairs instead: the encoder receives a real cutout with its mask, and the
+decoder has to produce a jointly transformed version of that cutout for the
+transformed mask. The pairs are created on the fly with the transforms in
+`config.augmentation.mask_transforms`, so these settings affect training as
+well as generation. `identity_pair_probability` (default `0.2`) is the share
+of training pairs whose target equals the source. Validation pairs are fixed
+by the study seed.
+
+## Model setup
 
 `Configuration(study_name, save_path=None, *, study_folder=None)` only accepts
 study identity and storage location. New configurations default to
 `cVAE_ConvNeXt_2D` and `config.extraction.anomaly_size = (3, 64, 64)`.
+Use registered names such as `VAE_ResNet_2D`, `VAE_ConvNeXt_3D` or
+`paired_cVAE_ConvNeXt_2D` with `config.model.set_model(name)`.
 Set the anomaly size and select the model before customizing its parameter space:
 
 ```python
@@ -55,7 +78,9 @@ and background reconstruction errors are averaged separately per sample and
 combined with `foreground_weight` and `background_weight`. The weights are
 relative and must be non-negative; at least one must be positive. ResNet and
 regular ConvNeXt use the mask only for the loss and remain unconditioned. The
-`selection` metric uses this same balanced loss.
+paired models weight the loss with the target mask. The `selection` metric,
+which [training](../guides/training.md) monitors by default, is this balanced
+loss.
 
 ## Fixed values and Optuna search
 

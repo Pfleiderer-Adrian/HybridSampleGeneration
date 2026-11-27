@@ -8,31 +8,38 @@ belong to `DownstreamConfiguration`.
 
 ## AUC-PRO
 
-MVTec AD 2 downstream evaluation additionally reports `pixel_aupro_0.05` in
-validation and test metrics. It averages the detected fraction of each
+Besides image and pixel AUROC/AP, downstream evaluation reports
+`pixel_aupro_0.05` in validation and test metrics. It averages the detected fraction of each
 8-connected ground-truth defect region equally, integrates the PRO curve up to
 a background-pixel false positive rate of 0.05, and divides by 0.05 to normalize
 the result to [0, 1]. The endpoint is linearly interpolated. It uses the same
 `pixel_metric_bins` score quantization as pixel AUROC/AP (4096 bins by default),
 so it approximates an evaluation over all distinct scores. Images without defects
 contribute background false positives; splits without defects or background
-return `null`. Existing saved results are updated only by re-evaluation.
+return `null`. Saved results change only when a run is evaluated again.
 
 ## Checkpoint selection
 
-New DRAEM downstream runs select `best.pt` by the **highest validation
-`pixel_aupro_0.05`**, retaining the earlier epoch on ties. Focal loss is still
-reported for monitoring but does not select the checkpoint. Validation must
-contain both defect regions and background pixels; an undefined AUC-PRO causes
-an explicit error rather than silently switching criteria. Checkpoints and
-training history record `selection_metric`, `selection_mode` and
-`selection_score`. Existing runs and their selected checkpoints remain unchanged.
-DINOv3 models retain their documented loss-based selection criteria.
-To select a DINOv3 checkpoint by validation AUC-PRO instead, set
-`training.selection_metric = "pixel_aupro_0.05"` (default `"auto"` retains
-the model's criterion). This uses real held-out validation images and masks;
-paired synthetic validation is not needed for this criterion. Paired training
-still uses the full paired loss. Test data never selects the checkpoint.
+`training.selection_metric` decides which validated epoch becomes `best.pt`.
+With the default `"auto"`, each model uses its own criterion:
+
+| Model | Criterion with `"auto"` | Direction |
+| --- | --- | --- |
+| `draem` | validation `pixel_aupro_0.05` | highest |
+| `dinov3_paired` | `paired_total_loss` on fixed synthetic validation pairs | lowest |
+| `dinov3_segmentation` | `segmentation_total_loss` (focal + weighted Dice) on real validation data | lowest |
+
+Set `training.selection_metric = "pixel_aupro_0.05"` to select a DINOv3
+checkpoint by the highest validation AUC-PRO instead; the submitted preset does
+this. The criterion uses real held-out validation images and masks, so paired
+synthetic validation is not needed. Paired training still uses the full paired
+loss.
+
+Selection by AUC-PRO keeps the earlier epoch on ties. Validation must contain
+both defect regions and background pixels; an undefined AUC-PRO raises an error
+instead of silently switching criteria. Focal loss is reported for monitoring
+only. Checkpoints and training history record `selection_metric`,
+`selection_mode` and `selection_score`. Test data never selects the checkpoint.
 
 ## Validation interval
 

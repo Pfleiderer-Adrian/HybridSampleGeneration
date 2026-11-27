@@ -20,8 +20,8 @@ OriginalSample  1 ── 0..n  RealAnomaly  1 ── 0..n  SyntheticAnomaly
 A placement is an independent record. It identifies one synthetic anomaly,
 one hybrid sample, an insertion order, a matching method and score, and an
 explicit normalized center position. Positions use `(y, x)` for 2D and
-`(z, y, x)` for 3D. This removes the old one-to-one and filename-based
-relationship between anomalies and generated samples.
+`(z, y, x)` for 3D. One synthetic anomaly can therefore be placed in several
+hybrids, and one hybrid can contain several anomalies.
 
 Database constraints enforce unique component/variant/order combinations and
 foreign-key integrity. Original IDs are deterministic hashes of the resolved

@@ -10,7 +10,22 @@ config.extraction.anomaly_size = (1, 32, 32)
 config.model.set_model("cVAE_ConvNeXt_2D")
 config.training.batch_size = 32
 config.validate()
+
+path = config.save_config_file()        # <study folder>/configuration.json
 ```
+
+A saved configuration is loaded with `load_config_file`:
+
+```python
+from hybrid_sample_generator.configuration import load_config_file
+
+config = load_config_file("results/my-study/configuration.json")
+```
+
+By default the study folder is `results/<study name>` below the working
+directory. `Configuration(name, save_path=root)` uses
+`<root>/results/<study name>`, and `Configuration(name, study_folder=path)`
+uses exactly `path`.
 
 ## Configuration structure
 
@@ -30,9 +45,9 @@ config.model        generator choice and model-specific parameters
 config.fusion       fusion backend and backend-specific parameters
 ```
 
-The current configuration schema is version 10 and the artifact database schema
-is version 2. Older study databases and filename/CSV layouts are intentionally
-unsupported; recreate the study and run `ingest_dataset()` again.
+The configuration schema is version 10 and the artifact database schema is
+version 2. Configuration files and study databases of other versions cannot be
+loaded; recreate the study and run `ingest_dataset()` again.
 
 `config.study.seed` controls reproducibility for training, synthetic variant
 generation, and hybrid planning. Set it before running the pipeline:
@@ -56,13 +71,5 @@ config.study.seed = 123
 
 `Configuration` provides defaults, but some settings depend on each other. Run `config.validate()` after changing the model, image size, or backend. `config.schema_version` identifies the file format and is set by the code; do not change it manually.
 
-## Updating the reference
-
-The pages in `configuration/reference/` are generated. When parameters or explanations change, update the configuration classes and `scripts/generate_config_reference.py`:
-
-```bash
-python scripts/generate_config_reference.py
-python scripts/generate_config_reference.py --check
-```
-
-The check reports new fields without explanations and outdated reference pages. To preview the site locally, install `mkdocs-material` and run `mkdocs serve`. GitHub Actions publishes the same Markdown files.
+The reference pages are generated from the configuration classes; see
+[documentation](../development/documentation.md) for how to update them.

@@ -14,7 +14,7 @@ Select with `config.fusion.set_backend('poisson')`.
 | `config.fusion.parameters.fusion_relation_mode` | `str` | `'delta'` | Intensity relationship method: 'delta' or 'ratio'. |
 | `config.fusion.parameters.fusion_relation_norm_classes_separately` | `bool` | `False` | Normalize the intensity relationship separately for each anomaly class. |
 | `config.fusion.parameters.fusion_relation_min_context_size` | `int` | `8` | Minimum number of context pixels for the intensity relationship. |
-| `config.fusion.parameters.fusion_keep_bg` | `bool` | `False` | Keep the synthetic anomaly background. |
+| `config.fusion.parameters.fusion_keep_bg` | `bool` | `False` | Leave detected background pixels of the control image unchanged; anomaly pixels placed there are dropped from the image and the mask. |
 | `config.fusion.parameters.fusion_bg_value` | `float \| None` | `None` | Explicit background value; None uses automatic detection. |
 | `config.fusion.parameters.fusion_relative_bg_threshold` | `float \| None` | `0.01` | Relative threshold for detecting background pixels. |
 | `config.fusion.parameters.fusion_bg_exterior_only` | `bool` | `True` | Consider only background pixels connected to the exterior. |
