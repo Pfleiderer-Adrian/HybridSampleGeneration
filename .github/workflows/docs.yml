@@ -53,13 +53,16 @@ jobs:
         uses: lycheeverse/lychee-action@v2
         with:
           # Relative links are verified by "mkdocs build --strict"; this job
-          # covers external URLs and GitHub blob links.
+          # covers external URLs and GitHub blob links. gnu.org is excluded
+          # because it regularly times out for requests from CI runners.
           args: >-
             --no-progress
             --max-retries 3
+            --timeout 30
             --accept 200..=299,403,429
             --exclude '^https://pfleiderer-adrian\.github\.io/HybridSampleGeneration/'
             --exclude '^http://127\.0\.0\.1'
+            --exclude '^https://www\.gnu\.org/'
             "docs/**/*.md" README.md
           fail: true
 
