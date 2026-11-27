@@ -121,6 +121,53 @@ class MaskTransformTests(unittest.TestCase):
 
 
 
+class ZoomTransformTests(unittest.TestCase):
+    def test_zoom_can_shrink_and_enlarge_a_mask(self):
+        from hybrid_sample_generator.imaging.masks.global_transforms import (
+            random_global_zoom_transform,
+        )
+
+        mask = np.zeros((1, 32, 32), dtype=np.uint8)
+        mask[0, 12:20, 12:20] = 1
+        rng = np.random.default_rng(0)
+
+        smaller = random_global_zoom_transform(mask, min_zoom=0.5, max_zoom=0.5, rng=rng)
+        larger = random_global_zoom_transform(mask, min_zoom=1.5, max_zoom=1.5, rng=rng)
+
+        self.assertEqual(int(smaller.sum()), 16)    # 4 x 4
+        self.assertEqual(int(larger.sum()), 144)    # 12 x 12
+        for invalid in ((0.0, 1.0), (1.2, 1.0), (-1.0, 1.0), (1.0, float("inf"))):
+            with self.assertRaisesRegex(ValueError, "min_zoom"):
+                random_global_zoom_transform(mask, min_zoom=invalid[0], max_zoom=invalid[1], rng=rng)
+
+    def test_generated_target_mask_grows_with_zoom_above_one(self):
+        mask = np.zeros((1, 32, 32), dtype=np.uint8)
+        mask[0, 12:20, 12:20] = 1
+        generator = TransformGenerator(
+            {"zoom": 1.0},
+            use_mask_transform=True,
+            transform_params={"zoom": {"min_zoom": 1.5, "max_zoom": 1.5}},
+            rng=np.random.default_rng(1),
+        )
+
+        target = generator.augment_mask(mask)
+
+        self.assertEqual(target.shape, mask.shape)
+        self.assertEqual(int(target.sum()), 144)
+
+    def test_paired_zoom_accepts_factors_above_one(self):
+        from hybrid_sample_generator.imaging.masks.paired_transforms import sample_warp
+
+        mask = np.zeros((32, 32), dtype=np.uint8)
+        mask[12:20, 12:20] = 1
+        warp = sample_warp(
+            "zoom", mask, {"min_zoom": 1.5, "max_zoom": 1.5}, np.random.default_rng(2)
+        )
+        self.assertIsNotNone(warp)
+        with self.assertRaisesRegex(ValueError, "min_zoom"):
+            sample_warp("zoom", mask, {"min_zoom": 0.0, "max_zoom": 1.0}, np.random.default_rng(2))
+
+
 class ElasticDefaultTests(unittest.TestCase):
     def test_default_magnitude_follows_the_shortest_axis(self):
         from hybrid_sample_generator.imaging.masks.elastic import (

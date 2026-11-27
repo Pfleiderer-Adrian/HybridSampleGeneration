@@ -11,6 +11,8 @@ class FeedbackConfiguration:
     enabled: bool = False
     similarity_threshold: float = 0.8
     threshold_relaxation_factor: float = 0.9
+    # Number of rejected attempts after which the threshold is relaxed once more.
+    relaxation_interval: int = 10
     max_attempts: int = 100
 
     def validate(self) -> None:
@@ -18,6 +20,8 @@ class FeedbackConfiguration:
             raise ValueError("generation.feedback.similarity_threshold must be in [0, 1].")
         if not 0.0 < float(self.threshold_relaxation_factor) <= 1.0:
             raise ValueError("generation.feedback.threshold_relaxation_factor must be in (0, 1].")
+        if isinstance(self.relaxation_interval, bool) or int(self.relaxation_interval) <= 0:
+            raise ValueError("generation.feedback.relaxation_interval must be a positive integer.")
         if isinstance(self.max_attempts, bool) or int(self.max_attempts) <= 0:
             raise ValueError("generation.feedback.max_attempts must be a positive integer.")
 

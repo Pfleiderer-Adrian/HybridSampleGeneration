@@ -50,6 +50,7 @@ DESCRIPTIONS = {
     "generation.feedback.enabled": "Enable image similarity feedback and repeated generation attempts.",
     "generation.feedback.similarity_threshold": "Minimum similarity for accepting a variant; range [0, 1].",
     "generation.feedback.threshold_relaxation_factor": "Factor for relaxing the threshold; range (0, 1].",
+    "generation.feedback.relaxation_interval": "Number of rejected attempts after which the threshold is multiplied by the relaxation factor; positive.",
     "generation.feedback.max_attempts": "Maximum number of generation attempts; positive.",
     "matching.routine": "Candidate selection and placement method; see the matching guide.",
     "matching.hybrids_per_original": "Number of hybrid images per eligible original; positive.",
