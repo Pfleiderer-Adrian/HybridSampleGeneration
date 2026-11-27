@@ -75,6 +75,60 @@ class ClassicalFusionBackendTests(unittest.TestCase):
                 self.assertEqual(output.image.shape, control.shape)
                 self.assertGreater(int(output.segmentation.sum()), 0)
 
+    def test_anomaly_larger_than_the_control_is_rejected(self):
+        for spatial_ndim in (2, 3):
+            with self.subTest(spatial_ndim=spatial_ndim):
+                sample = self._sample(spatial_ndim)
+                # The cutout was shrunk to a quarter during extraction; restored it is
+                # 8 pixels per axis and exceeds the 6-pixel control.
+                sample["anomaly_meta"] = {"scale_factor": (0.25,) * spatial_ndim}
+                control = np.full((1, *((6,) * spatial_ndim)), 0.2, dtype=np.float32)
+
+                with self.assertRaisesRegex(ValueError, "does not fit into the control image"):
+                    self.backend.fuse(
+                        sample,
+                        control,
+                        (0.5,) * spatial_ndim,
+                        extraction_config=self._extraction_config(spatial_ndim),
+                    )
+
+    def test_oversized_anomaly_reports_shapes_instead_of_an_index_error(self):
+        # Intensity normalization indexes the control region with anomaly-sized
+        # masks; an anomaly wider than the control used to raise an IndexError there.
+        backend = ClassicalFusionBackend(Config(fusion_variation=False))
+        anomaly = np.zeros((1, 8, 16), dtype=np.float32)
+        mask = np.zeros((1, 8, 16), dtype=np.uint8)
+        mask[0, 1:3, :] = 1      # T shape: its bounding box still contains background
+        mask[0, 3:7, 6:10] = 1
+        anomaly[mask > 0] = 0.8
+        sample = {
+            "synth_anomaly": anomaly,
+            "anomaly_meta": {"scale_factor": (1.0, 0.5)},  # restored to 32 pixels width
+            "tgt_mask": mask,
+            "anomaly_roi": anomaly.copy(),
+            "anomaly_roi_mask": mask.copy(),
+        }
+        control = np.linspace(0.1, 0.3, 24 * 24, dtype=np.float32).reshape(1, 24, 24)
+
+        with self.assertRaisesRegex(ValueError, r"\(6, 32\).*\(24, 24\)"):
+            backend.fuse(
+                sample,
+                control,
+                (0.5, 0.5),
+                extraction_config=ExtractionConfiguration((1, 8, 16)),
+            )
+
+    def test_anomaly_of_exactly_the_control_size_is_fused(self):
+        sample = self._sample(2)
+        sample["anomaly_meta"] = {"scale_factor": (1 / 3, 1 / 3)}  # 2 x 2 foreground -> 6 x 6
+        control = np.full((1, 6, 6), 0.2, dtype=np.float32)
+
+        output = self.backend.fuse(
+            sample, control, (0.5, 0.5), extraction_config=self._extraction_config(2),
+        )
+
+        self.assertTrue(np.all(output.segmentation == 1))
+
     def test_segmentation_min_alpha_removes_weakly_blended_pixels(self):
         backend = ClassicalFusionBackend(
             Config(

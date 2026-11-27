@@ -121,6 +121,15 @@ def prepare_spatial_fusion(
         np.uint8, copy=False
     )
 
+    anomaly_spatial = np.asarray(anom.shape[1:], dtype=int)
+    if np.any(anomaly_spatial > ctrl_spatial):
+        raise ValueError(
+            f"The anomaly has spatial shape {tuple(anomaly_spatial.tolist())} after "
+            "restoring its extraction scale and does not fit into the control image "
+            f"of shape {tuple(ctrl_spatial.tolist())}. Its target mask probably "
+            "covers far more of the cutout than the mask of the real anomaly."
+        )
+
     position = validate_position(position, spatial_ndim)
     anomaly_spatial = np.asarray(anom.shape[1:], dtype=int)
     offset = np.asarray(

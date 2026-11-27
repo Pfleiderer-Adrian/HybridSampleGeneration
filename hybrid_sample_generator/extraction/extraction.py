@@ -9,7 +9,11 @@ from hybrid_sample_generator.extraction.normalization import (
     normalize_anomaly,
 )
 from hybrid_sample_generator.imaging.resampling import resize_and_pad, spatial_target_size
-from hybrid_sample_generator.imaging.roi import crop_spatial_clip, dynamic_roi_size
+from hybrid_sample_generator.imaging.roi import (
+    crop_spatial_clip,
+    dynamic_roi_size,
+    roi_center_offset,
+)
 
 
 def crop_and_center_anomalies(
@@ -118,6 +122,12 @@ def crop_and_center_anomalies(
             )
             if config.roi.fixed_size is None
             else config.roi.fixed_size
+        )
+        # A ROI near the border is shifted inside the image. Matching returns the
+        # ROI center, so planning needs this offset to recover the anomaly center.
+        metadata["roi_center_offset"] = tuple(
+            round(value, 1)
+            for value in roi_center_offset(image.shape[1:], centroid, roi_size)
         )
         anomaly_rois.append(
             crop_spatial_clip(

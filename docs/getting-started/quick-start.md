@@ -168,10 +168,8 @@ def kolektor_samples(root):
 
 config = Configuration("kolektor", study_folder="results/kolektor")
 
-# Extraction: wide grayscale cutouts; no horizontal ROI padding
+# Extraction: wide grayscale cutouts
 config.extraction.anomaly_size = (1, 64, 256)
-config.extraction.roi.min_padding = (10, 0)
-config.extraction.roi.padding_ratio = (0.5, 0.0)
 
 # Training
 config.model.set_model("cVAE_ConvNeXt_2D")
@@ -234,8 +232,6 @@ derived from KolektorSDD (CC BY-NC-SA 4.0).*
     | Parameter | Default | Here | Reason |
     | --- | --- | --- | --- |
     | `extraction.anomaly_size` | `(3, 64, 64)` | `(1, 64, 256)` | grayscale images; cracks are about 50 × 250 pixels |
-    | `extraction.roi.min_padding` | `(10, 10, 10)` | `(10, 0)` | no horizontal ROI padding, so a matched position can reach the image border |
-    | `extraction.roi.padding_ratio` | `(0.5, 0.5, 0.5)` | `(0.5, 0.0)` | same reason |
     | `training.num_trials` | `10` | `3` | short runtime |
     | `training.epochs` | `1000` | `200` | short runtime |
     | `training.batch_size` | `64` | `16` | only 54 real anomalies |

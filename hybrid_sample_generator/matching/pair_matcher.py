@@ -16,7 +16,7 @@ from hybrid_sample_generator.persistence.artifact_store import ArtifactStore
 from hybrid_sample_generator.persistence.identifiers import stable_id
 from hybrid_sample_generator.persistence.study_repository import StudyRepository
 
-MATCHER_ALGORITHM_VERSION = 2
+MATCHER_ALGORITHM_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -88,12 +88,26 @@ class PairMatcher:
             self.roi_shapes[record.id] = tuple(int(size) for size in prepared.intensity.shape)
             self.stats.preparation_seconds += perf_counter() - started
             started = perf_counter()
-            kwargs = {"source_position": record.source_position} if float(self.config.distance_weight) > 0 else {}
+            offset = roi_center_offset(record, len(self.roi_shapes[record.id]))
+            kwargs = (
+                {"source_position": record.source_position, "anchor_offset": offset}
+                if float(self.config.distance_weight) > 0
+                else {}
+            )
             score, center = template_matching_prepared(prepared, self.control_prepared, self.config, **kwargs)
             self.stats.matching_seconds += perf_counter() - started
             self.stats.computed_pairs += 1
             valid = center is not None and np.isfinite(score) and -1 <= score <= 1
-            position = tuple(float(v) for v in np.asarray(center) / self.spatial_shape) if valid else None
+            # ``center`` is the matched ROI window. The anomaly keeps the place it had
+            # inside its ROI, which differs from the center for ROIs shifted at a border.
+            position = (
+                tuple(
+                    float(v)
+                    for v in np.clip((np.asarray(center) + offset) / self.spatial_shape, 0.0, 1.0)
+                )
+                if valid
+                else None
+            )
             cached = MatchCandidate(self.original.id, record.id, self.signature, valid,
                                     float(score) if np.isfinite(score) else None, position,
                                     tuple(float(v) for v in center) if center is not None else None,
@@ -114,4 +128,20 @@ class PairMatcher:
             self.new_records.clear()
 
 
-__all__ = ["Candidate", "MatchingStats", "PairMatcher", "matcher_signature"]
+def roi_center_offset(record: RealAnomaly, spatial_dimensions: int) -> np.ndarray:
+    """Return the anomaly center minus the ROI center in pixels per axis.
+
+    Real anomalies extracted before this value was stored have no offset.
+    """
+    stored = record.metadata.get("roi_center_offset")
+    if stored is None:
+        return np.zeros(spatial_dimensions, dtype=np.float64)
+    offset = np.asarray(stored, dtype=np.float64)
+    if offset.shape != (spatial_dimensions,) or not np.isfinite(offset).all():
+        raise ValueError(
+            f"Real anomaly {record.id} has an invalid roi_center_offset {stored!r}."
+        )
+    return offset
+
+
+__all__ = ["Candidate", "MatchingStats", "PairMatcher", "matcher_signature", "roi_center_offset"]

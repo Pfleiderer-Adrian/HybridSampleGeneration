@@ -87,6 +87,16 @@ class PoissonFusionBackendTests(unittest.TestCase):
 
         np.testing.assert_allclose(clean_output.image, artifact_output.image)
 
+    def test_anomaly_larger_than_the_control_is_rejected(self):
+        sample = self._sample(2)
+        sample["anomaly_meta"] = {"scale_factor": (0.25, 0.25)}  # restored to 8 x 8 pixels
+        control = np.full((1, 6, 6), 0.2, dtype=np.float32)
+
+        with self.assertRaisesRegex(ValueError, "does not fit into the control image"):
+            self.backend.fuse(
+                sample, control, (0.5, 0.5), extraction_config=self._extraction_config(2),
+            )
+
     def test_empty_mask_returns_unchanged_control(self):
         sample = self._sample(2)
         sample["tgt_mask"][:] = 0

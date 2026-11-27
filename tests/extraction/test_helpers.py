@@ -18,6 +18,8 @@ from hybrid_sample_generator.imaging.resampling import (
 from hybrid_sample_generator.imaging.roi import (
     crop_spatial_clip,
     dynamic_roi_size,
+    roi_center_offset,
+    spatial_clip_slices,
 )
 
 
@@ -58,6 +60,19 @@ class RoiTests(unittest.TestCase):
         self.assertTrue(np.array_equal(crop_2d, image[:, :4, :5]))
         self.assertEqual(crop_3d.shape, (1, 3, 4, 5))
         self.assertTrue(np.array_equal(crop_3d, volume[:, -3:, -4:, -5:]))
+
+    def test_roi_center_offset_reports_the_shift_at_borders(self):
+        # Centered crop: the centroid stays the crop center.
+        self.assertEqual(spatial_clip_slices((20, 20), (10, 10), (6, 8)), (slice(7, 13), slice(6, 14)))
+        self.assertEqual(roi_center_offset((20, 20), (10, 10), (6, 8)), (0.0, 0.0))
+        # Crop shifted inside the right and lower border in 2D ...
+        self.assertEqual(spatial_clip_slices((20, 20), (18, 17), (6, 8)), (slice(14, 20), slice(12, 20)))
+        self.assertEqual(roi_center_offset((20, 20), (18, 17), (6, 8)), (1.0, 1.0))
+        # ... and inside the first border of every axis in 3D.
+        self.assertEqual(roi_center_offset((10, 12, 14), (0, 1, 2), (4, 6, 8)), (-2.0, -2.0, -2.0))
+        # A crop larger than the array is clipped to the array.
+        self.assertEqual(spatial_clip_slices((5,), (4,), (9,)), (slice(0, 5),))
+        self.assertEqual(roi_center_offset((5,), (4,), (9,)), (1.5,))
 
 
 class ResamplingTests(unittest.TestCase):
@@ -149,6 +164,30 @@ class ExtractionTests(unittest.TestCase):
                     anomalies[0][1]["centroid_norm"],
                     tuple(2 / size for size in spatial_shape),
                 )
+                self.assertEqual(
+                    anomalies[0][1]["roi_center_offset"], (0.0,) * len(spatial_shape)
+                )
+
+    def test_extraction_stores_roi_offset_for_anomalies_at_the_border(self):
+        image = np.arange(1 * 20 * 40, dtype=np.float32).reshape(1, 20, 40)
+        segmentation = np.zeros((1, 20, 40), dtype=np.uint8)
+        segmentation[0, 8:12, 30:40] = 1  # touches the right border, center x = 34.5
+        config = ExtractionConfiguration((1, 20, 40))
+        config.min_coverage_ratio = 0.0
+        config.add_background_noise = False
+        config.normalization = None
+        config.roi.fixed_size = (8, 20)
+
+        anomalies, rois, _masks, roi_masks = crop_and_center_anomalies(
+            image, segmentation, config
+        )
+
+        metadata = anomalies[0][1]
+        # The ROI covers x = 20..39 with center 30; the anomaly center is rounded to 34.
+        self.assertEqual(rois[0].shape, (1, 8, 20))
+        self.assertTrue(np.array_equal(rois[0], image[:, 6:14, 20:40]))
+        self.assertEqual(metadata["roi_center_offset"], (0.0, 4.0))
+        self.assertTrue(np.array_equal(roi_masks[0], segmentation[:, 6:14, 20:40]))
 
     def test_extraction_dynamic_roi_follows_source_sample_aspect_ratio(self):
         image = np.zeros((1, 12, 18), dtype=np.float32)

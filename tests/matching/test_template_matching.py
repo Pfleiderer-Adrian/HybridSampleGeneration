@@ -27,6 +27,25 @@ class TemplateMatchingTests(unittest.TestCase):
                 self.assertEqual(center, (10.,) * dims)
                 self.assertAlmostEqual(score, .9)
 
+    def test_distance_is_measured_at_the_anchor_offset(self):
+        config = MatchingConfiguration(intensity_weight=0, gradient_weight=0, distance_weight=1)
+        template = np.ones((1, 4, 4))
+        control = np.ones((1, 12, 12))
+        # The anomaly sits 2 px right of the template center. A source position at
+        # x = 10 is reached by the window whose center is x = 8.
+        score, center = template_matching(
+            template, control, config, source_position=(.5, 10 / 12), anchor_offset=(0, 2),
+        )
+        self.assertEqual(center, (6., 8.))
+        self.assertAlmostEqual(score, 1.)
+        # Without the offset the window is pulled to the border instead.
+        self.assertEqual(
+            template_matching(template, control, config, source_position=(.5, 10 / 12))[1],
+            (6., 10.),
+        )
+        with self.assertRaisesRegex(ValueError, 'anchor_offset'):
+            template_matching(template, control, config, source_position=(.5, .5), anchor_offset=(1,))
+
     def test_distance_only_and_missing_source_position(self):
         config = MatchingConfiguration(intensity_weight=0, gradient_weight=0, distance_weight=1)
         config.validate()
