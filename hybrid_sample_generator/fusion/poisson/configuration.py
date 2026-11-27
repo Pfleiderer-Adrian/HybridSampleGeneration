@@ -14,7 +14,7 @@ class Config:
     solver_atol: float = 0.0
     solver_max_iterations: int = 2000
     clip_output: bool = True
-    fusion_normalization_border_width: int | None = 2
+    fusion_normalization_border_width: int | None = 8
     fusion_restore_anomaly_bg_relation: bool = True
     fusion_relation_mode: str = "delta"
     fusion_relation_norm_classes_separately: bool = False

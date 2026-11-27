@@ -4,11 +4,11 @@ Select with `config.fusion.set_backend('classical')`.
 
 | Parameter | Type | Default | Meaning / values |
 | --- | --- | --- | --- |
-| `config.fusion.parameters.max_alpha` | `float` | `0.8` | Maximum anomaly mixing weight; range [0, 1]. |
+| `config.fusion.parameters.max_alpha` | `float` | `1.0` | Maximum anomaly mixing weight; range [0, 1]. |
 | `config.fusion.parameters.segmentation_min_alpha` | `float` | `0.0` | Minimum anomaly mixing weight required for a pixel to remain in the output segmentation mask; range [0, max_alpha]. |
 | `config.fusion.parameters.image_harmonization` | `str \| None` | `None` | Optional final 2D harmonization step: None, 'PCTNet', or 'LBM'. Requires a separately installed libcom dependency and one or three image channels. |
 | `config.fusion.parameters.sq` | `float` | `2` | Shape parameter for the spatial alpha mask. |
-| `config.fusion.parameters.steepness_factor` | `float` | `3` | Steepness of the transition at the anomaly boundary. |
+| `config.fusion.parameters.steepness_factor` | `float` | `12` | Steepness of the transition at the anomaly boundary. |
 | `config.fusion.parameters.upsampling_factor` | `int` | `2` | Factor for finer alpha mask computation. |
 | `config.fusion.parameters.sobel_threshold` | `float` | `0.05` | Threshold for Sobel edge detection. |
 | `config.fusion.parameters.dilation_size` | `int` | `2` | Width of mask dilation. |
@@ -19,7 +19,7 @@ Select with `config.fusion.set_backend('classical')`.
 | `config.fusion.parameters.sq_variation` | `float` | `0.1` | Variation strength for sq. |
 | `config.fusion.parameters.steepness_variation` | `float` | `0.1` | Variation strength for steepness_factor. |
 | `config.fusion.parameters.selected_confidence` | `str` | `'90%'` | Confidence level: 68%, 80%, 90%, 95%, or 99%. |
-| `config.fusion.parameters.fusion_normalization_border_width` | `int \| None` | `2` | Context border width: None disables normalization; -1 uses the whole image. |
+| `config.fusion.parameters.fusion_normalization_border_width` | `int \| None` | `8` | Context border width: None disables normalization; -1 uses the whole image. |
 | `config.fusion.parameters.fusion_restore_anomaly_bg_relation` | `bool` | `True` | Restore the intensity relationship between anomaly and background. |
 | `config.fusion.parameters.fusion_relation_mode` | `str` | `'delta'` | Intensity relationship method: 'delta' or 'ratio'. |
 | `config.fusion.parameters.fusion_relation_norm_classes_separately` | `bool` | `False` | Normalize the intensity relationship separately for each anomaly class. |

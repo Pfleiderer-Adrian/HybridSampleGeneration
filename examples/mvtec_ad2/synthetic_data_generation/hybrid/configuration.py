@@ -56,6 +56,8 @@ def apply_generator_defaults(config: Configuration) -> None:
     config.fusion.parameters.sq_variation = 0.1
     config.fusion.parameters.steepness_variation = 1.0
     config.fusion.parameters.selected_confidence = "90%"
+    # Pinned to the value of the submitted runs; the package default is 8.
+    config.fusion.parameters.fusion_normalization_border_width = 2
     # Training settings
     config.training.num_trials = 10
     config.training.trial_selection = "best"

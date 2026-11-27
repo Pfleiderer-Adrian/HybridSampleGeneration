@@ -62,6 +62,12 @@ Important classical parameters include:
 
 - `max_alpha`, `sq`, `steepness_factor` and `upsampling_factor`, which control
   the maximum anomaly contribution and the distance-transform alpha falloff.
+  The blending weight rises from the mask border inward and reaches
+  `max_alpha` at `1 / steepness_factor` of the largest border distance inside
+  the anomaly. A low `steepness_factor` gives a soft transition but fades out
+  thin parts of an anomaly that also has a thick part; the default of `12`
+  keeps them visible. A `max_alpha` below the default of `1.0` reduces the
+  contrast of the whole anomaly by the same share.
 - `segmentation_min_alpha`, which removes target-mask pixels whose anomaly
   contribution is below the configured threshold; `0.0` preserves the full
   target mask.
@@ -78,7 +84,9 @@ Important classical parameters include:
   parameters per placement.
 - `fusion_normalization_border_width`: `None` disables fusion-time intensity
   normalization, `-1` uses the whole control, `0` uses the available fallback
-  context, and a positive value uses a local ring around the target mask.
+  context, and a positive value uses a local ring of that width around the
+  target mask. The default is `8`: a ring of only a few pixels mostly covers
+  the rim of the anomaly and underestimates its contrast to the surroundings.
 - `fusion_restore_anomaly_bg_relation`, `fusion_relation_mode`,
   `fusion_relation_norm_classes_separately` and
   `fusion_relation_min_context_size`, which control whether the original

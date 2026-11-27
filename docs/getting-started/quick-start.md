@@ -61,8 +61,6 @@ config.training.num_trials = 3
 config.training.epochs = 200
 config.generation.variants_per_real_anomaly = 1
 config.matching.hybrids_per_original = 2
-config.fusion.parameters.max_alpha = 1.0
-config.fusion.parameters.steepness_factor = 30.0
 
 generator = HybridDataGenerator(config)
 summary = generator.ingest_dataset(toy_samples())
@@ -114,8 +112,6 @@ Each stage is described in the [pipeline overview](../guides/pipeline.md).
     | `training.epochs` | `1000` | `200` | short runtime |
     | `generation.variants_per_real_anomaly` | `3` | `1` | one variant per defect is enough here |
     | `matching.hybrids_per_original` | `1` | `2` | two hybrids per control |
-    | `fusion.parameters.max_alpha` | `0.8` | `1.0` | the fused defect keeps its full contrast |
-    | `fusion.parameters.steepness_factor` | `3` | `30` | small defects keep their full blending weight up to the edge |
 
 ## Example 2: KolektorSDD
 
@@ -183,7 +179,6 @@ masks = config.augmentation.mask_transforms
 masks.setGlobalParam("zoom", min_zoom=0.9, max_zoom=1.0)
 masks.setGlobalParam("stretch", min_stretch=1.0, max_stretch=1.15)
 masks.setGlobalParam("rotate", probability=1.0, max_rotation=4.0)
-masks.setGlobalParam("elastic", magnitude=(13, 12))
 masks.setAllClassParams("local_dilate", probability=0.5, max_iterations=2)
 
 # Planning: lazy matching with equally weighted scores
@@ -191,11 +186,6 @@ config.matching.routine = "local"
 config.matching.intensity_weight = 1.0
 config.matching.gradient_weight = 1.0
 config.matching.distance_weight = 1.0
-
-# Fusion: keep thin cracks visible and at full contrast
-config.fusion.parameters.steepness_factor = 30.0
-config.fusion.parameters.max_alpha = 1.0
-config.fusion.parameters.fusion_normalization_border_width = 8
 
 generator = HybridDataGenerator(config)
 generator.ingest_dataset(kolektor_samples(DATA_ROOT))
@@ -225,9 +215,9 @@ derived from KolektorSDD (CC BY-NC-SA 4.0).*
 
 ??? note "Changed defaults"
 
-    The cracks are much wider than tall, touch the image border and are only a few
-    pixels thick. The defaults assume compact defects, so several settings are
-    adapted:
+    The cracks are much wider than tall and differ strongly in shape, and the
+    dataset is small. Extraction, training, generation and planning are adapted
+    to that; fusion uses its defaults.
 
     | Parameter | Default | Here | Reason |
     | --- | --- | --- | --- |
@@ -239,19 +229,15 @@ derived from KolektorSDD (CC BY-NC-SA 4.0).*
     | mask transform `zoom` | fixed `0.9` | `0.9`–`1.0` | variants keep up to their full length |
     | mask transform `stretch` | `1.0`–`1.2` | `1.0`–`1.15` | slightly less growth |
     | mask transform `rotate` | off | up to 4° | cracks with different slopes |
-    | mask transform `elastic`, `magnitude` | `(13, 51)` for this cutout size | `(13, 12)` | the default horizontal shift tears thin cracks apart |
     | mask transform `local_dilate` | off | probability `0.5`, up to 2 iterations | cracks of different thickness |
     | `matching.routine` | `batchwise` | `local` | one template match per control instead of up to 32; the images are large |
     | `matching.gradient_weight` | `2.0` | `1.0` | intensity, gradient and distance count equally |
     | `matching.distance_weight` | `0.0` | `1.0` | keeps cracks near the position of their real parent |
-    | `fusion.parameters.steepness_factor` | `3` | `30` | thin crack sections keep their full blending weight |
-    | `fusion.parameters.max_alpha` | `0.8` | `1.0` | full contrast |
-    | `fusion.parameters.fusion_normalization_border_width` | `2` | `8` | intensity is matched against the surface, not the dark rim of the crack |
 
 The guides explain these settings in detail:
 [extraction](../guides/extraction.md),
-[synthetic variants](../guides/generation.md#target-masks),
-[hybrid planning](../guides/matching.md) and [fusion](../guides/fusion.md).
+[synthetic variants](../guides/generation.md#target-masks) and
+[hybrid planning](../guides/matching.md).
 
 ## Inspect the study
 

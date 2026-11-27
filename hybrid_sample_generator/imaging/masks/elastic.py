@@ -61,7 +61,10 @@ def default_elastic_params_from_anomaly_size(anomaly_size):
     if len(spatial_shape) not in (2, 3) or any(size <= 0 for size in spatial_shape):
         return {}
     sigma = tuple(max(2, int(round(size * 0.2))) for size in spatial_shape)
-    magnitude = tuple(max(1, int(round(size * 0.2))) for size in spatial_shape)
+    # The displacement follows the shortest axis. Scaling it with every axis
+    # tears thin structures apart along the long axis of elongated cutouts.
+    shortest = max(1, int(round(min(spatial_shape) * 0.2)))
+    magnitude = (shortest,) * len(spatial_shape)
     return {"sigma": sigma, "magnitude": magnitude}
 
 

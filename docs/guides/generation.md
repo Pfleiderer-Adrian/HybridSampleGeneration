@@ -60,6 +60,10 @@ masks.setAllClassParams("local_dilate", probability=0.3, max_iterations=3)
 masks.setClassParam(2, "local_stretch", probability=1.0, max_stretch=1.1)
 ```
 
+By default, the largest elastic displacement is 20 % of the shortest cutout
+axis on every axis, so elongated cutouts are not torn apart along their long
+axis; set `magnitude` per axis to change it.
+
 `use_mask_transform = False` disables all transforms, so each variant keeps the
 mask of its parent. The default probabilities and parameters are listed in the
 [augmentation reference](../configuration/reference/augmentation.md#transform-defaults).

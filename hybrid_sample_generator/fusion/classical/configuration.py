@@ -16,11 +16,13 @@ CONFIDENCE_LEVELS = {
 
 @dataclass(slots=True)
 class Config:
-    max_alpha: float = 0.8
+    max_alpha: float = 1.0
     segmentation_min_alpha: float = 0.0
     image_harmonization: str | None = None
     sq: float = 2
-    steepness_factor: float = 3
+    # Alpha reaches max_alpha at 1/steepness_factor of the largest distance to the
+    # mask border. Low values fade out thin parts of an anomaly.
+    steepness_factor: float = 12
     upsampling_factor: int = 2
     sobel_threshold: float = 0.05
     dilation_size: int = 2
@@ -36,7 +38,8 @@ class Config:
     # dilation ring; 0 uses the fallback context directly. If the ring is too
     # small, normalization falls back to
     # all target-mask-outside context pixels in the local insertion patch.
-    fusion_normalization_border_width: int | None = 2
+    # A narrow ring mostly covers the rim of the anomaly instead of its context.
+    fusion_normalization_border_width: int | None = 8
     fusion_restore_anomaly_bg_relation: bool = True
     fusion_relation_mode: str = "delta"  # alternatively "ratio" if intensities are not too close to 0 and have matching signs
     fusion_relation_norm_classes_separately: bool = False
