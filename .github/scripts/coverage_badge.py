@@ -16,7 +16,7 @@ def main(report_path: str, badge_path: str) -> None:
         percent = float(json.load(file)["totals"]["percent_covered"])
     badge = {
         "schemaVersion": 1,
-        "label": "coverage",
+        "label": "test coverage",
         "message": f"{percent:.0f}%",
         "color": color(percent),
     }
