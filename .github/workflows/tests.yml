@@ -19,6 +19,8 @@ jobs:
 
     env:
       MPLBACKEND: Agg
+      # The run fails when the package coverage (without the study browser) is lower.
+      MINIMUM_COVERAGE: "85"
 
     steps:
       - uses: actions/checkout@v7
@@ -71,6 +73,12 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           TEST_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python .github/scripts/publish_test_checks.py
+
+      - name: Check minimum coverage
+        run: python -m coverage report --fail-under="$MINIMUM_COVERAGE" > /dev/null || {
+          echo "::error::Coverage is below the required ${MINIMUM_COVERAGE} %. See the step \"Report coverage\".";
+          exit 1;
+          }
 
   coverage-badge:
     name: Publish coverage badge
