@@ -96,6 +96,14 @@ This numerical safeguard is not configurable and can exclude suitable placements
 on very uniform surfaces; an invalid active intensity or gradient score also
 invalidates the combined score.
 
+Matching finds the best position of the ROI window. The placement position is
+the position of the anomaly inside that window: for a ROI that was shifted at
+an image border during [extraction](extraction.md), the stored
+`roi_center_offset` is added to the window center. The distance score is
+measured at the same anomaly position. Real anomalies extracted without this
+value are placed at the window center; run `extract_anomalies()` again to
+store it.
+
 ## Matching cache
 
 All three modes prepare control and ROI gradients on demand and reuse them

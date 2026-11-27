@@ -89,7 +89,14 @@ def _correlation(template, control):
     return np.where(valid, np.clip(scores, -1, 1), np.nan)
 
 
-def template_matching(template, control, config: MatchingConfiguration, *, source_position=None):
+def template_matching(
+    template,
+    control,
+    config: MatchingConfiguration,
+    *,
+    source_position=None,
+    anchor_offset=None,
+):
     """Match full images while preparing each input once for this call."""
     with_gradient = float(config.gradient_weight) > 0
     return template_matching_prepared(
@@ -97,6 +104,7 @@ def template_matching(template, control, config: MatchingConfiguration, *, sourc
         prepare_matching_array(control, with_gradient=with_gradient),
         config,
         source_position=source_position,
+        anchor_offset=anchor_offset,
     )
 
 
@@ -106,7 +114,14 @@ def template_matching_prepared(
     config: MatchingConfiguration,
     *,
     source_position=None,
+    anchor_offset=None,
 ):
+    """Return the best score and the center of the matched window.
+
+    ``anchor_offset`` is the position of the anomaly relative to the template
+    center in pixels. The distance score compares ``source_position`` with the
+    window center moved by this offset; the returned center is not moved.
+    """
     if any(
         template_size > control_size
         for template_size, control_size in zip(
@@ -133,13 +148,22 @@ def template_matching_prepared(
         roi_shape = np.asarray(template.intensity.shape, dtype=np.float64)
         if position.shape != shape.shape or not np.isfinite(position).all() or np.any((position < 0) | (position > 1)):
             raise ValueError("Distance matching requires a normalized source_position in [0, 1] for each spatial axis.")
-        lower = roi_shape / (2 * shape)
-        upper = 1 - lower
+        anchor = (
+            np.zeros_like(shape)
+            if anchor_offset is None
+            else np.asarray(anchor_offset, dtype=np.float64)
+        )
+        if anchor.shape != shape.shape or not np.isfinite(anchor).all():
+            raise ValueError("anchor_offset must contain one finite value for each spatial axis.")
+        lower = (roi_shape / 2 + anchor) / shape
+        upper = (shape - roi_shape / 2 + anchor) / shape
         max_distance = np.linalg.norm(np.maximum(np.abs(lower - position), np.abs(upper - position)))
         output_shape = tuple(int(n - w + 1) for n, w in zip(shape, roi_shape))
         squared_distance = np.zeros(output_shape, dtype=np.float64)
         for axis, size in enumerate(output_shape):
-            centers = (np.arange(size, dtype=np.float64) + roi_shape[axis] / 2) / shape[axis]
+            centers = (
+                np.arange(size, dtype=np.float64) + roi_shape[axis] / 2 + anchor[axis]
+            ) / shape[axis]
             broadcast_shape = [1] * len(shape)
             broadcast_shape[axis] = size
             squared_distance += ((centers - position[axis]) ** 2).reshape(broadcast_shape)

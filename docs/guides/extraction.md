@@ -39,5 +39,12 @@ The principal settings are:
 ROI tuples contain spatial axes only: `(H, W)` for 2D and `(D, H, W)` for 3D;
 an optional leading channel entry is also accepted and ignored for ROI sizing.
 
+A ROI that would extend past the image border keeps its size and is shifted
+inside the image, so the anomaly is no longer in its center. Extraction stores
+this shift as `roi_center_offset` (anomaly center minus ROI center, in pixels
+per axis) in the metadata of the real anomaly.
+[Hybrid planning](matching.md#template-matching) uses it to place anomalies
+from the border at the border again.
+
 The complete parameter list is available in the
 [extraction reference](../configuration/reference/extraction.md).

@@ -100,9 +100,20 @@ def crop_spatial_clip(
     if centroid_is_normalized:
         centroid = tuple(coordinate * axis_size for coordinate, axis_size in zip(centroid, spatial_shape))
 
+    return arr[(slice(None), *spatial_clip_slices(spatial_shape, centroid, crop_size))]
+
+
+def spatial_clip_slices(spatial_shape, centroid, size) -> tuple[slice, ...]:
+    """Return the slices of a crop around ``centroid`` shifted inside the bounds.
+
+    A crop that would extend past a border keeps its size and moves inward, so
+    ``centroid`` is no longer its center. A crop larger than the array is
+    clipped to the array.
+    """
     centers = tuple(int(round(coordinate)) for coordinate in centroid)
     slices = []
-    for center, requested, available in zip(centers, crop_size, spatial_shape):
+    for center, requested, available in zip(centers, size, spatial_shape):
+        requested, available = int(requested), int(available)
         start = center - requested // 2
         stop = start + requested
         if start < 0:
@@ -112,5 +123,18 @@ def crop_spatial_clip(
             start -= stop - available
             stop = available
         slices.append(slice(max(start, 0), min(stop, available)))
+    return tuple(slices)
 
-    return arr[(slice(None), *slices)]
+
+def roi_center_offset(spatial_shape, centroid, size) -> tuple[float, ...]:
+    """Return ``centroid`` minus the center of its clipped crop, in pixels per axis.
+
+    The offset is zero for a crop that fits around ``centroid`` and non-zero
+    when the crop had to be shifted inside the bounds.
+    """
+    return tuple(
+        float(int(round(coordinate)) - (axis.start + axis.stop) / 2.0)
+        for coordinate, axis in zip(
+            centroid, spatial_clip_slices(spatial_shape, centroid, size)
+        )
+    )

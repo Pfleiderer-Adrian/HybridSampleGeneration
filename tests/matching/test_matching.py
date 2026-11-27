@@ -229,10 +229,50 @@ class MatchingSelectionTests(unittest.TestCase):
             self.config.distance_weight = 1
             self._plan()
             self.assertEqual(match.call_count, 2)
-            self.assertEqual(match.call_args.kwargs, {"source_position": (.5, .5)})
+            self.assertEqual(match.call_args.kwargs["source_position"], (.5, .5))
+            np.testing.assert_array_equal(match.call_args.kwargs["anchor_offset"], (0., 0.))
             self._plan()
             self.assertEqual(match.call_count, 2)
         self.assertEqual(self.repository.count_match_candidates(), 2)
+
+    def test_placement_uses_anomaly_position_inside_a_shifted_roi(self):
+        self._populate(rois=1)
+        real = self.reals[0]
+        # The ROI was shifted at a border: the anomaly sits 8 px below and 12 px
+        # right of the ROI center.
+        shifted = RealAnomaly(
+            real.id, real.original_sample_id, real.component_index, real.image_path,
+            real.segmentation_path, real.roi_image_path, real.roi_segmentation_path,
+            2, None, .5, .5, {"roi_center_offset": (8.0, 12.0)},
+        )
+        self.repository.upsert_real_anomaly(shifted)
+        with patch("hybrid_sample_generator.matching.pair_matcher.template_matching_prepared",
+                   return_value=(.5, (16., 32.))) as match:
+            plans = self._plan()
+            placement = self.repository.list_placements(plans[0].id)[0]
+            self.assertEqual(placement.position, (24 / 64, 44 / 64))
+            self.assertEqual(match.call_args.kwargs, {})
+            # The distance score receives the same offset.
+            self.config.distance_weight = 1
+            self._plan()
+            np.testing.assert_array_equal(match.call_args.kwargs["anchor_offset"], (8., 12.))
+
+        # The cache keeps the matched ROI window for overlap checks.
+        for candidate in self.repository.list_match_candidates("control-0"):
+            self.assertEqual(candidate.center, (16., 32.))
+            self.assertEqual(candidate.position, (24 / 64, 44 / 64))
+
+    def test_invalid_stored_roi_offset_is_rejected(self):
+        self._populate(rois=1)
+        real = self.reals[0]
+        self.repository.upsert_real_anomaly(RealAnomaly(
+            real.id, real.original_sample_id, real.component_index, real.image_path,
+            real.segmentation_path, real.roi_image_path, real.roi_segmentation_path,
+            2, None, .5, .5, {"roi_center_offset": (1.0, 2.0, 3.0)},
+        ))
+        with patch("hybrid_sample_generator.matching.pair_matcher.template_matching_prepared",
+                   return_value=(.5, (16., 32.))), self.assertRaisesRegex(ValueError, "roi_center_offset"):
+            self._plan()
 
     def test_batchwise_selection_is_reproducible_and_uses_study_seed(self):
         self._populate(rois=20)
