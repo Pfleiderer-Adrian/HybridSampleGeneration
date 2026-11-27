@@ -67,10 +67,12 @@ def fuse_spatial(
         anomaly_crop * alpha_crop
         + prepared.background_slice * (1.0 - alpha_crop)
     )
-    segmentation_mask = (
-        (prepared.target_mask > 0)
-        & (alpha_mask >= params.segmentation_min_alpha)
-    )
+    # Keep the class label of every blended pixel; weakly blended pixels are dropped.
+    segmentation_mask = np.where(
+        alpha_mask >= params.segmentation_min_alpha,
+        prepared.target_mask,
+        0,
+    ).astype(prepared.target_mask.dtype, copy=False)
     return finalize_spatial_fusion(
         prepared,
         fused_region,

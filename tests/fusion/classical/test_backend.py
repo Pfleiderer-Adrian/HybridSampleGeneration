@@ -129,6 +129,63 @@ class ClassicalFusionBackendTests(unittest.TestCase):
 
         self.assertTrue(np.all(output.segmentation == 1))
 
+    def _two_class_sample(self):
+        anomaly = np.zeros((1, 8, 8), dtype=np.float32)
+        mask = np.zeros((1, 8, 8), dtype=np.uint8)
+        anomaly[0, 1:7, 1:4] = 0.9
+        mask[0, 1:7, 1:4] = 1
+        anomaly[0, 1:7, 4:7] = 0.6
+        mask[0, 1:7, 4:7] = 3
+        return {
+            "synth_anomaly": anomaly,
+            "anomaly_meta": {"scale_factor": (1.0, 1.0)},
+            "tgt_mask": mask,
+            "anomaly_roi": anomaly.copy(),
+            "anomaly_roi_mask": mask.copy(),
+        }
+
+    def test_class_labels_of_the_target_mask_reach_the_segmentation(self):
+        control = np.full((1, 16, 16), 0.2, dtype=np.float32)
+        config = ExtractionConfiguration((1, 8, 8))
+        config.roi.fixed_size = (8, 8)
+
+        output = self.backend.fuse(
+            self._two_class_sample(), control, (0.5, 0.5), extraction_config=config,
+        )
+
+        segmentation = output.segmentation[0]
+        self.assertEqual(set(np.unique(segmentation)), {0, 1, 3})
+        self.assertEqual(int((segmentation == 1).sum()), 18)
+        self.assertEqual(int((segmentation == 3).sum()), 18)
+        # Class 1 stays left of class 3, and the ROI mask carries the same labels.
+        self.assertLess(np.where(segmentation == 1)[1].max(), np.where(segmentation == 3)[1].min())
+        self.assertEqual(set(np.unique(output.roi_mask)), {0, 1, 3})
+
+    def test_segmentation_min_alpha_drops_weak_pixels_and_keeps_labels(self):
+        backend = ClassicalFusionBackend(
+            Config(
+                fusion_variation=False,
+                fusion_normalization_border_width=None,
+                upsampling_factor=1,
+                max_alpha=1.0,
+                sq=1.0,
+                steepness_factor=1.0,
+                segmentation_min_alpha=0.6,
+            )
+        )
+        control = np.full((1, 16, 16), 0.2, dtype=np.float32)
+        config = ExtractionConfiguration((1, 8, 8))
+        config.roi.fixed_size = (8, 8)
+
+        output = backend.fuse(
+            self._two_class_sample(), control, (0.5, 0.5), extraction_config=config,
+        )
+
+        segmentation = output.segmentation[0]
+        # Only the strongly blended core of each class remains.
+        self.assertEqual(set(np.unique(segmentation)), {0, 1, 3})
+        self.assertLess(int(np.count_nonzero(segmentation)), 36)
+
     def test_segmentation_min_alpha_removes_weakly_blended_pixels(self):
         backend = ClassicalFusionBackend(
             Config(
