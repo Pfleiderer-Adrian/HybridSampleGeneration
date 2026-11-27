@@ -1,5 +1,8 @@
 # DINOv3 segmentation decoder
 
+Part of the [MVTec AD 2 benchmark](index.md); see [downstream training](downstream-training.md)
+for data mixtures and [downstream evaluation](downstream-evaluation.md) for metrics.
+
 Select `dinov3_segmentation` for supervised image-to-mask training without a
 healthy-partner loss or pair consistency. DRAEM and `dinov3_paired` remain
 available independently.
@@ -24,7 +27,7 @@ splits are unchanged. The shared dataset still supplies healthy targets, but
 this model never uses them in its loss.
 
 The frozen DINOv3 backbone, trainable decoder and native-resolution image-detail
-branch are shared with [paired DINOv3](dinov3-downstream.md). Install the same
+branch are shared with [paired DINOv3](dinov3-paired.md). Install the same
 `dinov3` optional extra and provide pretrained model access. Training uses focal
 loss plus `dice_weight` times Dice loss on anomalous examples. Healthy examples
 use focal loss against an empty mask. `healthy_loss_weight`, `consistency_weight`

@@ -23,13 +23,14 @@ config.extraction   cutout, normalization and ROI rules
 config.augmentation target-mask and training augmentation
 config.generation   model sampling, feedback and variant count
 config.matching     hybrid count, placement count and reuse policies
+config.postprocessing quality checks for materialized hybrids
 config.training     optimizer and dataloader behavior
 config.evaluation   metric/outlier settings
 config.model        generator choice and model-specific parameters
 config.fusion       fusion backend and backend-specific parameters
 ```
 
-The current configuration schema is version 9 and the artifact database schema
+The current configuration schema is version 10 and the artifact database schema
 is version 2. Older study databases and filename/CSV layouts are intentionally
 unsupported; recreate the study and run `ingest_dataset()` again.
 
@@ -47,6 +48,7 @@ config.study.seed = 123
 - [Augmentation](reference/augmentation.md): mask transforms and training offsets
 - [Generation](reference/generation.md): sampling, variants, and feedback
 - [Matching](reference/matching.md): candidate selection and placement
+- [Postprocessing](reference/postprocessing.md): quality rules and actions
 - [Training](reference/training.md): optimization and model selection
 - [Evaluation](reference/evaluation.md): foreground and outliers
 - [Models](models.md): model choice, parameters, and Optuna search
