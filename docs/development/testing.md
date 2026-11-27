@@ -46,9 +46,9 @@ python -m coverage run -m unittest discover -s tests
 python -m coverage report
 ```
 
-The workflow fails when the coverage is below 85 %. The limit is
+The workflow fails when the coverage is below 90 %. The limit is
 `MINIMUM_COVERAGE` in `.github/workflows/tests.yml`; check it locally with
-`python -m coverage report --fail-under=85`.
+`python -m coverage report --fail-under=90`.
 
 The coverage badge in the README shows the value of the last run on `main`.
 After such a run, the workflow writes the percentage to `coverage.json` on the

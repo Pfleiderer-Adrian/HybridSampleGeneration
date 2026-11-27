@@ -20,7 +20,7 @@ jobs:
     env:
       MPLBACKEND: Agg
       # The run fails when the package coverage (without the study browser) is lower.
-      MINIMUM_COVERAGE: "85"
+      MINIMUM_COVERAGE: "90"
 
     steps:
       - uses: actions/checkout@v7
