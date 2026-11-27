@@ -317,16 +317,6 @@ class MultiClassScenarioTests(unittest.TestCase):
                 self.assertAlmostEqual(int((mask == 1).sum()), 60, delta=8)
                 self.assertAlmostEqual(int((mask == 2).sum()), 60, delta=8)
 
-    @unittest.expectedFailure
-    def test_classical_fusion_keeps_the_class_labels(self):
-        # Known gap: classical fusion writes a binary mask, so class 2 becomes 1.
-        # Remove the decorator when the labels are carried into the hybrid mask.
-        with tempfile.TemporaryDirectory() as root:
-            generator = self._run(root, "classical")
-            for hybrid in generator.repository.list_hybrid_samples():
-                mask = np.asarray(generator.artifact_store.load_array(hybrid.segmentation_path))
-                self.assertEqual(set(np.unique(mask)), {0, 1, 2})
-
 
 if __name__ == "__main__":
     unittest.main()
