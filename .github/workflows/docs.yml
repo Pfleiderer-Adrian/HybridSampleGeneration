@@ -55,11 +55,14 @@ jobs:
           # Relative links are verified by "mkdocs build --strict"; this job
           # covers external URLs and GitHub blob links. gnu.org is excluded
           # because it regularly times out for requests from CI runners.
+          # 503 is accepted because GitHub answers it temporarily under load;
+          # a link to a missing file still fails with 404.
           args: >-
             --no-progress
-            --max-retries 3
+            --max-retries 5
+            --retry-wait-time 10
             --timeout 30
-            --accept 200..=299,403,429
+            --accept 200..=299,403,429,503
             --exclude '^https://pfleiderer-adrian\.github\.io/HybridSampleGeneration/'
             --exclude '^http://127\.0\.0\.1'
             --exclude '^https://www\.gnu\.org/'
