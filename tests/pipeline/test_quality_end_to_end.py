@@ -41,8 +41,11 @@ class _IdentityGenerator:
         )
 
 
-def _samples():
-    """Textured images; the anomalous ones contain one bright ellipse away from the border."""
+def _samples(*, at_right_border=False):
+    """Textured images; the anomalous ones contain one bright ellipse.
+
+    The ellipse lies away from the border, or is cut off by the right border.
+    """
     rng = np.random.default_rng(7)
     yy, xx = np.mgrid[:IMAGE_SIZE, :IMAGE_SIZE]
     samples = []
@@ -52,6 +55,8 @@ def _samples():
         if index < ANOMALOUS_SAMPLES:
             center_y, center_x = rng.uniform(22, IMAGE_SIZE - 22, size=2)
             radius_y, radius_x = rng.uniform(4, 6, size=2)
+            if at_right_border:
+                center_x = IMAGE_SIZE - 2
             defect = ((yy - center_y) / radius_y) ** 2 + ((xx - center_x) / radius_x) ** 2 <= 1
             image[0][defect] += DEFECT_CONTRAST
             mask[0][defect] = 1
@@ -75,27 +80,24 @@ def _configuration(root, routine, backend="classical"):
     config.generation.variants_per_real_anomaly = 1
     config.matching.routine = routine
     config.matching.hybrids_per_original = 2
+    # Fusion runs with the package defaults, so a default that weakens or
+    # displaces fused anomalies fails these tests.
     config.fusion.set_backend(backend)
-    parameters = config.fusion.parameters
-    # Set explicitly so the expectations do not depend on package defaults.
-    parameters.fusion_normalization_border_width = 8
-    if backend == "classical":
-        parameters.max_alpha = 1.0
-        parameters.steepness_factor = 30.0
-        parameters.fusion_variation = False
     return config
 
 
-def _run(config):
+def _run(config, *, samples=None, generator_model=None, raise_on_error=True):
     """Run all stages up to materialization and return the generator."""
     silent = io.StringIO()
     with contextlib.redirect_stdout(silent), contextlib.redirect_stderr(silent):
-        generator = HybridDataGenerator(config, generator_model=_IdentityGenerator())
-        generator.ingest_dataset(_samples())
+        generator = HybridDataGenerator(
+            config, generator_model=generator_model or _IdentityGenerator()
+        )
+        generator.ingest_dataset(_samples() if samples is None else samples)
         generator.extract_anomalies()
         generator.generate_synthetic_anomalies()
         generator.plan_hybrid_samples()
-        generator.materialize_hybrid_samples()
+        generator.materialize_hybrid_samples(raise_on_error=raise_on_error)
     return generator
 
 
@@ -159,6 +161,98 @@ class HybridQualityTests(unittest.TestCase):
                 real = repository.get_real_anomaly(synthetic.real_anomaly_id)
                 self.assertIsNone(placement.score)
                 self.assertEqual(placement.position, real.source_position)
+
+    def test_anomalies_from_the_border_are_placed_at_the_border(self):
+        # The ROI of an anomaly at the border is shifted inside the image, so the
+        # anomaly is not in the ROI center. Planning has to place it where it sat
+        # inside the ROI. Matching by distance only looks for the source position.
+        for routine in ("local", "fixed_from_extraction_control_fusion"):
+            with self.subTest(routine=routine), tempfile.TemporaryDirectory() as root:
+                config = _configuration(root, routine)
+                config.matching.intensity_weight = 0.0
+                config.matching.gradient_weight = 0.0
+                config.matching.distance_weight = 1.0
+                generator = _run(config, samples=_samples(at_right_border=True))
+                repository, store = generator.repository, generator.artifact_store
+                if routine == "local":
+                    offsets = [record.metadata["roi_center_offset"] for record in repository.list_real_anomalies()]
+                    self.assertTrue(all(offset[1] > 2 for offset in offsets))
+
+                hybrids = repository.list_hybrid_samples(status="generated")
+                self.assertEqual(len(hybrids), CONTROL_SAMPLES * 2)
+                for hybrid in hybrids:
+                    mask = np.asarray(store.load_array(hybrid.segmentation_path))[0] > 0
+                    columns = np.where(mask.any(axis=0))[0]
+                    # Positions are rounded to whole pixels, which can move the
+                    # anomaly by one pixel. Without the stored offset it would end
+                    # several pixels before the border.
+                    self.assertGreaterEqual(int(columns.max()), IMAGE_SIZE - 2)
+                    placement = repository.list_placements(hybrid.id)[0]
+                    synthetic = repository.get_synthetic_anomaly(placement.synthetic_anomaly_id)
+                    real = repository.get_real_anomaly(synthetic.real_anomaly_id)
+                    np.testing.assert_allclose(
+                        placement.position, real.source_position, atol=1.5 / IMAGE_SIZE
+                    )
+
+    def test_masks_that_exceed_the_image_fail_with_an_explanation(self):
+        class WholeCutoutMask:
+            """Mark the whole cutout as anomaly, as a far too low threshold does."""
+
+            def generate(self, sample, **_kwargs):
+                cutout = np.asarray(sample["img"], dtype=np.float32)
+                return cutout, np.ones_like(cutout, dtype=np.uint8)
+
+        # Tall anomalies are shrunk to fit the 16 px high cutout. A mask that fills
+        # the 32 px wide cutout is restored to about twice the image width.
+        yy, xx = np.mgrid[:IMAGE_SIZE, :IMAGE_SIZE]
+        rng = np.random.default_rng(11)
+        samples = []
+        for index in range(4):
+            image = (0.5 + 0.03 * rng.standard_normal((1, IMAGE_SIZE, IMAGE_SIZE))).astype(np.float32)
+            mask = np.zeros((1, IMAGE_SIZE, IMAGE_SIZE), dtype=np.uint8)
+            if index < 2:
+                defect = (np.abs(yy - 32) <= 30) & (np.abs(xx - 32) <= 3)
+                image[0][defect] += DEFECT_CONTRAST
+                mask[0][defect] = 1
+            samples.append(InputSample(image, mask, f"sample-{index}"))
+
+        with tempfile.TemporaryDirectory() as root, warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            config = _configuration(root, "fixed_from_extraction_control_fusion")
+            config.extraction.anomaly_size = (1, 16, 32)
+            config.model.set_model("VAE_ResNet_2D")
+            config.matching.hybrids_per_original = 1
+            generator = _run(
+                config, samples=samples, generator_model=WholeCutoutMask(), raise_on_error=False,
+            )
+            hybrids = generator.repository.list_hybrid_samples()
+            self.assertEqual(len(hybrids), 2)
+            for hybrid in hybrids:
+                self.assertEqual(hybrid.status, "failed")
+                self.assertIn("does not fit into the control image", hybrid.error)
+                self.assertIsNone(hybrid.image_path)
+            # The default call reports the failures instead of returning silently.
+            with self.assertRaisesRegex(RuntimeError, "Failed to materialize 2 hybrid samples"):
+                silent = io.StringIO()
+                with contextlib.redirect_stdout(silent), contextlib.redirect_stderr(silent):
+                    generator.materialize_hybrid_samples()
+
+    def test_generation_reports_masks_far_larger_than_the_real_anomaly(self):
+        class WholeCutoutMask:
+            def generate(self, sample, **_kwargs):
+                cutout = np.asarray(sample["img"], dtype=np.float32)
+                return cutout, np.ones_like(cutout, dtype=np.uint8)
+
+        with tempfile.TemporaryDirectory() as root:
+            config = _configuration(root, "local")
+            config.model.set_model("VAE_ResNet_2D")
+            silent = io.StringIO()
+            with contextlib.redirect_stdout(silent), contextlib.redirect_stderr(silent):
+                generator = HybridDataGenerator(config, generator_model=WholeCutoutMask())
+                generator.ingest_dataset(_samples())
+                generator.extract_anomalies()
+                with self.assertWarnsRegex(RuntimeWarning, "synthetic anomalies have a mask more than"):
+                    generator.generate_synthetic_anomalies()
 
     def test_poisson_fusion_produces_faithful_hybrids(self):
         with tempfile.TemporaryDirectory() as root, warnings.catch_warnings():
