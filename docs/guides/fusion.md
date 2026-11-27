@@ -28,9 +28,10 @@ processed, a `RuntimeError` lists the failures; pass
 generated hybrids back without the exception.
 
 An anomaly that is larger than its target image after restoring the extraction
-scale is cropped to its central part, and a `RuntimeWarning` reports the two
-shapes. This usually indicates a target mask that covers far more than the
-anomaly.
+scale cannot be fused: the hybrid fails with an error that names both shapes.
+This usually indicates a target mask that covers far more of the cutout than
+the mask of the real anomaly, for example a mask derived with a
+`generation.background_threshold` that is too low.
 
 ## Classical fusion
 
