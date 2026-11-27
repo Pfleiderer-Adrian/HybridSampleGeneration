@@ -53,7 +53,9 @@ How the mask of a variant is obtained depends on the model:
 The mask transforms are configured in `config.augmentation.mask_transforms`.
 Global transforms (`zoom`, `stretch`, `rotate`, `elastic`) act on the whole
 mask; local transforms (`local_dilate`, `local_stretch`, `local_rotate`,
-`local_elastic`) act on each anomaly class separately:
+`local_elastic`) act on each anomaly class separately. `local_stretch` and
+`local_rotate` transform a class around its own center, so the class keeps its
+place in the mask:
 
 ```python
 masks = config.augmentation.mask_transforms

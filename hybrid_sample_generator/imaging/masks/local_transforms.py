@@ -32,7 +32,10 @@ def random_local_stretch_transform(
     for cls in classes:
         binary_mask = transformed_mask == cls
         if np.any(binary_mask):
-            binary_mask = stretch_spatial_mask(binary_mask, scales=scales).astype(bool)
+            # Each class grows around its own center and keeps its place.
+            binary_mask = stretch_spatial_mask(
+                binary_mask, scales=scales, center_mask=binary_mask
+            ).astype(bool)
         class_masks[cls] = binary_mask
     return _compose(transformed_mask, class_masks, classes, priorities, mask_np.dtype)
 
