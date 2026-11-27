@@ -1,0 +1,54 @@
+/*
+ * Sidebar navigation on wide screens.
+ *
+ * With "navigation.tabs" the theme shows only the pages of the active tab in
+ * the sidebar and pins the tab name as a title. These rules list every
+ * top-level category there as well and let each one open and close on click,
+ * like nested chapters. Narrow screens keep the theme's drawer navigation.
+ */
+@media screen and (min-width: 76.25em) {
+  /* Show all top-level categories, not only the active one. */
+  .md-nav--lifted > .md-nav__list > .md-nav__item {
+    display: block;
+  }
+
+  /* A category stays closed until it is opened; the active one starts open. */
+  .md-nav--lifted > .md-nav__list > .md-nav__item--section > .md-nav {
+    display: grid;
+  }
+
+  .md-nav--lifted .md-nav__toggle:not(:checked):not(.md-toggle--indeterminate) ~ .md-nav[data-md-level="1"] {
+    grid-template-rows: minmax(0.4rem, 0fr);
+    opacity: 0;
+    visibility: collapse;
+  }
+
+  /* The active category is a normal, clickable entry instead of a pinned title. */
+  .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link {
+    background: none;
+    box-shadow: none;
+    margin-top: 0.625em;
+    position: static;
+  }
+
+  .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link:not(.md-nav__container) {
+    pointer-events: auto;
+  }
+
+  .md-nav--lifted > .md-nav__list > .md-nav__item--section > .md-nav__link .md-icon {
+    display: block;
+  }
+
+  .md-nav--lifted > .md-nav__list > .md-nav__item > [for] {
+    color: inherit;
+  }
+
+  /* Indent the pages below their category. */
+  [dir="ltr"] .md-nav--lifted > .md-nav__list > .md-nav__item > .md-nav:not(.md-nav--secondary) {
+    margin-left: 0;
+  }
+
+  [dir="rtl"] .md-nav--lifted > .md-nav__list > .md-nav__item > .md-nav:not(.md-nav--secondary) {
+    margin-right: 0;
+  }
+}
