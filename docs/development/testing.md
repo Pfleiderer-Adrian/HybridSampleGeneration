@@ -32,3 +32,20 @@ The `Tests` workflow runs on every pull request and on `main` with Python 3.12
 and the CPU build of PyTorch. It first checks that the generated
 [configuration reference](documentation.md#configuration-reference) is current
 and then runs all tests.
+
+## Coverage
+
+The workflow measures line and branch coverage of the package with
+[coverage.py](https://coverage.readthedocs.io/). The study browser is excluded
+because it needs a display; the settings are in `[tool.coverage.run]` of
+`pyproject.toml`. To measure locally:
+
+```bash
+python -m pip install coverage
+python -m coverage run -m unittest discover -s tests
+python -m coverage report
+```
+
+The coverage badge in the README shows the value of the last run on `main`.
+After such a run, the workflow writes the percentage to `coverage.json` on the
+`badges` branch, and the badge reads that file.

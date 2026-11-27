@@ -35,14 +35,29 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e .
-          python -m pip install unittest-xml-reporting
+          python -m pip install unittest-xml-reporting coverage
 
       - name: Check configuration reference
         run: python scripts/generate_config_reference.py --check
 
       - name: Run project tests
-        run: python -m xmlrunner discover -s tests -v -o test-results
-      
+        run: python -m coverage run -m xmlrunner discover -s tests -v -o test-results
+
+      - name: Report coverage
+        if: ${{ !cancelled() }}
+        run: |
+          python -m coverage report
+          python -m coverage json -o coverage.json
+          mkdir -p coverage-badge
+          python .github/scripts/coverage_badge.py coverage.json coverage-badge/coverage.json
+
+      - name: Upload coverage badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-badge
+          path: coverage-badge/coverage.json
+
       - name: Publish test checks by area
         if: >-
           ${{
@@ -56,3 +71,41 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           TEST_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python .github/scripts/publish_test_checks.py
+
+  coverage-badge:
+    name: Publish coverage badge
+    # The badge in the README reads coverage.json from the "badges" branch.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-badge
+          path: badge
+
+      - name: Push the badge file to the badges branch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          remote="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git clone --quiet --depth 1 --branch badges "$remote" branch; then
+            cd branch
+          else
+            mkdir branch && cd branch
+            git init --quiet
+            git checkout --quiet --orphan badges
+            git remote add origin "$remote"
+          fi
+          cp ../badge/coverage.json coverage.json
+          git add coverage.json
+          if git diff --cached --quiet; then
+            echo "Coverage badge is unchanged."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit --quiet -m "Update coverage badge"
+          git push --quiet origin HEAD:badges

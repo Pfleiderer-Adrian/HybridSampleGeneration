@@ -56,7 +56,8 @@ jobs:
           # covers external URLs and GitHub blob links. gnu.org is excluded
           # because it regularly times out for requests from CI runners.
           # 503 is accepted because GitHub answers it temporarily under load;
-          # a link to a missing file still fails with 404.
+          # a link to a missing file still fails with 404. The coverage badge
+          # is excluded because its data file exists only after a run on main.
           args: >-
             --no-progress
             --max-retries 5
@@ -66,6 +67,7 @@ jobs:
             --exclude '^https://pfleiderer-adrian\.github\.io/HybridSampleGeneration/'
             --exclude '^http://127\.0\.0\.1'
             --exclude '^https://www\.gnu\.org/'
+            --exclude '^https://img\.shields\.io/endpoint'
             "docs/**/*.md" README.md
           fail: true
 

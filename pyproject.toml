@@ -48,3 +48,15 @@ include = ["hybrid_sample_generator*"]
 
 [tool.setuptools_scm]
 version_file = "hybrid_sample_generator/_version.py"
+
+[tool.coverage.run]
+source = ["hybrid_sample_generator"]
+branch = true
+# The study browser needs a display and is not part of the reported coverage.
+omit = [
+  "hybrid_sample_generator/visualization/*",
+  "hybrid_sample_generator/_version.py",
+]
+
+[tool.coverage.report]
+precision = 1
